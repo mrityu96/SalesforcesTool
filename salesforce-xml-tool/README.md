@@ -51,6 +51,13 @@ To stop it later, double-click **`Stop XML Tool.command`**.
 > **Open** → **Open**, or allow it under **System Settings → Privacy & Security →
 > Open Anyway**. This is a one-time approval per machine.
 
+if you encounter error -> 
+
+> **First launch shows a security warning?** That's normal — see
+> [macOS security warning](#macos-security-warning-apple-could-not-verify) below.
+> The quickest fix is to **`git clone`** the repo instead of receiving the files
+> via AirDrop/Slack/email/zip.
+
 ### Windows
 
 Double-click **`run.bat`** (or run it from a terminal). Your browser opens
@@ -150,6 +157,60 @@ order in the file never matters. Examples:
 
 Permission Sets / Profiles are additionally re-sorted into a stable section order
 for clean diffs.
+
+---
+
+## Troubleshooting
+
+### macOS security warning: *"Apple could not verify…"*
+
+When you double-click `Open XML Tool.command` you may see:
+
+> *"Apple could not verify 'Open XML Tool.command' is free of malware that may
+> harm your Mac or compromise your privacy."*
+
+**Why this happens (and why the author didn't see it):** macOS adds a hidden
+*quarantine* flag to files that arrive from "the outside" — downloads, AirDrop,
+Slack/Teams, email, or an unzipped archive. Gatekeeper then blocks them because
+these scripts aren't signed by a paid Apple Developer account. The person who
+*created* the files locally has no quarantine flag, so they never see the prompt.
+It has nothing to do with the tool being unsafe — the source is plain, readable
+Python you can inspect.
+
+**Fix — pick whichever is easiest:**
+
+1. **Best: clone instead of copying.** Files obtained with `git clone` are **not**
+   quarantined, so there's no warning at all:
+   ```bash
+   git clone https://github.com/<your-username>/salesforce-xml-tool.git
+   cd salesforce-xml-tool
+   open "Open XML Tool.command"
+   ```
+
+2. **Allow it in System Settings** (works on all recent macOS, including Sequoia):
+   double-click once (it gets blocked) → open **System Settings → Privacy &
+   Security** → scroll to the message about the blocked file → click
+   **"Open Anyway"** → confirm. One-time per machine.
+
+3. **Right-click → Open** (older macOS 14 and earlier): right-click (or
+   Control-click) the file → **Open** → **Open**. *(Apple removed this shortcut on
+   macOS 15 Sequoia — use option 1 or 2 there.)*
+
+4. **Remove the quarantine flag from Terminal** (clears it for the whole folder):
+   ```bash
+   xattr -dr com.apple.quarantine "/path/to/salesforce-xml-tool"
+   ```
+   Then double-click normally.
+
+> None of this requires admin rights or installing anything. If you'd rather skip
+> the `.command` launcher entirely, teammates can just run `python3 xml_tool.py`
+> in Terminal — that never triggers Gatekeeper.
+
+### "Port 8799 is in use"
+
+Another copy is already running, or something else holds the port. Stop it with
+`Stop XML Tool.command`, or start on a different port:
+`XML_UI_PORT=8900 python3 xml_tool.py`.
 
 ---
 
