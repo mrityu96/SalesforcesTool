@@ -39,15 +39,71 @@ DEPLOY_SCRIPT = os.path.join(APP_DIR, "deploy-cml.py")
 DOWNLOAD_DIR = os.path.join(APP_DIR, "cml-files")
 
 # When launched from Finder (double-click), the process may not inherit the
-# shell PATH, so CLIs like `sf` can't be found. Augment PATH with the usual
-# install locations so the tool works regardless of how it was started.
-EXTRA_PATHS = [
-    "/usr/local/bin",
-    "/opt/homebrew/bin",
-    os.path.expanduser("~/.npm-global/bin"),
-    os.path.expanduser("~/.nvm/current/bin"),
-    "/usr/local/sfdx/bin",
-]
+# shell PATH, so CLIs like `sf` can't be found. Augment PATH with every known
+# install location so the tool works regardless of how it was started.
+#
+# The most common cause of "orgs not loading" is that `sf` was installed via
+# nvm/fnm (Node version managers). These put sf under a versioned path like
+#   ~/.nvm/versions/node/v20.x.x/bin/sf
+# but they only add it to PATH inside an interactive shell (via .zshrc /
+# .bashrc). A double-clicked .command file starts a login shell that does NOT
+# source .zshrc, so that path is never set.
+#
+# Fix: scan ALL installed node versions under nvm/fnm/volta at startup.
+
+def _nvm_bin_dirs() -> list:
+    """Return every bin/ directory across all nvm-installed Node versions."""
+    dirs = []
+    nvm_root = os.path.expanduser("~/.nvm/versions/node")
+    if os.path.isdir(nvm_root):
+        try:
+            for entry in sorted(os.listdir(nvm_root), reverse=True):
+                p = os.path.join(nvm_root, entry, "bin")
+                if os.path.isdir(p):
+                    dirs.append(p)
+        except OSError:
+            pass
+    return dirs
+
+
+def _fnm_bin_dirs() -> list:
+    """Return every bin/ directory across all fnm-installed Node versions."""
+    dirs = []
+    for fnm_root in [
+        os.path.expanduser("~/.local/share/fnm/node-versions"),
+        os.path.expanduser("~/.fnm/node-versions"),
+    ]:
+        if os.path.isdir(fnm_root):
+            try:
+                for entry in sorted(os.listdir(fnm_root), reverse=True):
+                    p = os.path.join(fnm_root, entry, "installation", "bin")
+                    if os.path.isdir(p):
+                        dirs.append(p)
+            except OSError:
+                pass
+    return dirs
+
+
+def _volta_bin_dir() -> list:
+    """Return Volta's shim bin directory if present."""
+    p = os.path.expanduser("~/.volta/bin")
+    return [p] if os.path.isdir(p) else []
+
+
+def _extra_paths() -> list:
+    """Build the full list of extra PATH entries to search for sf."""
+    static = [
+        "/usr/local/bin",
+        "/opt/homebrew/bin",
+        os.path.expanduser("~/.npm-global/bin"),
+        os.path.expanduser("~/.nvm/current/bin"),  # kept for backward compat
+        "/usr/local/sfdx/bin",
+        # Homebrew-managed Node on Apple Silicon
+        "/opt/homebrew/lib/node_modules/@salesforce/cli/bin",
+    ]
+    return static + _nvm_bin_dirs() + _fnm_bin_dirs() + _volta_bin_dir()
+
+
 CMD_TIMEOUT = 120  # seconds
 
 
@@ -55,7 +111,7 @@ def _env():
     """Return an environment with a robust PATH for finding CLIs."""
     env = os.environ.copy()
     parts = env.get("PATH", "").split(os.pathsep)
-    for p in EXTRA_PATHS:
+    for p in _extra_paths():
         if p and os.path.isdir(p) and p not in parts:
             parts.append(p)
     env["PATH"] = os.pathsep.join(parts)
@@ -67,11 +123,73 @@ def find_sf():
     found = shutil.which("sf", path=_env()["PATH"])
     if found:
         return found
-    for p in EXTRA_PATHS:
+    # Direct file check across every candidate dir (catches cases where the
+    # directory exists but isn't in the which search path)
+    for p in _extra_paths():
         candidate = os.path.join(p, "sf")
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
             return candidate
     return None
+
+
+def sf_debug_info() -> dict:
+    """Return diagnostic info about the sf CLI and authorized orgs.
+
+    Called by /api/debug so users can diagnose 'orgs not loading' without
+    opening a terminal.
+    """
+    sf_path = find_sf()
+    sf_version = None
+    if sf_path:
+        try:
+            res = subprocess.run([sf_path, "--version"], capture_output=True,
+                                 text=True, timeout=10, env=_env())
+            sf_version = (res.stdout or res.stderr or "").strip().splitlines()[0]
+        except Exception:  # noqa: BLE001
+            sf_version = "(could not run --version)"
+
+    searched = [p for p in _extra_paths() if p]
+    found_dirs = [p for p in searched if os.path.isdir(p)]
+
+    info = {
+        "sf_found": sf_path is not None,
+        "sf_path": sf_path or "not found",
+        "sf_version": sf_version,
+        "path_searched": searched,
+        "path_found": found_dirs,
+        "system_path": os.environ.get("PATH", "").split(os.pathsep),
+    }
+
+    if sf_path:
+        try:
+            proc = subprocess.run([sf_path, "org", "list", "--json"],
+                                  capture_output=True, text=True, timeout=30,
+                                  env=_env())
+            info["org_list_exit"] = proc.returncode
+            info["org_list_stderr"] = (proc.stderr or "").strip()[:500]
+            if proc.stdout.strip():
+                try:
+                    data = json.loads(proc.stdout)
+                    result = data.get("result", {})
+                    count = sum(
+                        len(result.get(b, []) or [])
+                        for b in ("sandboxes", "nonScratchOrgs", "scratchOrgs",
+                                  "other", "devHubs")
+                    )
+                    info["orgs_found"] = count
+                    if count == 0:
+                        info["org_hint"] = (
+                            "sf org list returned 0 orgs. "
+                            "Run: sf org login web --alias <name>"
+                        )
+                except json.JSONDecodeError:
+                    info["org_list_parse_error"] = proc.stdout[:300]
+        except subprocess.TimeoutExpired:
+            info["org_list_error"] = "sf org list timed out after 30s"
+        except Exception as e:  # noqa: BLE001
+            info["org_list_error"] = str(e)
+
+    return info
 
 
 def run(args, **kwargs):
@@ -238,6 +356,192 @@ def compare_cml(source_org, target_org, model):
     return {"ok": True, "model": model, "source": s, "target": t}
 
 
+# ---------------------------------------------------------------------------
+# Constraint data (ExpressionSetConstraintObj) — visualize & compare
+#
+# Each row links a CML (ExpressionSet) to a Product / ProductClassification /
+# ProductComponentGroup / ProductRelatedComponent via a polymorphic lookup
+# (ReferenceObjectId). Record Ids differ per org, so rows are made portable by
+# keying on the reference object's Global_Key__c (stable across orgs) plus the
+# tag + tag type. See README for the mapping rationale.
+# ---------------------------------------------------------------------------
+
+# Object types ReferenceObjectId can point to (all carry Global_Key__c).
+REF_TYPES = ("Product2", "ProductClassification",
+             "ProductComponentGroup", "ProductRelatedComponent")
+
+
+def _soql_str(value):
+    """Escape a value for safe inclusion in a single-quoted SOQL literal."""
+    return (value or "").replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _query_json(org, soql):
+    """Run a SOQL query and return (records, error). error is None on success."""
+    try:
+        proc = run(["sf", "data", "query", "--query", soql,
+                    "--target-org", org, "--json"])
+    except subprocess.TimeoutExpired:
+        return None, f"Query timed out after {CMD_TIMEOUT}s."
+    except Exception as exc:  # noqa: BLE001
+        return None, f"Could not run query: {exc}"
+    if not proc.stdout.strip():
+        return None, (proc.stderr or "No response from the org.").strip()
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None, (proc.stderr or proc.stdout)[:500].strip()
+    if data.get("status") != 0:
+        return None, data.get("message") or "Query failed."
+    return data.get("result", {}).get("records", []), None
+
+
+def _constraint_key(tag_type, tag, ref_type, gkey):
+    """Org-portable identity for one constraint row."""
+    return "\u241f".join([tag_type or "", tag or "", ref_type or "",
+                          gkey or ""])
+
+
+def export_constraints(org, model):
+    """Return enriched ExpressionSetConstraintObj rows for one CML model.
+
+    Each row is resolved to its reference object's type + Global_Key__c so it
+    can be matched across orgs regardless of record Ids.
+    """
+    if not org or not model:
+        return {"ok": False, "log": "Choose an org and a CML first."}
+    if not find_sf():
+        return {"ok": False, "log": "The Salesforce CLI ('sf') was not found. "
+                                    "Install it with: npm install -g @salesforce/cli"}
+    soql = (
+        "SELECT Id, ExpressionSet.Name, ConstraintModelTag, "
+        "ConstraintModelTagType, ReferenceObjectId, "
+        "TYPEOF ReferenceObject "
+        "WHEN Product2 THEN Global_Key__c, Name, ProductCode "
+        "WHEN ProductClassification THEN Global_Key__c, Name "
+        "WHEN ProductComponentGroup THEN Global_Key__c, Name "
+        "WHEN ProductRelatedComponent THEN Global_Key__c, Name "
+        "ELSE Name END "
+        "FROM ExpressionSetConstraintObj "
+        "WHERE ExpressionSet.ExpressionSetDefinition.DeveloperName = '"
+        + _soql_str(model) + "' "
+        "ORDER BY ConstraintModelTagType, ConstraintModelTag"
+    )
+    records, err = _query_json(org, soql)
+    if err:
+        return {"ok": False, "log": f"Could not load constraint data from {org}:\n{err}"}
+
+    rows = []
+    unmapped = 0
+    for rec in records:
+        ro = rec.get("ReferenceObject") or {}
+        ref_type = (ro.get("attributes") or {}).get("type") or ""
+        gkey = ro.get("Global_Key__c")
+        tag = rec.get("ConstraintModelTag")
+        tag_type = rec.get("ConstraintModelTagType")
+        mappable = bool(gkey)
+        if not mappable:
+            unmapped += 1
+        rows.append({
+            "id": rec.get("Id"),
+            "tag": tag,
+            "tagType": tag_type,
+            "refType": ref_type,
+            "refName": ro.get("Name"),
+            "refCode": ro.get("ProductCode"),
+            "gkey": gkey,
+            "refId": rec.get("ReferenceObjectId"),
+            "mappable": mappable,
+            "key": _constraint_key(tag_type, tag, ref_type, gkey),
+        })
+    return {"ok": True, "org": org, "model": model, "rows": rows,
+            "stats": {"total": len(rows), "unmappable": unmapped}}
+
+
+def _target_present_keys(target_org, needed):
+    """Given {refType: set(gkeys)} needed in the target, return the set of
+    (refType, gkey) that actually exist there. Used to flag whether a
+    source-only constraint can be deployed (its reference record exists)."""
+    present = set()
+    for ref_type, gkeys in needed.items():
+        gkeys = [g for g in gkeys if g]
+        if not gkeys:
+            continue
+        for i in range(0, len(gkeys), 200):  # keep IN-lists well under limits
+            chunk = gkeys[i:i + 200]
+            in_list = ",".join("'" + _soql_str(g) + "'" for g in chunk)
+            soql = (f"SELECT Global_Key__c FROM {ref_type} "
+                    f"WHERE Global_Key__c IN ({in_list})")
+            recs, err = _query_json(target_org, soql)
+            if err:  # treat as unknown rather than blocking the whole compare
+                continue
+            for r in recs:
+                present.add((ref_type, r.get("Global_Key__c")))
+    return present
+
+
+def compare_constraints(source_org, target_org, model):
+    """Compare constraint data of one CML between two orgs, keyed on the
+    portable composite key. Returns matched / source-only / target-only rows
+    plus, for source-only rows, whether the reference record exists in target.
+    """
+    if not source_org or not target_org or not model:
+        return {"ok": False, "log": "Choose a source org, a target org, and a CML."}
+    if source_org == target_org:
+        return {"ok": False, "log": "Source and target orgs are the same. Pick two different orgs."}
+
+    src = export_constraints(source_org, model)
+    if not src.get("ok"):
+        return src
+    tgt = export_constraints(target_org, model)
+    if not tgt.get("ok"):
+        return tgt
+
+    src_by = {r["key"]: r for r in src["rows"]}
+    tgt_by = {r["key"]: r for r in tgt["rows"]}
+
+    # Reference records needed in target for the rows that are only in source.
+    needed = {}
+    for key, r in src_by.items():
+        if key not in tgt_by and r["mappable"]:
+            needed.setdefault(r["refType"], set()).add(r["gkey"])
+    present = _target_present_keys(target_org, needed)
+
+    matched, source_only, target_only = [], [], []
+    for key, r in src_by.items():
+        if key in tgt_by:
+            matched.append(r)
+        else:
+            row = dict(r)
+            if not r["mappable"]:
+                row["deployStatus"] = "unmappable"
+            elif (r["refType"], r["gkey"]) in present:
+                row["deployStatus"] = "ready"
+            else:
+                row["deployStatus"] = "blocked"
+            source_only.append(row)
+    for key, r in tgt_by.items():
+        if key not in src_by:
+            target_only.append(r)
+
+    return {
+        "ok": True, "model": model,
+        "source": {"org": source_org, "total": len(src["rows"])},
+        "target": {"org": target_org, "total": len(tgt["rows"])},
+        "matched": matched,
+        "sourceOnly": source_only,
+        "targetOnly": target_only,
+        "stats": {
+            "matched": len(matched),
+            "sourceOnly": len(source_only),
+            "targetOnly": len(target_only),
+            "ready": sum(1 for r in source_only if r.get("deployStatus") == "ready"),
+            "blocked": sum(1 for r in source_only if r.get("deployStatus") == "blocked"),
+            "unmappable": sum(1 for r in source_only if r.get("deployStatus") == "unmappable"),
+        },
+    }
+
+
 def deploy_cml(org, model, content):
     """Write content to a temp file and run deploy-cml.py against the model."""
     if not org or not model:
@@ -296,6 +600,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"app": APP_ID, "build": BUILD})
             elif self.path == "/api/orgs":
                 self._send(200, list_orgs())
+            elif self.path == "/api/debug":
+                self._send(200, sf_debug_info())
             elif self.path.startswith("/api/models"):
                 qs = urllib.parse.urlparse(self.path).query
                 org = urllib.parse.parse_qs(qs).get("org", [""])[0]
@@ -323,6 +629,14 @@ class Handler(BaseHTTPRequestHandler):
                 ))
             elif self.path == "/api/compare":
                 self._send(200, compare_cml(
+                    body.get("sourceOrg"), body.get("targetOrg"), body.get("model")
+                ))
+            elif self.path == "/api/data":
+                self._send(200, export_constraints(
+                    body.get("org"), body.get("model")
+                ))
+            elif self.path == "/api/data/compare":
+                self._send(200, compare_constraints(
                     body.get("sourceOrg"), body.get("targetOrg"), body.get("model")
                 ))
             else:
@@ -474,6 +788,33 @@ PAGE = r"""<!DOCTYPE html>
   .diff-panes.hide-eq tr.eqrow { display: none; }
   .diff-opts { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
   .diff-opts input { width: auto; }
+
+  /* Constraint data (ExpressionSetConstraintObj) */
+  .section-head { margin: 30px 0 4px; font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+  .section-head .meta { font-weight: 400; }
+  .data { margin-top: 14px; display: none; }
+  .data.show { display: block; }
+  .data-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .chip.ok { background: var(--ok-bg); color: var(--ok-text); border-color: var(--green); }
+  .chip.add { background: var(--ins-bg); color: var(--ins-line); border-color: var(--ins-line); }
+  .chip.extra { background: var(--del-bg); color: var(--del-line); border-color: var(--del-line); }
+  .chip.warn { background: var(--err-bg); color: var(--err-text); border-color: var(--red); }
+  .table-scroll { overflow: auto; max-height: 560px; border: 1px solid var(--line); border-radius: 8px; }
+  table.data-table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  .data-table th, .data-table td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: top; }
+  .data-table th { position: sticky; top: 0; background: var(--gutter); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; z-index: 1; }
+  .data-table tbody tr:hover { background: var(--gutter); }
+  .data-table .gkey { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 11px; color: var(--muted); }
+  .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; }
+  .b-match { background: var(--ok-bg); color: var(--ok-text); }
+  .b-add { background: var(--ins-bg); color: var(--ins-line); }
+  .b-extra { background: var(--del-bg); color: var(--del-line); }
+  .b-blocked, .b-unmappable { background: var(--err-bg); color: var(--err-text); }
+  .b-type { background: var(--info-bg); color: var(--info-text); }
+  .data-filter { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+  .data-filter select { width: auto; padding: 6px 8px; }
 </style>
 </head>
 <body>
@@ -548,6 +889,33 @@ PAGE = r"""<!DOCTYPE html>
           </div>
         </div>
       </div>
+
+      <div class="section-head">
+        Constraint Data <span class="meta">— Product associations (ExpressionSetConstraintObj)</span>
+      </div>
+      <p class="sub" style="margin:4px 0 12px;">Deploying CML code alone doesn't recreate the Product associations. These rows are matched across orgs by each reference record's <code>Global_Key__c</code>, not by record Id.</p>
+      <div class="btns" style="margin-top:0;">
+        <button class="ghost" id="loadDataBtn">View data (source org)</button>
+        <button class="compare" id="compareDataBtn">Compare data (source ↔ target)</button>
+      </div>
+
+      <div class="data" id="data">
+        <div class="data-head">
+          <div class="chips" id="dataChips"></div>
+          <label class="data-filter">Show
+            <select id="dataFilter">
+              <option value="all">All rows</option>
+              <option value="match">Matched only</option>
+              <option value="add">Only in source (to add)</option>
+              <option value="extra">Only in target (extra)</option>
+              <option value="blocked">Blocked / unmappable</option>
+            </select>
+          </label>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table" id="dataTable"></table>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -560,8 +928,12 @@ PAGE = r"""<!DOCTYPE html>
   const diffBox = $("diff"), diffSummary = $("diffSummary"), onlyDiffs = $("onlyDiffs");
   const diffPanes = $("diffPanes"), srcTable = $("srcTable"), tgtTable = $("tgtTable");
   const srcTitle = $("srcTitle"), tgtTitle = $("tgtTitle"), srcScroll = $("srcScroll"), tgtScroll = $("tgtScroll");
+  const loadDataBtn = $("loadDataBtn"), compareDataBtn = $("compareDataBtn");
+  const dataBox = $("data"), dataChips = $("dataChips"), dataTable = $("dataTable"), dataFilter = $("dataFilter");
   let allModels = [];
   let reconnecting = false;
+  let dataRows = [];        // current rows shown in the data table
+  let dataMode = "single";  // "single" (one org) or "compare"
 
   // ---- Theme (day/night) ----
   function applyThemeLabel() {
@@ -631,7 +1003,7 @@ PAGE = r"""<!DOCTYPE html>
       } catch (e) { /* still down; keep trying */ }
     }, 1500);
   }
-  const actionBtns = [fetchBtn, deployBtn, compareBtn];
+  const actionBtns = [fetchBtn, deployBtn, compareBtn, loadDataBtn, compareDataBtn];
   function busy(btn, label) {
     btn.innerHTML = '<span class="spinner"></span>' + label;
     actionBtns.forEach(b => b.disabled = true);
@@ -640,6 +1012,8 @@ PAGE = r"""<!DOCTYPE html>
     fetchBtn.textContent = "Fetch CML";
     deployBtn.textContent = "Deploy CML";
     compareBtn.textContent = "Compare source ↔ target";
+    loadDataBtn.textContent = "View data (source org)";
+    compareDataBtn.textContent = "Compare data (source ↔ target)";
     actionBtns.forEach(b => b.disabled = false);
   }
 
@@ -898,6 +1272,133 @@ PAGE = r"""<!DOCTYPE html>
 
   onlyDiffs.onchange = () => diffPanes.classList.toggle("hide-eq", onlyDiffs.checked);
 
+  // ---- Constraint data (ExpressionSetConstraintObj) ----
+  const TYPE_SHORT = {
+    Product2: "Product", ProductClassification: "Classification",
+    ProductComponentGroup: "Comp. Group", ProductRelatedComponent: "Related Comp."
+  };
+  function shortType(t) { return TYPE_SHORT[t] || t || "—"; }
+
+  function statusBadge(s) {
+    if (s === "match")      return '<span class="badge b-match">Matched</span>';
+    if (s === "add")        return '<span class="badge b-add">Add to target</span>';
+    if (s === "ready")      return '<span class="badge b-add">Add to target</span>';
+    if (s === "extra")      return '<span class="badge b-extra">Only in target</span>';
+    if (s === "blocked")    return '<span class="badge b-blocked">Blocked — ref missing in target</span>';
+    if (s === "unmappable") return '<span class="badge b-unmappable">No Global_Key__c</span>';
+    return "";
+  }
+
+  function dataRowHtml(r, withStatus) {
+    const code = r.refCode ? ` <span class="gkey">(${esc(r.refCode)})</span>` : "";
+    const gk = r.mappable ? `<span class="gkey">${esc(r.gkey)}</span>`
+                          : '<span class="badge b-unmappable">missing</span>';
+    return "<tr>"
+      + (withStatus ? `<td>${statusBadge(r._status)}</td>` : "")
+      + `<td><span class="badge b-type">${esc(shortType(r.refType))}</span></td>`
+      + `<td>${esc(r.tagType)}</td>`
+      + `<td>${esc(r.tag)}</td>`
+      + `<td>${esc(r.refName)}${code}</td>`
+      + `<td>${gk}</td>`
+      + "</tr>";
+  }
+
+  function renderDataTable() {
+    const withStatus = dataMode === "compare";
+    const f = dataFilter.value;
+    const visible = dataRows.filter(r => {
+      if (f === "all") return true;
+      if (f === "match")   return r._status === "match";
+      if (f === "add")     return r._status === "add" || r._status === "ready";
+      if (f === "extra")   return r._status === "extra";
+      if (f === "blocked") return r._status === "blocked" || r._status === "unmappable";
+      return true;
+    });
+    const head = "<thead><tr>"
+      + (withStatus ? "<th>Status</th>" : "")
+      + "<th>Ref type</th><th>Tag type</th><th>Tag</th><th>Reference record</th><th>Global_Key__c</th>"
+      + "</tr></thead>";
+    const body = visible.length
+      ? visible.map(r => dataRowHtml(r, withStatus)).join("")
+      : `<tr><td colspan="${withStatus ? 6 : 5}" style="text-align:center;color:var(--muted);padding:18px;">No rows for this filter.</td></tr>`;
+    dataTable.innerHTML = head + "<tbody>" + body + "</tbody>";
+  }
+  dataFilter.onchange = renderDataTable;
+
+  loadDataBtn.onclick = async () => {
+    if (!orgSel.value) { setStatus("err", "Please choose a source org first."); return; }
+    if (!model.value.trim()) { setStatus("err", "Please choose a CML from the list."); model.focus(); return; }
+    busy(loadDataBtn, "Loading…");
+    setStatus("info", `Loading constraint data for "${model.value}" from ${orgSel.value}…`);
+    try {
+      const data = await postJSON("/api/data", { org: orgSel.value, model: model.value.trim() });
+      if (data.ok) {
+        dataMode = "single";
+        dataRows = data.rows.map(r => ({ ...r, _status: "" }));
+        renderDataChips({ single: true, total: data.stats.total, unmappable: data.stats.unmappable, org: orgSel.value });
+        renderDataTable();
+        dataBox.classList.add("show");
+        dataBox.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        const warn = data.stats.unmappable ? ` (${data.stats.unmappable} without Global_Key__c)` : "";
+        setStatus("ok", `Loaded ${data.stats.total} constraint rows from ${orgSel.value}${warn}.`);
+      } else {
+        setStatus("err", data.log || "Could not load data.");
+      }
+    } catch (e) {
+      if (e && e.conn) { handleDisconnect(); } else { setStatus("err", "Data error: " + e); }
+    }
+    idle();
+  };
+
+  compareDataBtn.onclick = async () => {
+    if (!orgSel.value) { setStatus("err", "Please choose a source org."); return; }
+    if (!targetSel.value) { setStatus("err", "Please choose a target org."); return; }
+    if (orgSel.value === targetSel.value) { setStatus("err", "Source and target orgs are the same. Pick two different orgs."); return; }
+    if (!model.value.trim()) { setStatus("err", "Please choose a CML from the list."); model.focus(); return; }
+    busy(compareDataBtn, "Comparing…");
+    setStatus("info", `Comparing constraint data for "${model.value}" between ${orgSel.value} and ${targetSel.value}…\nThis reads both orgs and can take up to a minute — please wait.`);
+    try {
+      const data = await postJSON("/api/data/compare", { sourceOrg: orgSel.value, targetOrg: targetSel.value, model: model.value.trim() });
+      if (data.ok) {
+        dataMode = "compare";
+        const rows = [];
+        data.matched.forEach(r => rows.push({ ...r, _status: "match" }));
+        data.sourceOnly.forEach(r => rows.push({ ...r, _status: r.deployStatus === "ready" ? "add" : r.deployStatus }));
+        data.targetOnly.forEach(r => rows.push({ ...r, _status: "extra" }));
+        dataRows = rows;
+        renderDataChips({ single: false, s: data.stats, src: data.source, tgt: data.target });
+        renderDataTable();
+        dataBox.classList.add("show");
+        dataBox.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        setStatus("ok", `Compared constraint data for "${data.model}".\n`
+          + `${data.stats.matched} matched · ${data.stats.sourceOnly} only in source · ${data.stats.targetOnly} only in target.`);
+      } else {
+        setStatus("err", data.log || "Compare failed.");
+      }
+    } catch (e) {
+      if (e && e.conn) { handleDisconnect(); } else { setStatus("err", "Data compare error: " + e); }
+    }
+    idle();
+  };
+
+  function renderDataChips(o) {
+    if (o.single) {
+      dataChips.innerHTML =
+        `<span class="chip ok">${o.total} rows · ${o.org}</span>`
+        + (o.unmappable ? `<span class="chip warn">${o.unmappable} without Global_Key__c</span>` : "");
+      return;
+    }
+    const s = o.s;
+    dataChips.innerHTML =
+      `<span class="chip">Source ${o.src.org}: ${o.src.total}</span>`
+      + `<span class="chip">Target ${o.tgt.org}: ${o.tgt.total}</span>`
+      + `<span class="chip ok">${s.matched} matched</span>`
+      + `<span class="chip add">${s.sourceOnly} only in source</span>`
+      + `<span class="chip extra">${s.targetOnly} only in target</span>`
+      + (s.blocked ? `<span class="chip warn">${s.blocked} blocked (ref missing in target)</span>` : "")
+      + (s.unmappable ? `<span class="chip warn">${s.unmappable} unmappable</span>` : "");
+  }
+
   loadOrgs();
 </script>
 </body>
@@ -927,7 +1428,7 @@ def main():
     # Port held by something that isn't us — fail clearly instead of drifting.
     if port_in_use(port):
         print(f"ERROR: Port {port} is in use by another program.")
-        print(f"Stop it, or set a different port: CML_UI_PORT=8900 python3 scripts/cml-ui.py")
+        print(f"Stop it, or set a different port: CML_UI_PORT=8900 python3 cml_tool.py")
         sys.exit(1)
 
     try:
