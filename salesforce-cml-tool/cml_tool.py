@@ -3,12 +3,11 @@
 cml_tool.py — A tiny local web UI for fetching, deploying, and comparing
 Salesforce Revenue Cloud CML (Constraint Model Language).
 
-It wraps two small helper scripts that live next to it:
-    - fetch-cml.sh    (fetch a CML from an org)
-    - deploy-cml.py   (deploy a CML to an org)
-
 You never type in the terminal: pick an org from the dropdown, choose a CML,
-and click Fetch / Deploy / Compare.
+and click Fetch / Deploy / Compare. Fetch, deploy, queries, and data sync all
+run over the Salesforce REST API, so the tool works the same on macOS, Linux,
+and Windows — it only uses the `sf` CLI to read your authorized orgs and access
+tokens (`sf org list` / `sf org display`).
 
 Run it (or just double-click "Open CML Tool.command"):
     python3 cml_tool.py
@@ -17,6 +16,7 @@ It starts a local server on 127.0.0.1 and opens your browser.
 Only the Python 3 standard library is used — nothing to install.
 """
 
+import base64
 import hashlib
 import json
 import os
@@ -24,8 +24,8 @@ import shutil
 import socket
 import subprocess
 import sys
-import tempfile
 import threading
+import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
@@ -41,18 +41,11 @@ DOWNLOAD_DIR = os.path.join(APP_DIR, "cml-files")
 # When launched from Finder (double-click), the process may not inherit the
 # shell PATH, so CLIs like `sf` can't be found. Augment PATH with every known
 # install location so the tool works regardless of how it was started.
-#
-# The most common cause of "orgs not loading" is that `sf` was installed via
-# nvm/fnm (Node version managers). These put sf under a versioned path like
-#   ~/.nvm/versions/node/v20.x.x/bin/sf
-# but they only add it to PATH inside an interactive shell (via .zshrc /
-# .bashrc). A double-clicked .command file starts a login shell that does NOT
-# source .zshrc, so that path is never set.
-#
-# Fix: scan ALL installed node versions under nvm/fnm/volta at startup.
+# Most common cause of "orgs not loading": sf was installed via nvm/fnm which
+# only adds its bin to PATH inside an interactive shell session, not when the
+# tool is launched from Finder. Fix: scan ALL installed node versions.
 
 def _nvm_bin_dirs() -> list:
-    """Return every bin/ directory across all nvm-installed Node versions."""
     dirs = []
     nvm_root = os.path.expanduser("~/.nvm/versions/node")
     if os.path.isdir(nvm_root):
@@ -67,7 +60,6 @@ def _nvm_bin_dirs() -> list:
 
 
 def _fnm_bin_dirs() -> list:
-    """Return every bin/ directory across all fnm-installed Node versions."""
     dirs = []
     for fnm_root in [
         os.path.expanduser("~/.local/share/fnm/node-versions"),
@@ -85,26 +77,24 @@ def _fnm_bin_dirs() -> list:
 
 
 def _volta_bin_dir() -> list:
-    """Return Volta's shim bin directory if present."""
     p = os.path.expanduser("~/.volta/bin")
     return [p] if os.path.isdir(p) else []
 
 
 def _extra_paths() -> list:
-    """Build the full list of extra PATH entries to search for sf."""
     static = [
         "/usr/local/bin",
         "/opt/homebrew/bin",
         os.path.expanduser("~/.npm-global/bin"),
-        os.path.expanduser("~/.nvm/current/bin"),  # kept for backward compat
+        os.path.expanduser("~/.nvm/current/bin"),
         "/usr/local/sfdx/bin",
-        # Homebrew-managed Node on Apple Silicon
         "/opt/homebrew/lib/node_modules/@salesforce/cli/bin",
     ]
     return static + _nvm_bin_dirs() + _fnm_bin_dirs() + _volta_bin_dir()
 
 
 CMD_TIMEOUT = 120  # seconds
+API_VERSION = "v62.0"  # Salesforce REST API version for data writes
 
 
 def _env():
@@ -123,8 +113,6 @@ def find_sf():
     found = shutil.which("sf", path=_env()["PATH"])
     if found:
         return found
-    # Direct file check across every candidate dir (catches cases where the
-    # directory exists but isn't in the which search path)
     for p in _extra_paths():
         candidate = os.path.join(p, "sf")
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
@@ -133,17 +121,12 @@ def find_sf():
 
 
 def sf_debug_info() -> dict:
-    """Return diagnostic info about the sf CLI and authorized orgs.
-
-    Called by /api/debug so users can diagnose 'orgs not loading' without
-    opening a terminal.
-    """
+    """Return diagnostic info about sf CLI and authorized orgs for /api/debug."""
     sf_path = find_sf()
     sf_version = None
     if sf_path:
         try:
-            res = subprocess.run([sf_path, "--version"], capture_output=True,
-                                 text=True, timeout=10, env=_env())
+            res = _sf_run(["--version"])
             sf_version = (res.stdout or res.stderr or "").strip().splitlines()[0]
         except Exception:  # noqa: BLE001
             sf_version = "(could not run --version)"
@@ -162,9 +145,7 @@ def sf_debug_info() -> dict:
 
     if sf_path:
         try:
-            proc = subprocess.run([sf_path, "org", "list", "--json"],
-                                  capture_output=True, text=True, timeout=30,
-                                  env=_env())
+            proc = _sf_run(["org", "list", "--json"])
             info["org_list_exit"] = proc.returncode
             info["org_list_stderr"] = (proc.stderr or "").strip()[:500]
             if proc.stdout.strip():
@@ -200,13 +181,33 @@ def run(args, **kwargs):
     )
 
 
+def _sf_run(args, **kwargs):
+    """Run the `sf` CLI in a cross-platform way.
+
+    On Windows the CLI is installed as `sf.cmd`, which Windows' CreateProcess
+    can't launch from a bare name or even a full path (you get
+    'WinError 2' / 'not a valid Win32 application'); route those through
+    cmd.exe. On macOS/Linux just call the resolved executable. All of our sf
+    calls end in `--json`, so cmd.exe never strips the surrounding quotes of a
+    path that contains spaces (e.g. "C:\\Program Files\\sf\\bin\\sf.cmd").
+    """
+    exe = find_sf() or "sf"
+    argv = [exe] + list(args)
+    if os.name == "nt" and exe.lower().endswith((".cmd", ".bat")):
+        argv = [os.environ.get("COMSPEC", "cmd.exe"), "/c"] + argv
+    return subprocess.run(
+        argv, capture_output=True, text=True, cwd=REPO_ROOT,
+        env=_env(), timeout=CMD_TIMEOUT, **kwargs,
+    )
+
+
 def list_orgs():
     """Return a sorted list of {alias, username} from `sf org list`."""
     if not find_sf():
         return {"error": "The Salesforce CLI ('sf') was not found on this machine. "
                          "Install it or run: npm install -g @salesforce/cli"}
     try:
-        proc = run(["sf", "org", "list", "--json"])
+        proc = _sf_run(["org", "list", "--json"])
         if not proc.stdout.strip():
             return {"error": (proc.stderr or "sf org list returned no output.").strip()}
         data = json.loads(proc.stdout)
@@ -245,26 +246,12 @@ def list_models(org):
         "FROM ExpressionSetDefinitionVersion "
         "ORDER BY ExpressionSetDefinition.DeveloperName, VersionNumber DESC"
     )
-    try:
-        proc = run(["sf", "data", "query", "--query", query,
-                    "--target-org", org, "--json"])
-    except subprocess.TimeoutExpired:
-        return {"error": f"Loading CMLs timed out after {CMD_TIMEOUT}s."}
-    except Exception as exc:  # noqa: BLE001
-        return {"error": f"Could not load CMLs: {exc}"}
-
-    if not proc.stdout.strip():
-        return {"error": (proc.stderr or "No response from the org.").strip()}
-    try:
-        data = json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        return {"error": (proc.stderr or proc.stdout)[:500].strip()}
-    if data.get("status") != 0:
-        msg = data.get("message") or "Query failed."
-        return {"error": msg}
+    records, err = _query_json(org, query)
+    if err:
+        return {"error": err}
 
     latest = {}
-    for rec in data.get("result", {}).get("records", []):
+    for rec in records:
         defn = rec.get("ExpressionSetDefinition") or {}
         name = defn.get("DeveloperName")
         if not name or name in latest:  # records are ordered newest-first
@@ -279,30 +266,57 @@ def list_models(org):
     return {"models": models}
 
 
+def _latest_version(org, model):
+    """Return (record, error) for the newest ExpressionSetDefinitionVersion of a
+    model. record has Id, DeveloperName, VersionNumber, Status."""
+    recs, err = _query_json(
+        org,
+        "SELECT Id, DeveloperName, VersionNumber, Status "
+        "FROM ExpressionSetDefinitionVersion "
+        "WHERE ExpressionSetDefinition.DeveloperName = '" + _soql_str(model) + "' "
+        "ORDER BY VersionNumber DESC LIMIT 1")
+    if err:
+        return None, err
+    if not recs:
+        return None, (f"No Expression Set Version found for '{model}' in '{org}'. "
+                      "Check the CML API name and that it exists in this org.")
+    return recs[0], None
+
+
 def _download_cml(org, model, out_file):
-    """Fetch one CML via fetch-cml.sh into out_file. Returns a result dict."""
+    """Fetch one CML's ConstraintModel over REST into out_file (cross-platform).
+    Returns a result dict."""
     if not find_sf():
         return {"ok": False, "log": "The Salesforce CLI ('sf') was not found. "
                                     "Install it with: npm install -g @salesforce/cli"}
+    rec, err = _latest_version(org, model)
+    if err:
+        return {"ok": False, "log": err}
+    version_id = rec["Id"]
+    log = f"==> {rec.get('DeveloperName')} ({version_id}) — Status: {rec.get('Status')}"
+
+    token, instance, cerr = _org_creds(org)
+    if cerr:
+        return {"ok": False, "log": cerr}
+
+    url = (f"{instance}/services/data/{API_VERSION}/sobjects/"
+           f"ExpressionSetDefinitionVersion/{version_id}/ConstraintModel")
+    content, gerr = _http_get_text(url, token)
+    if gerr:
+        # An empty/unpopulated ConstraintModel blob returns 404 — treat as empty.
+        if "404" in gerr or "NOT_FOUND" in gerr:
+            content = ""
+        else:
+            return {"ok": False, "log": f"{log}\nCould not download CML:\n{gerr}"}
+
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
     try:
-        proc = run(["bash", FETCH_SCRIPT, org, model, out_file])
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "log": f"Fetch timed out after {CMD_TIMEOUT}s. "
-                                    "Check your org connection (sf org login) and try again."}
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "log": f"Could not run fetch: {exc}"}
-    log = (proc.stdout or "") + (proc.stderr or "")
-    if proc.returncode != 0:
-        return {"ok": False, "log": (log.strip() or
-                f"Fetch failed (exit {proc.returncode}). "
-                "Verify the org alias and CML API name are correct.")}
-    try:
-        with open(out_file, "r", encoding="utf-8") as f:
-            content = f.read()
+        with open(out_file, "w", encoding="utf-8") as f:
+            f.write(content or "")
     except OSError as exc:
-        return {"ok": False, "log": f"{log}\nCould not read file: {exc}"}
-    if not content.strip():
+        return {"ok": False, "log": f"{log}\nCould not write file: {exc}"}
+
+    if not (content or "").strip():
         return {
             "ok": False, "content": "", "file": out_file, "empty": True,
             "log": (
@@ -311,7 +325,7 @@ def _download_cml(org, model, out_file):
                 "never populated). Try an org where an Active version exists."
             ).strip(),
         }
-    return {"ok": True, "log": log.strip(), "content": content, "file": out_file}
+    return {"ok": True, "log": log, "content": content, "file": out_file}
 
 
 def fetch_cml(org, model):
@@ -376,24 +390,35 @@ def _soql_str(value):
     return (value or "").replace("\\", "\\\\").replace("'", "\\'")
 
 
-def _query_json(org, soql):
-    """Run a SOQL query and return (records, error). error is None on success."""
-    try:
-        proc = run(["sf", "data", "query", "--query", soql,
-                    "--target-org", org, "--json"])
-    except subprocess.TimeoutExpired:
-        return None, f"Query timed out after {CMD_TIMEOUT}s."
-    except Exception as exc:  # noqa: BLE001
-        return None, f"Could not run query: {exc}"
-    if not proc.stdout.strip():
-        return None, (proc.stderr or "No response from the org.").strip()
-    try:
-        data = json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        return None, (proc.stderr or proc.stdout)[:500].strip()
-    if data.get("status") != 0:
-        return None, data.get("message") or "Query failed."
-    return data.get("result", {}).get("records", []), None
+def _is_auth_error(msg):
+    msg = (msg or "")
+    return "INVALID_SESSION_ID" in msg or "401" in msg or "Session expired" in msg
+
+
+def _query_json(org, soql, _retried=False):
+    """Run a SOQL query over the REST API and return (records, error).
+
+    Using REST (instead of `sf data query`) avoids shell-quoting the SOQL on
+    Windows and is much faster, since we reuse the cached access token.
+    """
+    token, instance, err = _org_creds(org)
+    if err:
+        return None, err
+    records = []
+    url = f"{instance}/services/data/{API_VERSION}/query?q=" + urllib.parse.quote(soql)
+    guard = 0
+    while url and guard < 2000:
+        guard += 1
+        data, e = _rest("GET", url, token)
+        if e:
+            if _is_auth_error(e) and not _retried:
+                _org_creds(org, refresh=True)  # token likely expired; refresh once
+                return _query_json(org, soql, _retried=True)
+            return None, e
+        records.extend(data.get("records", []) or [])
+        nxt = data.get("nextRecordsUrl")
+        url = (instance + nxt) if nxt else None
+    return records, None
 
 
 def _constraint_key(tag_type, tag, ref_type, gkey):
@@ -414,7 +439,7 @@ def export_constraints(org, model):
         return {"ok": False, "log": "The Salesforce CLI ('sf') was not found. "
                                     "Install it with: npm install -g @salesforce/cli"}
     soql = (
-        "SELECT Id, ExpressionSet.Name, ConstraintModelTag, "
+        "SELECT Id, ExpressionSetId, ExpressionSet.Name, ConstraintModelTag, "
         "ConstraintModelTagType, ReferenceObjectId, "
         "TYPEOF ReferenceObject "
         "WHEN Product2 THEN Global_Key__c, Name, ProductCode "
@@ -444,6 +469,7 @@ def export_constraints(org, model):
             unmapped += 1
         rows.append({
             "id": rec.get("Id"),
+            "expressionSetId": rec.get("ExpressionSetId"),
             "tag": tag,
             "tagType": tag_type,
             "refType": ref_type,
@@ -454,8 +480,62 @@ def export_constraints(org, model):
             "mappable": mappable,
             "key": _constraint_key(tag_type, tag, ref_type, gkey),
         })
+
+    dup_stats = _flag_duplicates(rows)
     return {"ok": True, "org": org, "model": model, "rows": rows,
-            "stats": {"total": len(rows), "unmappable": unmapped}}
+            "stats": {"total": len(rows), "unmappable": unmapped,
+                      "duplicates": dup_stats}}
+
+
+def _flag_duplicates(rows):
+    """Annotate each row with a `dups` list and return duplicate counts.
+
+    Flags:
+      exact - the same constraint (tag type + tag + ref type + Global_Key)
+              appears more than once (truly redundant rows).
+      tag   - the same tag type + tag is used by more than one row.
+      ref   - the same reference record (type + Global_Key) is used by
+              more than one row.
+      name  - the same reference *name* maps to more than one Global_Key
+              (ambiguous name — a cross-org mapping hazard).
+    """
+    from collections import defaultdict
+    by_exact, by_tag, by_ref, by_name = (defaultdict(list) for _ in range(4))
+    for i, r in enumerate(rows):
+        by_exact[r["key"]].append(i)
+        by_tag[(r["tagType"], r["tag"])].append(i)
+        if r["gkey"]:
+            by_ref[(r["refType"], r["gkey"])].append(i)
+        if r["refName"]:
+            by_name[(r["refType"], r["refName"])].append(i)
+
+    for r in rows:
+        r["dups"] = []
+    counts = {"exact": 0, "tag": 0, "ref": 0, "name": 0}
+
+    for idxs in by_exact.values():
+        if len(idxs) > 1:
+            for i in idxs:
+                rows[i]["dups"].append("exact")
+            counts["exact"] += len(idxs)
+    for idxs in by_tag.values():
+        if len(idxs) > 1:
+            for i in idxs:
+                if "exact" not in rows[i]["dups"]:
+                    rows[i]["dups"].append("tag")
+            counts["tag"] += len(idxs)
+    for idxs in by_ref.values():
+        if len(idxs) > 1:
+            for i in idxs:
+                rows[i]["dups"].append("ref")
+            counts["ref"] += len(idxs)
+    for idxs in by_name.values():
+        gkeys = {rows[i]["gkey"] for i in idxs}
+        if len(gkeys) > 1:  # same name, different keys -> ambiguous
+            for i in idxs:
+                rows[i]["dups"].append("name")
+            counts["name"] += len(idxs)
+    return counts
 
 
 def _target_present_keys(target_org, needed):
@@ -526,8 +606,10 @@ def compare_constraints(source_org, target_org, model):
 
     return {
         "ok": True, "model": model,
-        "source": {"org": source_org, "total": len(src["rows"])},
-        "target": {"org": target_org, "total": len(tgt["rows"])},
+        "source": {"org": source_org, "total": len(src["rows"]),
+                   "duplicates": src["stats"]["duplicates"]},
+        "target": {"org": target_org, "total": len(tgt["rows"]),
+                   "duplicates": tgt["stats"]["duplicates"]},
         "matched": matched,
         "sourceOnly": source_only,
         "targetOnly": target_only,
@@ -542,8 +624,274 @@ def compare_constraints(source_org, target_org, model):
     }
 
 
+_CREDS_CACHE = {}  # org -> (token, instanceUrl) for the life of this process
+
+
+def _org_creds(org, refresh=False):
+    """Return (accessToken, instanceUrl, error). Cached per org; pass
+    refresh=True to force a new `sf org display` (e.g. after a 401)."""
+    if not refresh and org in _CREDS_CACHE:
+        token, url = _CREDS_CACHE[org]
+        return token, url, None
+    try:
+        proc = _sf_run(["org", "display", "--target-org", org, "--json"])
+    except Exception as exc:  # noqa: BLE001
+        return None, None, f"Could not read org credentials: {exc}"
+    try:
+        data = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        return None, None, (proc.stderr or "Could not read org credentials.").strip()
+    if data.get("status") != 0:
+        return None, None, data.get("message") or "Could not read org credentials."
+    res = data.get("result", {})
+    token, url = res.get("accessToken"), res.get("instanceUrl")
+    if not token or not url:
+        return None, None, ("No access token for this org. Re-authenticate with: "
+                            f"sf org login web --alias {org}")
+    _CREDS_CACHE[org] = (token, url)
+    return token, url, None
+
+
+def _fmt_rest_error(code, parsed, body):
+    """Turn a Salesforce REST error body into a readable one-line message."""
+    if isinstance(parsed, list) and parsed:
+        parts = []
+        for x in parsed:
+            if isinstance(x, dict):
+                ec, msg = x.get("errorCode", ""), x.get("message", "")
+                parts.append(f"{ec}: {msg}".strip(": ").strip())
+        if parts:
+            return "; ".join(parts)
+    if isinstance(parsed, dict) and parsed.get("message"):
+        return f"{parsed.get('errorCode', '')}: {parsed['message']}".strip(": ").strip()
+    return f"HTTP {code}: {(body or '')[:300]}"
+
+
+def _rest(method, url, token, payload=None):
+    """Make a JSON REST call. Returns (parsed_json_or_None, error). `error` is
+    set for any HTTP >= 400 (with the Salesforce error message). Per-record
+    failures in a 200 sObject-Collections response are NOT errors here — the
+    caller inspects each record."""
+    import ssl
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Authorization", f"Bearer {token}")
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
+    ctx = ssl.create_default_context()
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=CMD_TIMEOUT) as resp:
+            body = resp.read().decode("utf-8")
+            return (json.loads(body) if body.strip() else {}), None
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")
+        try:
+            parsed = json.loads(body)
+        except json.JSONDecodeError:
+            parsed = None
+        return parsed, _fmt_rest_error(e.code, parsed, body)
+    except Exception as exc:  # noqa: BLE001
+        return None, str(exc)
+
+
+def _http_get_text(url, token):
+    """GET a raw (non-JSON) resource such as the ConstraintModel blob.
+    Returns (text, error)."""
+    import ssl
+    req = urllib.request.Request(url, method="GET")
+    req.add_header("Authorization", f"Bearer {token}")
+    ctx = ssl.create_default_context()
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=CMD_TIMEOUT) as resp:
+            return resp.read().decode("utf-8"), None
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")
+        try:
+            parsed = json.loads(body)
+        except json.JSONDecodeError:
+            parsed = None
+        return None, _fmt_rest_error(e.code, parsed, body)
+    except Exception as exc:  # noqa: BLE001
+        return None, str(exc)
+
+
+def _collections_insert(token, instance, records):
+    """Insert records via sObject Collections (allOrNone=false). Returns list
+    aligned with input: [{success, id, error}]."""
+    url = f"{instance}/services/data/{API_VERSION}/composite/sobjects"
+    out = []
+    for i in range(0, len(records), 200):
+        chunk = records[i:i + 200]
+        payload = {"allOrNone": False, "records": chunk}
+        res, err = _rest("POST", url, token, payload)
+        if err:
+            out.extend({"success": False, "id": None, "error": err} for _ in chunk)
+            continue
+        for r in res:
+            errs = r.get("errors") or []
+            msg = "; ".join(e.get("message", "") for e in errs) if errs else None
+            out.append({"success": bool(r.get("success")), "id": r.get("id"), "error": msg})
+    return out
+
+
+def _collections_delete(token, instance, ids):
+    """Delete records via sObject Collections (allOrNone=false). Returns list
+    aligned with input ids: [{success, id, error}]."""
+    out = []
+    for i in range(0, len(ids), 200):
+        chunk = ids[i:i + 200]
+        url = (f"{instance}/services/data/{API_VERSION}/composite/sobjects"
+               f"?ids={','.join(chunk)}&allOrNone=false")
+        res, err = _rest("DELETE", url, token, None)
+        if err:
+            out.extend({"success": False, "id": cid, "error": err} for cid in chunk)
+            continue
+        for r in res:
+            errs = r.get("errors") or []
+            msg = "; ".join(e.get("message", "") for e in errs) if errs else None
+            out.append({"success": bool(r.get("success")), "id": r.get("id"), "error": msg})
+    return out
+
+
+def _resolve_target_expression_set(target_org, model):
+    """Find the target ExpressionSetId for a model. Prefer the one already used
+    by existing constraint rows; fall back to the ExpressionSet for the model.
+    Returns (expressionSetId, error)."""
+    # 1) Reuse the ExpressionSet that existing target constraints point to.
+    recs, err = _query_json(
+        target_org,
+        "SELECT ExpressionSetId FROM ExpressionSetConstraintObj "
+        "WHERE ExpressionSet.ExpressionSetDefinition.DeveloperName = '"
+        + _soql_str(model) + "'")
+    if not err and recs:
+        from collections import Counter
+        common = Counter(r["ExpressionSetId"] for r in recs).most_common(1)
+        if common:
+            return common[0][0], None
+    # 2) No existing rows — resolve the model's ExpressionSet directly.
+    recs, err = _query_json(
+        target_org,
+        "SELECT Id FROM ExpressionSet WHERE ExpressionSetDefinition.DeveloperName = '"
+        + _soql_str(model) + "'")
+    if err:
+        return None, err
+    if not recs:
+        return None, (f"No Expression Set named '{model}' exists in the target org. "
+                      "Deploy and activate the CML there first.")
+    if len(recs) > 1:
+        return None, (f"The target org has {len(recs)} Expression Sets named '{model}'. "
+                      "Cannot decide which to attach constraints to.")
+    return recs[0]["Id"], None
+
+
+def deploy_constraints(source_org, target_org, model, adds, deletes):
+    """Insert selected source-only constraints and delete selected target-only
+    ones. Each item is handled individually so per-row results can be shown.
+
+    adds:    [{tag, tagType, refType, gkey, refName}]  (from the source org)
+    deletes: [{id, refName, tag, tagType}]             (target record Ids)
+    """
+    if not target_org:
+        return {"ok": False, "log": "No target org."}
+    if not adds and not deletes:
+        return {"ok": False, "log": "Nothing selected to deploy."}
+    if not find_sf():
+        return {"ok": False, "log": "The Salesforce CLI ('sf') was not found."}
+
+    token, instance, err = _org_creds(target_org)
+    if err:
+        return {"ok": False, "log": err}
+
+    created, delete_results = [], []
+
+    # ---- Inserts ----
+    if adds:
+        es_id, es_err = _resolve_target_expression_set(target_org, model)
+        if es_err:
+            return {"ok": False, "log": f"Cannot insert constraints: {es_err}"}
+
+        # Resolve each reference record's target Id by type + Global_Key__c.
+        needed = {}
+        for a in adds:
+            if a.get("gkey"):
+                needed.setdefault(a["refType"], set()).add(a["gkey"])
+        ref_map = {}  # (type, gkey) -> target Id
+        for ref_type, gkeys in needed.items():
+            gkeys = list(gkeys)
+            for i in range(0, len(gkeys), 200):
+                chunk = gkeys[i:i + 200]
+                in_list = ",".join("'" + _soql_str(g) + "'" for g in chunk)
+                recs, qerr = _query_json(
+                    target_org,
+                    f"SELECT Id, Global_Key__c FROM {ref_type} "
+                    f"WHERE Global_Key__c IN ({in_list})")
+                if qerr:
+                    continue
+                for r in recs:
+                    ref_map[(ref_type, r["Global_Key__c"])] = r["Id"]
+
+        records, meta = [], []
+        for a in adds:
+            label = f'{a.get("tagType")} · {a.get("tag")} → {a.get("refName") or a.get("gkey")}'
+            ref_id = ref_map.get((a.get("refType"), a.get("gkey")))
+            if not a.get("gkey"):
+                created.append({"success": False, "label": label,
+                                "error": "Reference record has no Global_Key__c — cannot map."})
+                continue
+            if not ref_id:
+                created.append({"success": False, "label": label,
+                                "error": f"Reference {a.get('refType')} with Global_Key__c "
+                                         f"'{a.get('gkey')}' not found in target."})
+                continue
+            records.append({
+                "attributes": {"type": "ExpressionSetConstraintObj"},
+                "ExpressionSetId": es_id,
+                "ReferenceObjectId": ref_id,
+                "ConstraintModelTag": a.get("tag"),
+                "ConstraintModelTagType": a.get("tagType"),
+            })
+            meta.append(label)
+
+        if records:
+            res = _collections_insert(token, instance, records)
+            for label, r in zip(meta, res):
+                created.append({"success": r["success"], "label": label,
+                                "id": r.get("id"), "error": r.get("error")})
+
+    # ---- Deletes ----
+    if deletes:
+        ids, labels = [], {}
+        for d in deletes:
+            rid = d.get("id")
+            if not rid or not str(rid).startswith("1JE"):  # ESCO key prefix guard
+                delete_results.append({"success": False,
+                                       "label": d.get("refName") or rid,
+                                       "error": "Not a valid ExpressionSetConstraintObj Id; skipped."})
+                continue
+            ids.append(rid)
+            labels[rid] = f'{d.get("tagType")} · {d.get("tag")} → {d.get("refName") or rid}'
+        if ids:
+            res = _collections_delete(token, instance, ids)
+            for r in res:
+                delete_results.append({"success": r["success"],
+                                       "label": labels.get(r.get("id"), r.get("id")),
+                                       "id": r.get("id"), "error": r.get("error")})
+
+    ins_ok = sum(1 for r in created if r["success"])
+    del_ok = sum(1 for r in delete_results if r["success"])
+    return {
+        "ok": True, "model": model, "target": target_org,
+        "created": created, "deleted": delete_results,
+        "stats": {
+            "insertOk": ins_ok, "insertFail": len(created) - ins_ok,
+            "deleteOk": del_ok, "deleteFail": len(delete_results) - del_ok,
+        },
+    }
+
+
 def deploy_cml(org, model, content):
-    """Write content to a temp file and run deploy-cml.py against the model."""
+    """Deploy CML by PATCHing the ConstraintModel of the model's latest version
+    over REST (cross-platform; no helper script or shell needed)."""
     if not org or not model:
         return {"ok": False, "log": "Please choose an org and enter the CML API name."}
     if not content or not content.strip():
@@ -551,30 +899,32 @@ def deploy_cml(org, model, content):
     if not find_sf():
         return {"ok": False, "log": "The Salesforce CLI ('sf') was not found. "
                                     "Install it with: npm install -g @salesforce/cli"}
-    tmp = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".cml", delete=False, encoding="utf-8"
-    )
-    try:
-        tmp.write(content)
-        tmp.close()
-        try:
-            proc = run([sys.executable or "python3", DEPLOY_SCRIPT,
-                        org, "--model", model, tmp.name])
-        except subprocess.TimeoutExpired:
-            return {"ok": False, "log": f"Deploy timed out after {CMD_TIMEOUT}s. "
-                                        "Check your org connection and try again."}
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "log": f"Could not run deploy: {exc}"}
-        log = (proc.stdout or "") + (proc.stderr or "")
-        if proc.returncode != 0:
-            return {"ok": False, "log": (log.strip() or
-                    f"Deploy failed (exit {proc.returncode}).")}
-        return {"ok": True, "log": log.strip()}
-    finally:
-        try:
-            os.unlink(tmp.name)
-        except OSError:
-            pass
+    rec, err = _latest_version(org, model)
+    if err:
+        return {"ok": False, "log": err}
+    version_id = rec["Id"]
+    token, instance, cerr = _org_creds(org)
+    if cerr:
+        return {"ok": False, "log": cerr}
+
+    b64 = base64.b64encode(content.encode("utf-8")).decode("ascii")
+    url = (f"{instance}/services/data/{API_VERSION}/sobjects/"
+           f"ExpressionSetDefinitionVersion/{version_id}")
+    _, perr = _rest("PATCH", url, token, {"ConstraintModel": b64})
+    if perr:
+        if _is_auth_error(perr):
+            token, instance, cerr = _org_creds(org, refresh=True)
+            if cerr:
+                return {"ok": False, "log": cerr}
+            _, perr = _rest("PATCH", url, token, {"ConstraintModel": b64})
+        if perr:
+            return {"ok": False, "log": (
+                f"Deploy failed for '{model}' ({version_id}, status "
+                f"{rec.get('Status')}) in '{org}':\n{perr}")}
+    lines = content.count("\n") + 1
+    return {"ok": True, "log": (
+        f"SUCCESS — deployed CML to '{model}' ({version_id}) in '{org}'.\n"
+        f"Version status: {rec.get('Status')} · {lines} lines.")}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -638,6 +988,11 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/data/compare":
                 self._send(200, compare_constraints(
                     body.get("sourceOrg"), body.get("targetOrg"), body.get("model")
+                ))
+            elif self.path == "/api/data/deploy":
+                self._send(200, deploy_constraints(
+                    body.get("sourceOrg"), body.get("targetOrg"), body.get("model"),
+                    body.get("adds") or [], body.get("deletes") or []
                 ))
             else:
                 self._send(404, {"error": "not found"})
@@ -727,7 +1082,11 @@ PAGE = r"""<!DOCTYPE html>
     border-radius: 8px; padding: 10px 12px; font-size: 14px; outline: none;
   }
   select:focus, input:focus, textarea:focus { border-color: var(--accent); }
-  .btns { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+  .btns { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; align-items: center; }
+  .deploy-group { display: inline-flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--gutter); }
+  .deploy-group label { margin: 0; text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .deploy-group select { width: auto; min-width: 150px; padding: 8px 10px; }
   button {
     border: none; border-radius: 8px; padding: 10px 18px; font-size: 14px; font-weight: 600;
     cursor: pointer; color: #fff;
@@ -815,6 +1174,24 @@ PAGE = r"""<!DOCTYPE html>
   .b-type { background: var(--info-bg); color: var(--info-text); }
   .data-filter { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
   .data-filter select { width: auto; padding: 6px 8px; }
+  .data-table td.sel, .data-table th.sel { width: 1%; text-align: center; }
+  .data-table input[type=checkbox] { width: auto; cursor: pointer; }
+  .b-dup { background: #fff2cc; color: #7a5c00; border: 1px solid #e0b400; margin-left: 6px; }
+  html[data-theme="dark"] .b-dup { background: rgba(224,180,0,.18); color: #f2d680; border-color: #9a7c00; }
+  .deploy-bar { display: none; margin-top: 14px; padding: 12px 14px; border-radius: 8px; background: var(--info-bg); border: 1px solid var(--accent);
+    align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .deploy-bar.show { display: flex; }
+  .deploy-bar .sel-summary { font-size: 13px; color: var(--text); }
+  .deploy-bar .sel-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .linklike { background: none; border: none; color: var(--accent); font-weight: 600; cursor: pointer; padding: 4px 6px; font-size: 12px; }
+  .warn-note { color: var(--err-text); font-size: 12px; }
+  .results { display: none; margin-top: 16px; }
+  .results.show { display: block; }
+  .results h4 { margin: 0 0 8px; font-size: 14px; }
+  .result-row { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; padding: 6px 10px; border-radius: 6px; margin-bottom: 4px; display: flex; gap: 8px; }
+  .result-row.good { background: var(--ok-bg); color: var(--ok-text); }
+  .result-row.bad { background: var(--err-bg); color: var(--err-text); }
+  .result-row .ico { font-weight: 700; }
 </style>
 </head>
 <body>
@@ -854,7 +1231,11 @@ PAGE = r"""<!DOCTYPE html>
       <div class="btns">
         <button class="ghost" id="reloadBtn">Reload list</button>
         <button class="fetch" id="fetchBtn">Fetch CML</button>
-        <button class="deploy" id="deployBtn">Deploy CML</button>
+        <span class="deploy-group">
+          <label for="deployOrg">Deploy to</label>
+          <select id="deployOrg"><option>Loading orgs…</option></select>
+          <button class="deploy" id="deployBtn">Deploy CML</button>
+        </span>
         <button class="compare" id="compareBtn">Compare source ↔ target</button>
       </div>
 
@@ -909,12 +1290,27 @@ PAGE = r"""<!DOCTYPE html>
               <option value="add">Only in source (to add)</option>
               <option value="extra">Only in target (extra)</option>
               <option value="blocked">Blocked / unmappable</option>
+              <option value="dups">Duplicates only</option>
             </select>
           </label>
         </div>
+
+        <div class="deploy-bar" id="deployBar">
+          <div class="sel-summary" id="selSummary"></div>
+          <div class="sel-actions">
+            <button class="linklike" id="selAllAdds">Select all adds</button>
+            <button class="linklike" id="selNoAdds">Clear adds</button>
+            <button class="linklike" id="selAllDels">Select all deletes</button>
+            <button class="linklike" id="selNoDels">Clear deletes</button>
+            <button class="deploy" id="deployDataBtn">Deploy selected to target</button>
+          </div>
+        </div>
+
         <div class="table-scroll">
           <table class="data-table" id="dataTable"></table>
         </div>
+
+        <div class="results" id="results"></div>
       </div>
     </div>
   </div>
@@ -924,12 +1320,16 @@ PAGE = r"""<!DOCTYPE html>
   const orgSel = $("org"), targetSel = $("targetOrg"), model = $("model"), content = $("content"), status = $("status");
   const fetchBtn = $("fetchBtn"), deployBtn = $("deployBtn"), compareBtn = $("compareBtn"), copyBtn = $("copyBtn");
   const cmlFilter = $("cmlFilter"), reloadBtn = $("reloadBtn"), cmlCount = $("cmlCount");
+  const deployOrgSel = $("deployOrg");
   const themeBtn = $("themeBtn"), conn = $("conn");
   const diffBox = $("diff"), diffSummary = $("diffSummary"), onlyDiffs = $("onlyDiffs");
   const diffPanes = $("diffPanes"), srcTable = $("srcTable"), tgtTable = $("tgtTable");
   const srcTitle = $("srcTitle"), tgtTitle = $("tgtTitle"), srcScroll = $("srcScroll"), tgtScroll = $("tgtScroll");
   const loadDataBtn = $("loadDataBtn"), compareDataBtn = $("compareDataBtn");
   const dataBox = $("data"), dataChips = $("dataChips"), dataTable = $("dataTable"), dataFilter = $("dataFilter");
+  const deployBar = $("deployBar"), selSummary = $("selSummary"), deployDataBtn = $("deployDataBtn");
+  const selAllAdds = $("selAllAdds"), selNoAdds = $("selNoAdds"), selAllDels = $("selAllDels"), selNoDels = $("selNoDels");
+  const results = $("results");
   let allModels = [];
   let reconnecting = false;
   let dataRows = [];        // current rows shown in the data table
@@ -1003,7 +1403,7 @@ PAGE = r"""<!DOCTYPE html>
       } catch (e) { /* still down; keep trying */ }
     }, 1500);
   }
-  const actionBtns = [fetchBtn, deployBtn, compareBtn, loadDataBtn, compareDataBtn];
+  const actionBtns = [fetchBtn, deployBtn, compareBtn, loadDataBtn, compareDataBtn, deployDataBtn];
   function busy(btn, label) {
     btn.innerHTML = '<span class="spinner"></span>' + label;
     actionBtns.forEach(b => b.disabled = true);
@@ -1014,6 +1414,7 @@ PAGE = r"""<!DOCTYPE html>
     compareBtn.textContent = "Compare source ↔ target";
     loadDataBtn.textContent = "View data (source org)";
     compareDataBtn.textContent = "Compare data (source ↔ target)";
+    deployDataBtn.textContent = "Deploy selected to target";
     actionBtns.forEach(b => b.disabled = false);
   }
 
@@ -1033,7 +1434,9 @@ PAGE = r"""<!DOCTYPE html>
       const opts = orgs.map(o => `<option value="${o.alias}">${o.alias}${o.username ? "  —  " + o.username : ""}</option>`).join("");
       orgSel.innerHTML = opts;
       targetSel.innerHTML = opts;
+      deployOrgSel.innerHTML = opts;
       if (orgs.length > 1) targetSel.selectedIndex = 1;  // default target != source
+      deployOrgSel.value = orgSel.value;  // default deploy target = source org
       loadModels();
     } catch (e) {
       if (e && e.conn) { handleDisconnect(); return; }
@@ -1105,14 +1508,18 @@ PAGE = r"""<!DOCTYPE html>
   };
 
   deployBtn.onclick = async () => {
-    if (!orgSel.value) { setStatus("err", "Please choose an org first."); return; }
+    const dest = deployOrgSel.value;
+    if (!dest) { setStatus("err", "Please choose an org to deploy to."); deployOrgSel.focus(); return; }
     if (!model.value.trim()) { setStatus("err", "Please choose a CML from the list."); model.focus(); return; }
     if (!content.value.trim()) { setStatus("err", "There is no CML content to deploy."); return; }
-    if (!confirm(`Deploy "${model.value.trim()}" to org "${orgSel.value}"?\n\nThis overwrites the latest version's Constraint Model.`)) return;
+    const crossOrg = dest !== orgSel.value;
+    let msg = `Deploy "${model.value.trim()}" to org "${dest}"?\n\nThis overwrites the latest version's Constraint Model.`;
+    if (crossOrg) msg += `\n\nNote: you are deploying to "${dest}", which is NOT the source org "${orgSel.value}".`;
+    if (!confirm(msg)) return;
     busy(deployBtn, "Deploying…");
-    setStatus("info", "Deploying " + model.value.trim() + " to " + orgSel.value + "…");
+    setStatus("info", "Deploying " + model.value.trim() + " to " + dest + "…");
     try {
-      const data = await postJSON("/api/deploy", { org: orgSel.value, model: model.value.trim(), content: content.value });
+      const data = await postJSON("/api/deploy", { org: dest, model: model.value.trim(), content: content.value });
       setStatus(data.ok ? "ok" : "err", data.log || (data.ok ? "Deployed." : "Deploy failed."));
     } catch (e) {
       if (e && e.conn) { handleDisconnect(); } else { setStatus("err", "Deploy error: " + e); }
@@ -1289,16 +1696,35 @@ PAGE = r"""<!DOCTYPE html>
     return "";
   }
 
+  const DUP_LABEL = { exact: "Exact duplicate", tag: "Duplicate tag", ref: "Duplicate reference", name: "Ambiguous name" };
+  function dupBadges(r) {
+    if (!r.dups || !r.dups.length) return "";
+    return r.dups.map(d => `<span class="badge b-dup" title="${esc(DUP_LABEL[d] || d)}">${esc(DUP_LABEL[d] || d)}</span>`).join("");
+  }
+
+  // Which rows can be acted on in a compare deploy.
+  function isAdd(r) { return r._status === "add"; }     // ready to insert in target
+  function isDel(r) { return r._status === "extra"; }   // exists only in target
+
   function dataRowHtml(r, withStatus) {
     const code = r.refCode ? ` <span class="gkey">(${esc(r.refCode)})</span>` : "";
     const gk = r.mappable ? `<span class="gkey">${esc(r.gkey)}</span>`
                           : '<span class="badge b-unmappable">missing</span>';
+    let sel = "";
+    if (withStatus) {
+      if (isAdd(r) || isDel(r)) {
+        sel = `<td class="sel"><input type="checkbox" data-i="${r._i}" ${r._selected ? "checked" : ""}></td>`;
+      } else {
+        sel = `<td class="sel"></td>`;
+      }
+    }
     return "<tr>"
+      + sel
       + (withStatus ? `<td>${statusBadge(r._status)}</td>` : "")
       + `<td><span class="badge b-type">${esc(shortType(r.refType))}</span></td>`
       + `<td>${esc(r.tagType)}</td>`
       + `<td>${esc(r.tag)}</td>`
-      + `<td>${esc(r.refName)}${code}</td>`
+      + `<td>${esc(r.refName)}${code}${dupBadges(r)}</td>`
       + `<td>${gk}</td>`
       + "</tr>";
   }
@@ -1309,21 +1735,46 @@ PAGE = r"""<!DOCTYPE html>
     const visible = dataRows.filter(r => {
       if (f === "all") return true;
       if (f === "match")   return r._status === "match";
-      if (f === "add")     return r._status === "add" || r._status === "ready";
+      if (f === "add")     return r._status === "add";
       if (f === "extra")   return r._status === "extra";
       if (f === "blocked") return r._status === "blocked" || r._status === "unmappable";
+      if (f === "dups")    return r.dups && r.dups.length;
       return true;
     });
+    const cols = (withStatus ? 7 : 5);
     const head = "<thead><tr>"
-      + (withStatus ? "<th>Status</th>" : "")
+      + (withStatus ? '<th class="sel"></th><th>Status</th>' : "")
       + "<th>Ref type</th><th>Tag type</th><th>Tag</th><th>Reference record</th><th>Global_Key__c</th>"
       + "</tr></thead>";
     const body = visible.length
       ? visible.map(r => dataRowHtml(r, withStatus)).join("")
-      : `<tr><td colspan="${withStatus ? 6 : 5}" style="text-align:center;color:var(--muted);padding:18px;">No rows for this filter.</td></tr>`;
+      : `<tr><td colspan="${cols}" style="text-align:center;color:var(--muted);padding:18px;">No rows for this filter.</td></tr>`;
     dataTable.innerHTML = head + "<tbody>" + body + "</tbody>";
+    dataTable.querySelectorAll("input[type=checkbox]").forEach(cb => {
+      cb.onchange = () => { dataRows[+cb.dataset.i]._selected = cb.checked; updateDeployBar(); };
+    });
+    updateDeployBar();
   }
   dataFilter.onchange = renderDataTable;
+
+  function updateDeployBar() {
+    if (dataMode !== "compare") { deployBar.classList.remove("show"); return; }
+    const adds = dataRows.filter(r => isAdd(r) && r._selected).length;
+    const dels = dataRows.filter(r => isDel(r) && r._selected).length;
+    const totalAdds = dataRows.filter(isAdd).length;
+    const totalDels = dataRows.filter(isDel).length;
+    deployBar.classList.toggle("show", (totalAdds + totalDels) > 0);
+    selSummary.innerHTML =
+      `Selected: <strong>${adds}</strong> to add`
+      + (dels ? ` · <strong class="warn-note">${dels}</strong> <span class="warn-note">to delete</span>` : ` · <strong>0</strong> to delete`);
+    deployDataBtn.disabled = (adds + dels) === 0;
+  }
+
+  function setSel(pred, val) { dataRows.forEach(r => { if (pred(r)) r._selected = val; }); renderDataTable(); }
+  selAllAdds.onclick = () => setSel(isAdd, true);
+  selNoAdds.onclick  = () => setSel(isAdd, false);
+  selAllDels.onclick = () => setSel(isDel, true);
+  selNoDels.onclick  = () => setSel(isDel, false);
 
   loadDataBtn.onclick = async () => {
     if (!orgSel.value) { setStatus("err", "Please choose a source org first."); return; }
@@ -1334,8 +1785,10 @@ PAGE = r"""<!DOCTYPE html>
       const data = await postJSON("/api/data", { org: orgSel.value, model: model.value.trim() });
       if (data.ok) {
         dataMode = "single";
-        dataRows = data.rows.map(r => ({ ...r, _status: "" }));
-        renderDataChips({ single: true, total: data.stats.total, unmappable: data.stats.unmappable, org: orgSel.value });
+        dataRows = data.rows.map((r, i) => ({ ...r, _status: "", _i: i, _selected: false }));
+        deployBar.classList.remove("show");
+        results.classList.remove("show");
+        renderDataChips({ single: true, total: data.stats.total, unmappable: data.stats.unmappable, dups: data.stats.duplicates, org: orgSel.value });
         renderDataTable();
         dataBox.classList.add("show");
         dataBox.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -1365,7 +1818,10 @@ PAGE = r"""<!DOCTYPE html>
         data.matched.forEach(r => rows.push({ ...r, _status: "match" }));
         data.sourceOnly.forEach(r => rows.push({ ...r, _status: r.deployStatus === "ready" ? "add" : r.deployStatus }));
         data.targetOnly.forEach(r => rows.push({ ...r, _status: "extra" }));
+        // Adds default ON; deletes default OFF (deletion is riskier — opt in).
+        rows.forEach((r, i) => { r._i = i; r._selected = (r._status === "add"); });
         dataRows = rows;
+        results.classList.remove("show");
         renderDataChips({ single: false, s: data.stats, src: data.source, tgt: data.target });
         renderDataTable();
         dataBox.classList.add("show");
@@ -1381,14 +1837,19 @@ PAGE = r"""<!DOCTYPE html>
     idle();
   };
 
+  function dupSum(d) { return d ? (d.exact + d.tag + d.ref + d.name) : 0; }
+
   function renderDataChips(o) {
     if (o.single) {
+      const dn = dupSum(o.dups);
       dataChips.innerHTML =
         `<span class="chip ok">${o.total} rows · ${o.org}</span>`
-        + (o.unmappable ? `<span class="chip warn">${o.unmappable} without Global_Key__c</span>` : "");
+        + (o.unmappable ? `<span class="chip warn">${o.unmappable} without Global_Key__c</span>` : "")
+        + (dn ? `<span class="chip warn">${dn} duplicate rows</span>` : "");
       return;
     }
     const s = o.s;
+    const sd = dupSum(o.src.duplicates), td = dupSum(o.tgt.duplicates);
     dataChips.innerHTML =
       `<span class="chip">Source ${o.src.org}: ${o.src.total}</span>`
       + `<span class="chip">Target ${o.tgt.org}: ${o.tgt.total}</span>`
@@ -1396,8 +1857,63 @@ PAGE = r"""<!DOCTYPE html>
       + `<span class="chip add">${s.sourceOnly} only in source</span>`
       + `<span class="chip extra">${s.targetOnly} only in target</span>`
       + (s.blocked ? `<span class="chip warn">${s.blocked} blocked (ref missing in target)</span>` : "")
-      + (s.unmappable ? `<span class="chip warn">${s.unmappable} unmappable</span>` : "");
+      + (s.unmappable ? `<span class="chip warn">${s.unmappable} unmappable</span>` : "")
+      + ((sd + td) ? `<span class="chip warn">${sd + td} duplicate rows (src ${sd} / tgt ${td})</span>` : "");
   }
+
+  // ---- Deploy selected constraint data to the target ----
+  function renderResults(data) {
+    const s = data.stats;
+    let html = `<h4>Deployment results — target ${esc(data.target)}</h4>`;
+    html += `<div class="chips" style="margin-bottom:10px;">`
+      + `<span class="chip ok">${s.insertOk} added</span>`
+      + (s.insertFail ? `<span class="chip warn">${s.insertFail} add failed</span>` : "")
+      + `<span class="chip extra">${s.deleteOk} deleted</span>`
+      + (s.deleteFail ? `<span class="chip warn">${s.deleteFail} delete failed</span>` : "")
+      + `</div>`;
+    const line = (r, verb) => `<div class="result-row ${r.success ? "good" : "bad"}">`
+      + `<span class="ico">${r.success ? "✓" : "✗"}</span>`
+      + `<span>${verb} ${esc(r.label)}${r.success ? "" : " — " + esc(r.error || "failed")}</span></div>`;
+    if (data.created.length) html += `<h4>Inserts</h4>` + data.created.map(r => line(r, "Add")).join("");
+    if (data.deleted.length) html += `<h4>Deletes</h4>` + data.deleted.map(r => line(r, "Delete")).join("");
+    results.innerHTML = html;
+    results.classList.add("show");
+    results.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  deployDataBtn.onclick = async () => {
+    const adds = dataRows.filter(r => isAdd(r) && r._selected)
+      .map(r => ({ tag: r.tag, tagType: r.tagType, refType: r.refType, gkey: r.gkey, refName: r.refName }));
+    const deletes = dataRows.filter(r => isDel(r) && r._selected)
+      .map(r => ({ id: r.id, tag: r.tag, tagType: r.tagType, refName: r.refName }));
+    if (!adds.length && !deletes.length) { setStatus("err", "Select at least one row to deploy."); return; }
+    let msg = `Deploy to "${targetSel.value}"?\n\n• ${adds.length} association(s) will be ADDED.`;
+    if (deletes.length) msg += `\n• ${deletes.length} association(s) will be DELETED (permanent).`;
+    msg += `\n\nProceed?`;
+    if (!confirm(msg)) return;
+    busy(deployDataBtn, "Deploying…");
+    setStatus("info", `Deploying constraint data to ${targetSel.value}: +${adds.length} / −${deletes.length}…`);
+    try {
+      const data = await postJSON("/api/data/deploy", {
+        sourceOrg: orgSel.value, targetOrg: targetSel.value, model: model.value.trim(),
+        adds, deletes
+      });
+      if (data.ok) {
+        renderResults(data);
+        const s = data.stats;
+        setStatus(s.insertFail + s.deleteFail ? "info" : "ok",
+          `Done. Added ${s.insertOk}/${adds.length}, deleted ${s.deleteOk}/${deletes.length}.`
+          + (s.insertFail + s.deleteFail ? ` ${s.insertFail + s.deleteFail} failed — see details below.` : "")
+          + `\nRe-comparing to refresh…`);
+        compareDataBtn.click();  // refresh the comparison to reflect new state
+      } else {
+        setStatus("err", data.log || "Deploy failed.");
+      }
+    } catch (e) {
+      if (e && e.conn) { handleDisconnect(); } else { setStatus("err", "Deploy error: " + e); }
+    }
+    idle();
+  };
 
   loadOrgs();
 </script>
@@ -1409,10 +1925,6 @@ def main():
     if "--print-build" in sys.argv:
         print(BUILD)
         return
-
-    if not os.path.exists(FETCH_SCRIPT) or not os.path.exists(DEPLOY_SCRIPT):
-        print("ERROR: Could not find fetch/deploy scripts next to this file.", file=sys.stderr)
-        sys.exit(1)
 
     open_browser = "--no-browser" not in sys.argv
     port = DEFAULT_PORT
