@@ -5,13 +5,14 @@ Cloud CML** (Constraint Model Language). Pick an org, choose a Constraint Model,
 and **fetch**, **deploy**, or **compare** it — no terminal commands to type, no
 installs, and nothing ever leaves your machine.
 
-It does three things:
+It does four things:
 
 | Operation | What it does |
 |---|---|
 | **Fetch** | Download the latest CML of any Expression Set / Constraint Model from an org into an editable text box (and save a copy locally). |
 | **Deploy** | Push CML (fetched or pasted) back to the latest version of that model in an org — with a confirmation prompt so nothing happens by accident. |
 | **Compare** | Fetch the **same** CML from a **source** and **target** org and show a synced, line-numbered, side-by-side diff that highlights every difference. |
+| **Constraint Data** | View, compare, and **deploy** the **Product associations** behind a CML (`ExpressionSetConstraintObj` records), matched across orgs by each record's `Global_Key__c` instead of by record Id. Pick exactly which rows to add or delete with checkboxes. |
 
 You select everything from dropdowns and lists, so there are **no typos** in org
 names or model API names.
@@ -96,10 +97,14 @@ set CML_UI_PORT=8900 && python cml_tool.py  # Windows
    `cml-files/<model>.cml`. Use **Copy** to copy it.
 
 ### Deploy
-1. Select the org and CML, and make sure the desired CML text is in the box
-   (fetched or pasted).
-2. Click **Deploy CML**, confirm the prompt, and the tool deploys it to the
-   latest version of that model.
+1. Make sure the desired CML text is in the box (fetched or pasted) and a CML is
+   selected.
+2. Choose **where** to deploy with the **Deploy to** dropdown next to the button —
+   it lists **every** authorized org and defaults to the source org, so you can
+   fetch from one org and deploy to another.
+3. Click **Deploy CML**, confirm the prompt (which warns you when the destination
+   differs from the source org), and the tool deploys it to the latest version of
+   that model in the chosen org.
 
 ### Compare (source org ↔ target org)
 1. Pick a **Source org** and a **Target org** (must be different).
@@ -129,6 +134,75 @@ Toggle **Night / Day mode** any time with the button in the top-right.
 
 ![Dark mode](docs/screenshots/dark.png)
 
+### Constraint Data (Product associations)
+
+Deploying CML code **alone** doesn't recreate the data behind it. When a model
+is built, Salesforce creates `ExpressionSetConstraintObj` records that link the
+Constraint Model to **Products, Product Classifications, Component Groups, and
+Related Components**. Those links are part of the configuration and must travel
+with the CML.
+
+The catch: each link points to its product/classification by **record Id**, and
+**record Ids differ in every org**. So the tool matches each row on a key that is
+**the same across orgs** — the reference record's **`Global_Key__c`** — instead
+of the Id.
+
+Under **Constraint Data**, with a CML selected:
+
+- **View data (source org)** lists every constraint row for that model: the
+  reference type, tag, tag type, the linked record's name, and its
+  `Global_Key__c`.
+- **Compare data (source ↔ target)** lines the two orgs up by that portable key
+  and labels every row:
+
+  | Badge | Meaning |
+  |---|---|
+  | **Matched** | The association exists in both orgs. |
+  | **Add to target** | Only in source; the linked record **already exists** in the target (by `Global_Key__c`), so it's ready to be created there. |
+  | **Only in target** | Exists in the target but not in source (extra). |
+  | **Blocked — ref missing in target** | Only in source, but the linked record **doesn't exist** in the target yet, so it can't be created until that record is added. |
+  | **No `Global_Key__c`** | The linked record has no key, so it can't be matched across orgs. |
+
+Use the **Show** filter to focus on just the matched / to-add / extra / blocked
+/ duplicate rows.
+
+#### Finding duplicates
+
+Every row is checked for data-hygiene problems and tagged with a yellow badge:
+
+| Badge | Meaning |
+|---|---|
+| **Exact duplicate** | The same tag type + tag + reference + `Global_Key__c` appears more than once — a truly redundant row. |
+| **Duplicate tag** | The same tag type + tag is used by more than one row. |
+| **Duplicate reference** | The same reference record is linked by more than one row. |
+| **Ambiguous name** | The same reference *name* maps to more than one `Global_Key__c` — a cross-org mapping hazard worth reviewing. |
+
+Pick **Duplicates only** in the Show filter to review them all at once.
+
+#### Deploying constraint data (add / delete)
+
+In **Compare** mode, each actionable row gets a **checkbox**:
+
+- **"Add to target"** rows are **checked by default** — they'll be created in the
+  target.
+- **"Only in target"** rows are **unchecked by default** — tick them to **delete**
+  the extra associations (deletion is permanent, so it's opt-in).
+- **Matched** and **blocked** rows have no checkbox (nothing to do / can't map).
+
+Use **Select all adds / Clear adds / Select all deletes / Clear deletes** for bulk
+selection, review the running summary, then click **Deploy selected to target**.
+A confirmation dialog spells out exactly how many rows will be added and deleted.
+
+Each row is processed **individually** (`allOrNone=false`), so one failure never
+blocks the rest — the **results panel** lists every insert and delete with a ✓ or
+✗ and the **exact platform error** when something can't be applied (for example, a
+record locked by an active version). After deploying, the comparison refreshes
+automatically so you can see the new state.
+
+> **Order matters:** deploy and activate the **CML** in the target first, then
+> deploy its constraint data. New associations attach to the target's existing
+> Expression Set for that model.
+
 ---
 
 ## Project structure
@@ -136,12 +210,12 @@ Toggle **Night / Day mode** any time with the button in the top-right.
 ```
 salesforce-cml-tool/
 ├── cml_tool.py            # Local server + UI (HTML/CSS/JS) — the whole app
-├── fetch-cml.sh           # Helper: download a CML from an org (uses sf + REST)
-├── deploy-cml.py          # Helper: upload a CML to an org (uses sf + REST)
 ├── Open CML Tool.command  # macOS: double-click to start (runs in background)
 ├── Stop CML Tool.command  # macOS: double-click to stop
 ├── run.sh                 # macOS / Linux launcher
-├── run.bat                # Windows launcher
+├── run.bat                # Windows launcher (double-click this on Windows)
+├── fetch-cml.sh           # Optional standalone bash helper (not used by the app)
+├── deploy-cml.py          # Optional standalone Python helper (not used by the app)
 ├── README.md
 ├── LICENSE
 ├── .gitignore
@@ -149,28 +223,119 @@ salesforce-cml-tool/
     └── screenshots/       # Images used in this README
 ```
 
+> **Cross-platform:** `cml_tool.py` does fetch, deploy, queries, and data sync
+> entirely over the Salesforce REST API using your `sf` access token, so it runs
+> the same on **macOS, Linux, and Windows**. The `.sh` helper and `.command`
+> launchers are macOS/Linux conveniences; on Windows use `run.bat`. (Don't run
+> the `.command` files on Windows — they're bash scripts.)
+
 The endpoints (`/api/orgs`, `/api/models`, `/api/fetch`, `/api/deploy`,
-`/api/compare`) are simple JSON requests, so you can also script against the
-server if you want.
+`/api/compare`, `/api/data`, `/api/data/compare`, `/api/data/deploy`) are simple
+JSON requests, so you can also script against the server if you want.
 
 ---
 
 ## How it works (in short)
 
-- **Orgs** come from `sf org list`, so the dropdowns always match your authorized
-  orgs.
+- **Orgs** come from `sf org list`, and the access token for each org from
+  `sf org display` — these are the only two `sf` CLI calls the tool makes. On
+  Windows the CLI is `sf.cmd`, which the tool launches correctly via `cmd.exe`.
+- **Everything else is REST.** SOQL queries, fetch, deploy, and the data sync all
+  go straight to the Salesforce REST API with that token (no `sf data query`, no
+  `curl`, no bash), which is faster and fully cross-platform.
 - **CMLs** are discovered by querying `ExpressionSetDefinitionVersion`, keeping the
   latest version per model.
 - **Fetch/Deploy** read and write the `ConstraintModel` field of the latest
-  `ExpressionSetDefinitionVersion` via the Salesforce REST API, using the access
-  token from your `sf` session.
-- **Compare** fetches from both orgs (sequentially — the `sf` CLI serializes on
-  its own config) and diffs them in your browser with a longest-common-subsequence
-  algorithm.
+  `ExpressionSetDefinitionVersion` via REST (GET the blob; PATCH base64 content).
+- **Compare** fetches the CML from both orgs and diffs them in your browser with a
+  longest-common-subsequence algorithm.
+- **Constraint Data** queries `ExpressionSetConstraintObj` for the selected model
+  and resolves each polymorphic `ReferenceObjectId` to its object type +
+  `Global_Key__c` (via a single SOQL `TYPEOF` query). Rows are matched across orgs
+  on `tag type + tag + reference type + Global_Key__c`, and source-only rows are
+  checked against the target to see whether their linked record already exists
+  there.
+- **Deploying constraint data** re-resolves each selected row in the target —
+  the model's Expression Set, and each reference record by `Global_Key__c` — then
+  inserts/deletes via the REST **sObject Collections** API with `allOrNone=false`
+  so results are reported per row. Inserts only ever set the four required fields
+  (`ExpressionSetId`, `ReferenceObjectId`, `ConstraintModelTag`,
+  `ConstraintModelTagType`).
 
 ---
 
 ## Troubleshooting
+
+### Windows: orgs don't load / `[WinError 2] The system cannot find the file specified`
+
+This was a bug in older versions where the tool called the CLI as a bare `sf`;
+on Windows the CLI is `sf.cmd`, which can't be launched that way. The current
+version handles this automatically. If you still see it:
+
+1. Make sure you started the tool with **`run.bat`** (or `python cml_tool.py`),
+   **not** by running a `.command` file — those are macOS bash scripts and won't
+   work on Windows.
+2. Confirm the CLI is on your PATH: open a new Command Prompt and run `sf --version`.
+   If that fails, reinstall the Salesforce CLI and reopen your terminal.
+3. Visit `http://127.0.0.1:8787/api/debug` to see whether `sf` was found and what
+   `sf org list` returned.
+
+### Orgs are not showing in the dropdown
+
+This is the most common issue for new users. The dropdown stays empty (or shows
+an error) for one of two reasons:
+
+**Reason 1: `sf` was installed with nvm / fnm / Volta (most likely)**
+
+Node version managers like `nvm`, `fnm`, and `Volta` install `sf` into a
+versioned path that is only added to your `PATH` inside an interactive shell
+(via `.zshrc` / `.bashrc`). When macOS launches the tool via Finder or
+double-click, it starts a *login* shell that does **not** source `.zshrc`, so
+`sf` is invisible.
+
+**Self-diagnosis — open the tool, then open a new browser tab and visit:**
+```
+http://127.0.0.1:8787/api/debug
+```
+This returns a JSON object showing exactly which paths were searched, whether
+`sf` was found, and how many orgs `sf org list` returned. Share this output if
+you need help.
+
+**Fix (pick one):**
+
+- **Option A (recommended):** Tell the tool exactly where `sf` is. Find it first:
+  ```bash
+  which sf
+  ```
+  Then start the tool with that path explicitly:
+  ```bash
+  SF_PATH=/path/from/which/sf python3 cml_tool.py
+  ```
+  (Or add that directory to `/etc/paths` so it persists across all apps.)
+
+- **Option B:** Create a symlink in a standard location so macOS can always find it:
+  ```bash
+  sudo ln -s "$(which sf)" /usr/local/bin/sf
+  ```
+
+- **Option C:** Install `sf` outside of nvm so it has a fixed path:
+  ```bash
+  npm install -g @salesforce/cli   # after setting npm prefix to a fixed dir
+  # or install via Homebrew:
+  brew install @salesforce/cli
+  ```
+
+**Reason 2: `sf` is installed but no orgs are authorized**
+
+Run in Terminal:
+```bash
+sf org list
+```
+If that returns nothing, authorize your orgs:
+```bash
+sf org login web --alias myOrg      # repeat for each org
+```
+Then refresh the tool — the dropdown fills automatically.
 
 ### "The Salesforce CLI ('sf') was not found"
 Install it and authorize at least one org:
