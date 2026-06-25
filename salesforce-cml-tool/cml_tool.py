@@ -199,10 +199,17 @@ def sf_debug_info() -> dict:
 
 
 def run(args, **kwargs):
-    """subprocess.run with augmented PATH, timeout, and captured text output."""
+    """subprocess.run with augmented PATH, timeout, and captured text output.
+
+    Force UTF-8 decoding: the `sf` CLI emits UTF-8, but on Windows Python would
+    otherwise decode with the locale codepage (cp1252), which corrupts non-ASCII
+    text (e.g. an em-dash shows up as "â€") and can even raise UnicodeDecodeError
+    on bytes that are undefined in cp1252.
+    """
     return subprocess.run(
-        args, capture_output=True, text=True, cwd=REPO_ROOT,
-        env=_env(), timeout=CMD_TIMEOUT, **kwargs,
+        args, capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
+        cwd=REPO_ROOT, env=_env(), timeout=CMD_TIMEOUT, **kwargs,
     )
 
 
@@ -221,8 +228,9 @@ def _sf_run(args, **kwargs):
     if os.name == "nt" and exe.lower().endswith((".cmd", ".bat")):
         argv = [os.environ.get("COMSPEC", "cmd.exe"), "/c"] + argv
     return subprocess.run(
-        argv, capture_output=True, text=True, cwd=REPO_ROOT,
-        env=_env(), timeout=CMD_TIMEOUT, **kwargs,
+        argv, capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
+        cwd=REPO_ROOT, env=_env(), timeout=CMD_TIMEOUT, **kwargs,
     )
 
 
