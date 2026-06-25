@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
-cml_tool.py — A tiny local web UI for fetching, deploying, and comparing
-Salesforce Revenue Cloud CML (Constraint Model Language).
+cml_tool.py — A tiny, self-contained local web UI for fetching, comparing and
+deploying CML (and its ExpressionSetConstraintObj data) across Salesforce orgs.
 
-You never type in the terminal: pick an org from the dropdown, choose a CML,
-and click Fetch / Deploy / Compare. Fetch, deploy, queries, and data sync all
-run over the Salesforce REST API, so the tool works the same on macOS, Linux,
-and Windows — it only uses the `sf` CLI to read your authorized orgs and access
-tokens (`sf org list` / `sf org display`).
+Cross-platform (macOS / Windows / Linux). It talks to Salesforce over the REST
+API directly and only uses the `sf` CLI for authentication (`sf org list` /
+`sf org display`), so there are no bash/curl dependencies.
 
-Run it (or just double-click "Open CML Tool.command"):
+The user never types in the terminal: pick an org from the dropdown, paste the
+CML API name, and click Fetch, Compare or Deploy.
+
+Run it (or just double-click the launcher for your OS):
     python3 cml_tool.py
 
-It starts a local server on 127.0.0.1 and opens your browser.
-Only the Python 3 standard library is used — nothing to install.
+It picks a free port, starts a local server, and opens your browser.
+Only the Python standard library is used — nothing to install.
 """
 
 import base64
@@ -31,11 +32,10 @@ import urllib.request
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+# Self-contained package: everything lives next to this file.
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = APP_DIR
 SCRIPTS_DIR = APP_DIR
-FETCH_SCRIPT = os.path.join(APP_DIR, "fetch-cml.sh")
-DEPLOY_SCRIPT = os.path.join(APP_DIR, "deploy-cml.py")
 DOWNLOAD_DIR = os.path.join(APP_DIR, "cml-files")
 
 # When launched from Finder (double-click), the process may not inherit the
@@ -134,6 +134,20 @@ def sf_debug_info() -> dict:
     searched = [p for p in _extra_paths() if p]
     found_dirs = [p for p in searched if os.path.isdir(p)]
 
+    # The Salesforce CLI stores authorized orgs PER OS USER, under the user's
+    # home (~/.sfdx/*.json and/or ~/.sf). Surfacing this makes "no orgs" easy to
+    # diagnose: a different system owner simply hasn't logged in on their account.
+    home = os.path.expanduser("~")
+    sfdx_dir = os.path.join(home, ".sfdx")
+    sf_dir = os.path.join(home, ".sf")
+    auth_files = []
+    if os.path.isdir(sfdx_dir):
+        try:
+            auth_files = [f for f in os.listdir(sfdx_dir)
+                          if f.endswith(".json") and f != "alias.json"]
+        except OSError:
+            pass
+
     info = {
         "sf_found": sf_path is not None,
         "sf_path": sf_path or "not found",
@@ -141,7 +155,18 @@ def sf_debug_info() -> dict:
         "path_searched": searched,
         "path_found": found_dirs,
         "system_path": os.environ.get("PATH", "").split(os.pathsep),
+        "os_user": os.environ.get("USER") or os.environ.get("USERNAME") or "unknown",
+        "home": home,
+        "sfdx_dir_exists": os.path.isdir(sfdx_dir),
+        "sf_dir_exists": os.path.isdir(sf_dir),
+        "authorized_org_files": len(auth_files),
     }
+    if sf_path and len(auth_files) == 0:
+        info["auth_hint"] = (
+            "The Salesforce CLI on this computer/user has no saved org logins "
+            "(~/.sfdx is empty). Orgs are per OS user — log in on THIS account: "
+            "sf org login web --alias <name>"
+        )
 
     if sf_path:
         try:
@@ -1428,7 +1453,11 @@ PAGE = r"""<!DOCTYPE html>
       }
       if (!orgs.length) {
         orgSel.innerHTML = '<option value="">(no orgs found)</option>';
-        setStatus("err", "No Salesforce orgs are authorized. Run: sf org login web");
+        setStatus("err",
+          "No Salesforce orgs are authorized for THIS user on THIS computer.\n"
+          + "Org logins are stored per operating-system user, so each person must log in on their own account:\n\n"
+          + "    sf org login web --alias <name>\n\n"
+          + "Then click \u201cReload list\u201d. Open http://127.0.0.1:" + location.port + "/api/debug to see details (sf path, OS user, saved logins).");
         return;
       }
       const opts = orgs.map(o => `<option value="${o.alias}">${o.alias}${o.username ? "  —  " + o.username : ""}</option>`).join("");
