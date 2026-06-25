@@ -21,6 +21,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -423,6 +424,43 @@ def _soql_str(value):
     return (value or "").replace("\\", "\\\\").replace("'", "\\'")
 
 
+# The field used to match reference records across orgs. Defaults to the custom
+# Global_Key__c, but any field can be chosen so orgs without that field can use
+# their own foreign key (e.g. an external Id, a code, or even Name).
+DEFAULT_KEY_FIELD = "Global_Key__c"
+_FIELD_PROBE = {}  # cache: (org, sobject, field) -> bool (field exists & queryable)
+
+
+def _valid_field(name):
+    """Return a SOQL-safe field API name, or None if it isn't a plain identifier.
+
+    The key field is interpolated directly into SOQL (TYPEOF / SELECT / WHERE),
+    so it must be validated to prevent injection. Blank means "use the default".
+    """
+    name = (name or "").strip()
+    if not name:
+        return DEFAULT_KEY_FIELD
+    if len(name) <= 80 and re.match(r"^[A-Za-z][A-Za-z0-9_]*$", name):
+        return name
+    return None
+
+
+def _field_exists(org, sobject, field):
+    """Cheap, cached probe: does `sobject` expose `field`? (SELECT ... LIMIT 1).
+
+    Lets us include the chosen key only on the reference objects that actually
+    have it, instead of failing the whole TYPEOF query when one object lacks it.
+    """
+    ck = (org, sobject, field)
+    if ck in _FIELD_PROBE:
+        return _FIELD_PROBE[ck]
+    _, err = _query_json(org, f"SELECT {field} FROM {sobject} LIMIT 1")
+    ok = not (err and ("INVALID_FIELD" in err or "No such column" in err
+                       or "INVALID_TYPE" in err or "INVALID_FIELD_FOR_INSERT" in err))
+    _FIELD_PROBE[ck] = ok
+    return ok
+
+
 def _is_auth_error(msg):
     msg = (msg or "")
     return "INVALID_SESSION_ID" in msg or "401" in msg or "Session expired" in msg
@@ -460,26 +498,53 @@ def _constraint_key(tag_type, tag, ref_type, gkey):
                           gkey or ""])
 
 
-def export_constraints(org, model):
+def _build_typeof(org, key_field):
+    """Build the TYPEOF clause, including `key_field` only on the reference
+    objects that actually have it. Returns (clause, {refType: has_field})."""
+    field_on = {}
+    whens = []
+    for t in REF_TYPES:
+        has = _field_exists(org, t, key_field)
+        field_on[t] = has
+        cols = []
+        if has:
+            cols.append(key_field)
+        for c in (["Name", "ProductCode"] if t == "Product2" else ["Name"]):
+            if c not in cols:
+                cols.append(c)
+        whens.append(f"WHEN {t} THEN " + ", ".join(cols))
+    clause = "TYPEOF ReferenceObject " + " ".join(whens) + " ELSE Name END "
+    return clause, field_on
+
+
+def export_constraints(org, model, key_field=DEFAULT_KEY_FIELD):
     """Return enriched ExpressionSetConstraintObj rows for one CML model.
 
-    Each row is resolved to its reference object's type + Global_Key__c so it
-    can be matched across orgs regardless of record Ids.
+    Each row is resolved to its reference object's type + the chosen `key_field`
+    (default Global_Key__c) so it can be matched across orgs regardless of Ids.
     """
     if not org or not model:
         return {"ok": False, "log": "Choose an org and a CML first."}
     if not find_sf():
         return {"ok": False, "log": "The Salesforce CLI ('sf') was not found. "
                                     "Install it with: npm install -g @salesforce/cli"}
+    kf = _valid_field(key_field)
+    if not kf:
+        return {"ok": False, "log": (
+            f"\u201c{key_field}\u201d is not a valid field API name. Use a plain "
+            "field name like Global_Key__c, ProductCode, External_Id__c, or Name.")}
+
+    typeof, field_on = _build_typeof(org, kf)
+    if not any(field_on.values()):
+        return {"ok": False, "log": (
+            f"None of the reference objects (Product2, ProductClassification, "
+            f"ProductComponentGroup, ProductRelatedComponent) have a field named "
+            f"\u201c{kf}\u201d in {org}. Pick a field that exists on them "
+            f"(\u201cName\u201d always works), then try again.")}
+
     soql = (
         "SELECT Id, ExpressionSetId, ExpressionSet.Name, ConstraintModelTag, "
-        "ConstraintModelTagType, ReferenceObjectId, "
-        "TYPEOF ReferenceObject "
-        "WHEN Product2 THEN Global_Key__c, Name, ProductCode "
-        "WHEN ProductClassification THEN Global_Key__c, Name "
-        "WHEN ProductComponentGroup THEN Global_Key__c, Name "
-        "WHEN ProductRelatedComponent THEN Global_Key__c, Name "
-        "ELSE Name END "
+        "ConstraintModelTagType, ReferenceObjectId, " + typeof +
         "FROM ExpressionSetConstraintObj "
         "WHERE ExpressionSet.ExpressionSetDefinition.DeveloperName = '"
         + _soql_str(model) + "' "
@@ -494,7 +559,7 @@ def export_constraints(org, model):
     for rec in records:
         ro = rec.get("ReferenceObject") or {}
         ref_type = (ro.get("attributes") or {}).get("type") or ""
-        gkey = ro.get("Global_Key__c")
+        gkey = ro.get(kf)
         tag = rec.get("ConstraintModelTag")
         tag_type = rec.get("ConstraintModelTagType")
         mappable = bool(gkey)
@@ -516,6 +581,7 @@ def export_constraints(org, model):
 
     dup_stats = _flag_duplicates(rows)
     return {"ok": True, "org": org, "model": model, "rows": rows,
+            "keyField": kf,
             "stats": {"total": len(rows), "unmappable": unmapped,
                       "duplicates": dup_stats}}
 
@@ -571,29 +637,29 @@ def _flag_duplicates(rows):
     return counts
 
 
-def _target_present_keys(target_org, needed):
-    """Given {refType: set(gkeys)} needed in the target, return the set of
-    (refType, gkey) that actually exist there. Used to flag whether a
+def _target_present_keys(target_org, needed, key_field):
+    """Given {refType: set(keys)} needed in the target, return the set of
+    (refType, key) that actually exist there. Used to flag whether a
     source-only constraint can be deployed (its reference record exists)."""
     present = set()
-    for ref_type, gkeys in needed.items():
-        gkeys = [g for g in gkeys if g]
-        if not gkeys:
+    for ref_type, keys in needed.items():
+        keys = [g for g in keys if g]
+        if not keys:
             continue
-        for i in range(0, len(gkeys), 200):  # keep IN-lists well under limits
-            chunk = gkeys[i:i + 200]
+        for i in range(0, len(keys), 200):  # keep IN-lists well under limits
+            chunk = keys[i:i + 200]
             in_list = ",".join("'" + _soql_str(g) + "'" for g in chunk)
-            soql = (f"SELECT Global_Key__c FROM {ref_type} "
-                    f"WHERE Global_Key__c IN ({in_list})")
+            soql = (f"SELECT {key_field} FROM {ref_type} "
+                    f"WHERE {key_field} IN ({in_list})")
             recs, err = _query_json(target_org, soql)
             if err:  # treat as unknown rather than blocking the whole compare
                 continue
             for r in recs:
-                present.add((ref_type, r.get("Global_Key__c")))
+                present.add((ref_type, r.get(key_field)))
     return present
 
 
-def compare_constraints(source_org, target_org, model):
+def compare_constraints(source_org, target_org, model, key_field=DEFAULT_KEY_FIELD):
     """Compare constraint data of one CML between two orgs, keyed on the
     portable composite key. Returns matched / source-only / target-only rows
     plus, for source-only rows, whether the reference record exists in target.
@@ -603,10 +669,16 @@ def compare_constraints(source_org, target_org, model):
     if source_org == target_org:
         return {"ok": False, "log": "Source and target orgs are the same. Pick two different orgs."}
 
-    src = export_constraints(source_org, model)
+    kf = _valid_field(key_field)
+    if not kf:
+        return {"ok": False, "log": (
+            f"\u201c{key_field}\u201d is not a valid field API name. Use a plain "
+            "field name like Global_Key__c, ProductCode, External_Id__c, or Name.")}
+
+    src = export_constraints(source_org, model, kf)
     if not src.get("ok"):
         return src
-    tgt = export_constraints(target_org, model)
+    tgt = export_constraints(target_org, model, kf)
     if not tgt.get("ok"):
         return tgt
 
@@ -618,7 +690,7 @@ def compare_constraints(source_org, target_org, model):
     for key, r in src_by.items():
         if key not in tgt_by and r["mappable"]:
             needed.setdefault(r["refType"], set()).add(r["gkey"])
-    present = _target_present_keys(target_org, needed)
+    present = _target_present_keys(target_org, needed, kf)
 
     matched, source_only, target_only = [], [], []
     for key, r in src_by.items():
@@ -638,7 +710,7 @@ def compare_constraints(source_org, target_org, model):
             target_only.append(r)
 
     return {
-        "ok": True, "model": model,
+        "ok": True, "model": model, "keyField": kf,
         "source": {"org": source_org, "total": len(src["rows"]),
                    "duplicates": src["stats"]["duplicates"]},
         "target": {"org": target_org, "total": len(tgt["rows"]),
@@ -817,7 +889,8 @@ def _resolve_target_expression_set(target_org, model):
     return recs[0]["Id"], None
 
 
-def deploy_constraints(source_org, target_org, model, adds, deletes):
+def deploy_constraints(source_org, target_org, model, adds, deletes,
+                       key_field=DEFAULT_KEY_FIELD):
     """Insert selected source-only constraints and delete selected target-only
     ones. Each item is handled individually so per-row results can be shown.
 
@@ -830,6 +903,10 @@ def deploy_constraints(source_org, target_org, model, adds, deletes):
         return {"ok": False, "log": "Nothing selected to deploy."}
     if not find_sf():
         return {"ok": False, "log": "The Salesforce CLI ('sf') was not found."}
+    kf = _valid_field(key_field)
+    if not kf:
+        return {"ok": False, "log": (
+            f"\u201c{key_field}\u201d is not a valid field API name.")}
 
     token, instance, err = _org_creds(target_org)
     if err:
@@ -843,25 +920,25 @@ def deploy_constraints(source_org, target_org, model, adds, deletes):
         if es_err:
             return {"ok": False, "log": f"Cannot insert constraints: {es_err}"}
 
-        # Resolve each reference record's target Id by type + Global_Key__c.
+        # Resolve each reference record's target Id by type + chosen key field.
         needed = {}
         for a in adds:
             if a.get("gkey"):
                 needed.setdefault(a["refType"], set()).add(a["gkey"])
-        ref_map = {}  # (type, gkey) -> target Id
-        for ref_type, gkeys in needed.items():
-            gkeys = list(gkeys)
-            for i in range(0, len(gkeys), 200):
-                chunk = gkeys[i:i + 200]
+        ref_map = {}  # (type, key) -> target Id
+        for ref_type, keys in needed.items():
+            keys = list(keys)
+            for i in range(0, len(keys), 200):
+                chunk = keys[i:i + 200]
                 in_list = ",".join("'" + _soql_str(g) + "'" for g in chunk)
                 recs, qerr = _query_json(
                     target_org,
-                    f"SELECT Id, Global_Key__c FROM {ref_type} "
-                    f"WHERE Global_Key__c IN ({in_list})")
+                    f"SELECT Id, {kf} FROM {ref_type} "
+                    f"WHERE {kf} IN ({in_list})")
                 if qerr:
                     continue
                 for r in recs:
-                    ref_map[(ref_type, r["Global_Key__c"])] = r["Id"]
+                    ref_map[(ref_type, r.get(kf))] = r["Id"]
 
         records, meta = [], []
         for a in adds:
@@ -869,11 +946,11 @@ def deploy_constraints(source_org, target_org, model, adds, deletes):
             ref_id = ref_map.get((a.get("refType"), a.get("gkey")))
             if not a.get("gkey"):
                 created.append({"success": False, "label": label,
-                                "error": "Reference record has no Global_Key__c — cannot map."})
+                                "error": f"Reference record has no {kf} — cannot map."})
                 continue
             if not ref_id:
                 created.append({"success": False, "label": label,
-                                "error": f"Reference {a.get('refType')} with Global_Key__c "
+                                "error": f"Reference {a.get('refType')} with {kf} "
                                          f"'{a.get('gkey')}' not found in target."})
                 continue
             records.append({
@@ -1016,16 +1093,19 @@ class Handler(BaseHTTPRequestHandler):
                 ))
             elif self.path == "/api/data":
                 self._send(200, export_constraints(
-                    body.get("org"), body.get("model")
+                    body.get("org"), body.get("model"),
+                    body.get("keyField") or DEFAULT_KEY_FIELD
                 ))
             elif self.path == "/api/data/compare":
                 self._send(200, compare_constraints(
-                    body.get("sourceOrg"), body.get("targetOrg"), body.get("model")
+                    body.get("sourceOrg"), body.get("targetOrg"), body.get("model"),
+                    body.get("keyField") or DEFAULT_KEY_FIELD
                 ))
             elif self.path == "/api/data/deploy":
                 self._send(200, deploy_constraints(
                     body.get("sourceOrg"), body.get("targetOrg"), body.get("model"),
-                    body.get("adds") or [], body.get("deletes") or []
+                    body.get("adds") or [], body.get("deletes") or [],
+                    body.get("keyField") or DEFAULT_KEY_FIELD
                 ))
             else:
                 self._send(404, {"error": "not found"})
@@ -1307,8 +1387,24 @@ PAGE = r"""<!DOCTYPE html>
       <div class="section-head">
         Constraint Data <span class="meta">— Product associations (ExpressionSetConstraintObj)</span>
       </div>
-      <p class="sub" style="margin:4px 0 12px;">Deploying CML code alone doesn't recreate the Product associations. These rows are matched across orgs by each reference record's <code>Global_Key__c</code>, not by record Id.</p>
-      <div class="btns" style="margin-top:0;">
+      <p class="sub" style="margin:4px 0 12px;">Deploying CML code alone doesn't recreate the Product associations. These rows are matched across orgs by a <strong>foreign key</strong> you choose below — a field whose value is the same for a record in every org — instead of by record Id.</p>
+      <div class="row" style="margin-bottom:4px;">
+        <div class="field" style="max-width:340px;">
+          <label for="keyField">Match records by (foreign key field)</label>
+          <input id="keyField" list="keyFieldOpts" value="Global_Key__c" spellcheck="false" autocomplete="off"
+                 placeholder="Global_Key__c" title="API name of a field that identifies the same record across orgs" />
+          <datalist id="keyFieldOpts">
+            <option value="Global_Key__c"></option>
+            <option value="Name"></option>
+            <option value="ProductCode"></option>
+            <option value="ExternalId"></option>
+            <option value="External_Id__c"></option>
+            <option value="StockKeepingUnit"></option>
+          </datalist>
+          <p class="meta" style="margin:6px 0 0;">Must exist on the reference objects. <code>Name</code> always works; pick a stable custom/external Id if you have one.</p>
+        </div>
+      </div>
+      <div class="btns" style="margin-top:6px;">
         <button class="ghost" id="loadDataBtn">View data (source org)</button>
         <button class="compare" id="compareDataBtn">Compare data (source ↔ target)</button>
       </div>
@@ -1358,7 +1454,8 @@ PAGE = r"""<!DOCTYPE html>
   const diffBox = $("diff"), diffSummary = $("diffSummary"), onlyDiffs = $("onlyDiffs");
   const diffPanes = $("diffPanes"), srcTable = $("srcTable"), tgtTable = $("tgtTable");
   const srcTitle = $("srcTitle"), tgtTitle = $("tgtTitle"), srcScroll = $("srcScroll"), tgtScroll = $("tgtScroll");
-  const loadDataBtn = $("loadDataBtn"), compareDataBtn = $("compareDataBtn");
+  const loadDataBtn = $("loadDataBtn"), compareDataBtn = $("compareDataBtn"), keyField = $("keyField");
+  const keyName = () => (keyField.value || "Global_Key__c").trim();
   const dataBox = $("data"), dataChips = $("dataChips"), dataTable = $("dataTable"), dataFilter = $("dataFilter");
   const deployBar = $("deployBar"), selSummary = $("selSummary"), deployDataBtn = $("deployDataBtn");
   const selAllAdds = $("selAllAdds"), selNoAdds = $("selNoAdds"), selAllDels = $("selAllDels"), selNoDels = $("selNoDels");
@@ -1367,6 +1464,7 @@ PAGE = r"""<!DOCTYPE html>
   let reconnecting = false;
   let dataRows = [];        // current rows shown in the data table
   let dataMode = "single";  // "single" (one org) or "compare"
+  let currentKeyField = "Global_Key__c";  // foreign key the shown data was matched on
 
   // ---- Theme (day/night) ----
   function applyThemeLabel() {
@@ -1729,7 +1827,7 @@ PAGE = r"""<!DOCTYPE html>
     if (s === "ready")      return '<span class="badge b-add">Add to target</span>';
     if (s === "extra")      return '<span class="badge b-extra">Only in target</span>';
     if (s === "blocked")    return '<span class="badge b-blocked">Blocked — ref missing in target</span>';
-    if (s === "unmappable") return '<span class="badge b-unmappable">No Global_Key__c</span>';
+    if (s === "unmappable") return '<span class="badge b-unmappable">No ' + esc(currentKeyField) + '</span>';
     return "";
   }
 
@@ -1781,7 +1879,7 @@ PAGE = r"""<!DOCTYPE html>
     const cols = (withStatus ? 7 : 5);
     const head = "<thead><tr>"
       + (withStatus ? '<th class="sel"></th><th>Status</th>' : "")
-      + "<th>Ref type</th><th>Tag type</th><th>Tag</th><th>Reference record</th><th>Global_Key__c</th>"
+      + "<th>Ref type</th><th>Tag type</th><th>Tag</th><th>Reference record</th><th>" + esc(currentKeyField) + "</th>"
       + "</tr></thead>";
     const body = visible.length
       ? visible.map(r => dataRowHtml(r, withStatus)).join("")
@@ -1819,9 +1917,10 @@ PAGE = r"""<!DOCTYPE html>
     busy(loadDataBtn, "Loading…");
     setStatus("info", `Loading constraint data for "${model.value}" from ${orgSel.value}…`);
     try {
-      const data = await postJSON("/api/data", { org: orgSel.value, model: model.value.trim() });
+      const data = await postJSON("/api/data", { org: orgSel.value, model: model.value.trim(), keyField: keyName() });
       if (data.ok) {
         dataMode = "single";
+        currentKeyField = data.keyField || keyName();
         dataRows = data.rows.map((r, i) => ({ ...r, _status: "", _i: i, _selected: false }));
         deployBar.classList.remove("show");
         results.classList.remove("show");
@@ -1829,7 +1928,7 @@ PAGE = r"""<!DOCTYPE html>
         renderDataTable();
         dataBox.classList.add("show");
         dataBox.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        const warn = data.stats.unmappable ? ` (${data.stats.unmappable} without Global_Key__c)` : "";
+        const warn = data.stats.unmappable ? ` (${data.stats.unmappable} without ${currentKeyField})` : "";
         setStatus("ok", `Loaded ${data.stats.total} constraint rows from ${orgSel.value}${warn}.`);
       } else {
         setStatus("err", data.log || "Could not load data.");
@@ -1848,9 +1947,10 @@ PAGE = r"""<!DOCTYPE html>
     busy(compareDataBtn, "Comparing…");
     setStatus("info", `Comparing constraint data for "${model.value}" between ${orgSel.value} and ${targetSel.value}…\nThis reads both orgs and can take up to a minute — please wait.`);
     try {
-      const data = await postJSON("/api/data/compare", { sourceOrg: orgSel.value, targetOrg: targetSel.value, model: model.value.trim() });
+      const data = await postJSON("/api/data/compare", { sourceOrg: orgSel.value, targetOrg: targetSel.value, model: model.value.trim(), keyField: keyName() });
       if (data.ok) {
         dataMode = "compare";
+        currentKeyField = data.keyField || keyName();
         const rows = [];
         data.matched.forEach(r => rows.push({ ...r, _status: "match" }));
         data.sourceOnly.forEach(r => rows.push({ ...r, _status: r.deployStatus === "ready" ? "add" : r.deployStatus }));
@@ -1881,7 +1981,7 @@ PAGE = r"""<!DOCTYPE html>
       const dn = dupSum(o.dups);
       dataChips.innerHTML =
         `<span class="chip ok">${o.total} rows · ${o.org}</span>`
-        + (o.unmappable ? `<span class="chip warn">${o.unmappable} without Global_Key__c</span>` : "")
+        + (o.unmappable ? `<span class="chip warn">${o.unmappable} without ${currentKeyField}</span>` : "")
         + (dn ? `<span class="chip warn">${dn} duplicate rows</span>` : "");
       return;
     }
@@ -1933,7 +2033,7 @@ PAGE = r"""<!DOCTYPE html>
     try {
       const data = await postJSON("/api/data/deploy", {
         sourceOrg: orgSel.value, targetOrg: targetSel.value, model: model.value.trim(),
-        adds, deletes
+        adds, deletes, keyField: keyName()
       });
       if (data.ok) {
         renderResults(data);
