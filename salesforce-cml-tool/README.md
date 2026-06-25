@@ -12,7 +12,7 @@ It does four things:
 | **Fetch** | Download the latest CML of any Expression Set / Constraint Model from an org into an editable text box (and save a copy locally). |
 | **Deploy** | Push CML (fetched or pasted) back to the latest version of that model in an org — with a confirmation prompt so nothing happens by accident. |
 | **Compare** | Fetch the **same** CML from a **source** and **target** org and show a synced, line-numbered, side-by-side diff that highlights every difference. |
-| **Constraint Data** | View, compare, and **deploy** the **Product associations** behind a CML (`ExpressionSetConstraintObj` records), matched across orgs by each record's `Global_Key__c` instead of by record Id. Pick exactly which rows to add or delete with checkboxes. |
+| **Constraint Data** | View, compare, and **deploy** the **Product associations** behind a CML (`ExpressionSetConstraintObj` records), matched across orgs by a **foreign key you choose** (default `Global_Key__c`) instead of by record Id. Pick exactly which rows to add or delete with checkboxes. |
 
 You select everything from dropdowns and lists, so there are **no typos** in org
 names or model API names.
@@ -136,72 +136,99 @@ Toggle **Night / Day mode** any time with the button in the top-right.
 
 ### Constraint Data (Product associations)
 
-Deploying CML code **alone** doesn't recreate the data behind it. When a model
-is built, Salesforce creates `ExpressionSetConstraintObj` records that link the
-Constraint Model to **Products, Product Classifications, Component Groups, and
-Related Components**. Those links are part of the configuration and must travel
-with the CML.
+**Why this exists:** deploying CML code **alone** doesn't recreate the data
+behind it. When a model is built, Salesforce creates `ExpressionSetConstraintObj`
+records that link the model to **Products, Product Classifications, Component
+Groups, and Related Components**. Those links must travel with the CML.
 
-The catch: each link points to its product/classification by **record Id**, and
-**record Ids differ in every org**. So the tool matches each row on a key that is
-**the same across orgs** — the reference record's **`Global_Key__c`** — instead
-of the Id.
+**The hard part:** each link points to its record by **record Id**, and Ids are
+**different in every org**. So the tool ignores Ids and matches each row on a
+**foreign key** — a field whose value is the **same for a record in every org**.
 
-Under **Constraint Data**, with a CML selected:
+#### Choose your foreign key
 
-- **View data (source org)** lists every constraint row for that model: the
-  reference type, tag, tag type, the linked record's name, and its
-  `Global_Key__c`.
-- **Compare data (source ↔ target)** lines the two orgs up by that portable key
-  and labels every row:
+- There's a **"Match records by (foreign key field)"** box. It defaults to
+  **`Global_Key__c`**, but you can type **any field API name** your org uses as a
+  stable cross-org identifier (e.g. an external Id, `ProductCode`,
+  `StockKeepingUnit`, or even `Name`).
+- The field only needs to exist on the reference objects you actually use. The
+  tool checks each object (**Product2, ProductClassification,
+  ProductComponentGroup, ProductRelatedComponent**) and uses the key only where
+  it's present — rows on objects that lack it are shown as **unmappable**.
+- `Name` always works as a fallback, though custom/external Ids are safer because
+  names can be duplicated or edited.
 
-  | Badge | Meaning |
-  |---|---|
-  | **Matched** | The association exists in both orgs. |
-  | **Add to target** | Only in source; the linked record **already exists** in the target (by `Global_Key__c`), so it's ready to be created there. |
-  | **Only in target** | Exists in the target but not in source (extra). |
-  | **Blocked — ref missing in target** | Only in source, but the linked record **doesn't exist** in the target yet, so it can't be created until that record is added. |
-  | **No `Global_Key__c`** | The linked record has no key, so it can't be matched across orgs. |
+#### Step 1 — View the data
 
-Use the **Show** filter to focus on just the matched / to-add / extra / blocked
-/ duplicate rows.
+- Pick a **Source org** and a **CML**, set your **foreign key field**, then click
+  **View data (source org)**.
+- You get a table of every constraint row: reference type, tag type, tag, the
+  linked record's name, and your chosen key value (the last column is labelled
+  with the field you picked).
 
-#### Finding duplicates
+![View constraint data](docs/screenshots/data-view.png)
+
+#### Step 2 — Compare source ↔ target
+
+- Click **Compare data (source ↔ target)**.
+- The tool lines both orgs up by your chosen **foreign key** and labels every row:
+
+| Badge | Meaning |
+|---|---|
+| **Matched** | The association exists in **both** orgs — nothing to do. |
+| **Add to target** | Only in source, and the linked record **already exists** in the target — ready to create. |
+| **Only in target** | Exists in the target but **not** in source (an extra). |
+| **Blocked — ref missing in target** | Only in source, but the linked record **isn't in the target yet** — add that record first. |
+| **No \<key field\>** | The linked record has no value for your key field, so it **can't be matched** across orgs. |
+
+- Use the **Show** filter to focus on matched / to-add / extra / blocked /
+  duplicate rows.
+
+![Compare constraint data](docs/screenshots/data-compare.png)
+
+#### Spotting duplicates
 
 Every row is checked for data-hygiene problems and tagged with a yellow badge:
 
 | Badge | Meaning |
 |---|---|
-| **Exact duplicate** | The same tag type + tag + reference + `Global_Key__c` appears more than once — a truly redundant row. |
+| **Exact duplicate** | Same tag type + tag + reference + `Global_Key__c` appears more than once — truly redundant. |
 | **Duplicate tag** | The same tag type + tag is used by more than one row. |
-| **Duplicate reference** | The same reference record is linked by more than one row. |
-| **Ambiguous name** | The same reference *name* maps to more than one `Global_Key__c` — a cross-org mapping hazard worth reviewing. |
+| **Duplicate reference** | The same record is linked by more than one row. |
+| **Ambiguous name** | One reference *name* maps to more than one `Global_Key__c` — a cross-org mapping hazard. |
 
-Pick **Duplicates only** in the Show filter to review them all at once.
+- Pick **Duplicates only** in the Show filter to review them all at once.
 
-#### Deploying constraint data (add / delete)
+#### Step 3 — Deploy what you picked (add / delete)
 
 In **Compare** mode, each actionable row gets a **checkbox**:
 
-- **"Add to target"** rows are **checked by default** — they'll be created in the
-  target.
-- **"Only in target"** rows are **unchecked by default** — tick them to **delete**
-  the extra associations (deletion is permanent, so it's opt-in).
-- **Matched** and **blocked** rows have no checkbox (nothing to do / can't map).
+- **Add to target** rows — **checked by default** → they get created in the target.
+- **Only in target** rows — **unchecked by default** → tick them to **delete** the
+  extras (deletion is permanent, so it's always opt-in).
+- **Matched** and **blocked** rows — no checkbox (nothing to do / can't map).
 
-Use **Select all adds / Clear adds / Select all deletes / Clear deletes** for bulk
-selection, review the running summary, then click **Deploy selected to target**.
-A confirmation dialog spells out exactly how many rows will be added and deleted.
+Then:
 
-Each row is processed **individually** (`allOrNone=false`), so one failure never
-blocks the rest — the **results panel** lists every insert and delete with a ✓ or
-✗ and the **exact platform error** when something can't be applied (for example, a
-record locked by an active version). After deploying, the comparison refreshes
-automatically so you can see the new state.
+- Use **Select all adds / Clear adds / Select all deletes / Clear deletes** for
+  bulk selection.
+- Review the running summary and click **Deploy selected to target**.
+- A confirmation dialog spells out exactly how many rows will be **added** and
+  **deleted**.
 
-> **Order matters:** deploy and activate the **CML** in the target first, then
-> deploy its constraint data. New associations attach to the target's existing
-> Expression Set for that model.
+![Deploy constraint data results](docs/screenshots/data-deploy.png)
+
+- Each row is processed **individually** (`allOrNone=false`) — one failure never
+  blocks the rest.
+- The **results panel** lists every insert/delete with a ✓ or ✗ and the **exact
+  platform error** when something can't be applied (e.g. a record locked by an
+  active version).
+- After deploying, the comparison **refreshes automatically** so you see the new
+  state.
+
+> **Order matters:** deploy and activate the **CML** in the target **first**,
+> then deploy its constraint data. New associations attach to the target's
+> existing Expression Set for that model.
 
 ---
 
@@ -250,9 +277,12 @@ JSON requests, so you can also script against the server if you want.
 - **Compare** fetches the CML from both orgs and diffs them in your browser with a
   longest-common-subsequence algorithm.
 - **Constraint Data** queries `ExpressionSetConstraintObj` for the selected model
-  and resolves each polymorphic `ReferenceObjectId` to its object type +
-  `Global_Key__c` (via a single SOQL `TYPEOF` query). Rows are matched across orgs
-  on `tag type + tag + reference type + Global_Key__c`, and source-only rows are
+  and resolves each polymorphic `ReferenceObjectId` to its object type + your
+  chosen **foreign key field** (default `Global_Key__c`) via a single SOQL
+  `TYPEOF` query. The key field is **validated** (plain identifier only, to keep
+  SOQL safe) and **probed per object**, so it's included only on the reference
+  objects that actually have it. Rows are matched across orgs on
+  `tag type + tag + reference type + <key value>`, and source-only rows are
   checked against the target to see whether their linked record already exists
   there.
 - **Deploying constraint data** re-resolves each selected row in the target —
@@ -325,17 +355,23 @@ you need help.
   brew install @salesforce/cli
   ```
 
-**Reason 2: `sf` is installed but no orgs are authorized**
+**Reason 2: `sf` is installed but no orgs are authorized for *this* user**
 
-Run in Terminal:
+Salesforce CLI logins are stored **per operating-system user** (under
+`~/.sfdx/` on macOS/Linux, `%USERPROFILE%\.sfdx\` on Windows). So if a
+*different person / system owner* opens the tool on their own account, they will
+see **no orgs** even though it works for you — they simply haven't logged in yet.
+
+Each user must authorize their own orgs, in their own login session:
 ```bash
-sf org list
+sf org list                          # confirm what THIS user can see
+sf org login web --alias myOrg       # repeat for each org
 ```
-If that returns nothing, authorize your orgs:
-```bash
-sf org login web --alias myOrg      # repeat for each org
-```
-Then refresh the tool — the dropdown fills automatically.
+Then click **Reload list** — the dropdown fills automatically.
+
+To see exactly what the tool detects (sf path, OS user, and how many saved
+logins exist), open `http://127.0.0.1:8787/api/debug` while the tool is running.
+If `authorized_org_files` is `0`, that user just needs to log in as above.
 
 ### "The Salesforce CLI ('sf') was not found"
 Install it and authorize at least one org:
@@ -407,3 +443,11 @@ build step: edit `cml_tool.py` and relaunch.
 ## License
 
 [MIT](./LICENSE) — free to use, modify, and share.
+
+---
+
+> **Disclaimer:** This is a community tool, not an official Salesforce product. It
+> is provided **as-is, without warranty of any kind**. You are responsible for
+> reviewing every change before you deploy — especially deletes — and for testing
+> in a sandbox first. The authors accept no liability for any data loss or other
+> impact to your orgs.
