@@ -346,7 +346,7 @@ def _collect_ids(root: Element, tag_local: str) -> set[str]:
 
 def validate_merge(base_root: Element, override_root: Element,
                    merged_root: Element) -> list[str]:
-    """Every identity present in either input must survive into the merge."""
+    """Every unique identity present in either input must survive into the merge."""
     errors: list[str] = []
     tags = set()
     for r in (base_root, override_root):
@@ -364,6 +364,28 @@ def validate_merge(base_root: Element, override_root: Element,
             errors.append(f"MISSING <{tag_local}> '{m.replace(chr(0x1f), ' / ')}' (from {src})")
     return errors
 
+
+def _find_duplicates(root: Element, label: str) -> list[str]:
+    """Return warnings for every duplicate identity key found in root."""
+    from collections import Counter
+    warnings: list[str] = []
+    counts: Counter = Counter()
+    for child in root:
+        tag = _local(child.tag)
+        if tag not in IDENTITY_KEYS:
+            continue
+        key = get_identity(child)
+        if key is not None:
+            counts[(tag, key)] += 1
+    for (tag, key), count in sorted(counts.items()):
+        if count > 1:
+            display_key = key.replace("\x1f", " / ")
+            warnings.append(
+                f"  [{label}] <{tag}> '{display_key}' appears {count}x — "
+                f"only the last occurrence will be kept in the merged output."
+            )
+    return warnings
+
 # ───────────────────────────────────────────────────────────────────────
 # Operation: MERGE
 # ───────────────────────────────────────────────────────────────────────
@@ -375,7 +397,7 @@ def _parse(text: str, label: str) -> Element:
 
 
 def merge_xml(base_text: str, override_text: str) -> dict:
-    """Merge two pasted XML strings. Returns {ok, merged, report, warnings}."""
+    """Merge two pasted XML strings. Returns {ok, merged, report, warnings, duplicates}."""
     try:
         base_root = _parse(base_text, "Base")
         override_root = _parse(override_text, "Modified")
@@ -390,6 +412,11 @@ def merge_xml(base_text: str, override_text: str) -> dict:
             f"Modified is <{_local(override_root.tag)}>. They must be the same "
             "metadata type to merge.")}
 
+    dup_warnings: list[str] = (
+        _find_duplicates(base_root, "Base") +
+        _find_duplicates(override_root, "Modified")
+    )
+
     actions: list[tuple] = []
     root_local = _local(base_root.tag)
     merged_root = deep_merge(base_root, override_root, report=actions, path=root_local)
@@ -399,16 +426,38 @@ def merge_xml(base_text: str, override_text: str) -> dict:
 
     errors = validate_merge(base_root, override_root, merged_root)
     merged_xml = serialize_tree(merged_root)
-    report = _format_merge_report(actions, base_root, override_root, merged_root, errors)
+    report = _format_merge_report(
+        actions, base_root, override_root, merged_root, errors, dup_warnings)
 
     return {"ok": True, "merged": merged_xml, "report": report,
-            "warnings": errors, "rootType": root_local}
+            "warnings": errors, "duplicates": dup_warnings, "rootType": root_local}
 
 
 def _format_merge_report(actions: list[tuple], base_root: Element,
                          override_root: Element, merged_root: Element,
-                         errors: list[str]) -> str:
+                         errors: list[str],
+                         dup_warnings: list[str] | None = None) -> str:
     lines: list[str] = []
+
+    if dup_warnings:
+        lines.append("!" * 60)
+        lines.append(f"  DUPLICATE ENTRIES DETECTED IN INPUT FILES  ({len(dup_warnings)} total)")
+        lines.append("!" * 60)
+        lines.append("")
+        lines.append("  Your input XML files contain elements with duplicate identity")
+        lines.append("  keys (same apexClass, field, object, etc. listed more than once).")
+        lines.append("  The merge engine keeps only the LAST occurrence of each duplicate.")
+        lines.append("  The merged output has FEWER entries than your inputs as a result.")
+        lines.append("")
+        lines.append("  To fix: run the DEDUPLICATE operation on each input file first,")
+        lines.append("  then re-merge the cleaned files.")
+        lines.append("")
+        for w in dup_warnings:
+            lines.append(w)
+        lines.append("")
+        lines.append("!" * 60)
+        lines.append("")
+
     tags = set()
     for r in (base_root, override_root, merged_root):
         for elem in r.iter():
@@ -423,7 +472,8 @@ def _format_merge_report(actions: list[tuple], base_root: Element,
             b = len(_collect_ids(base_root, tag_local))
             o = len(_collect_ids(override_root, tag_local))
             m = len(_collect_ids(merged_root, tag_local))
-            lines.append(f"{tag_local:<34}{b:>7}{o:>10}{m:>8}")
+            flag = " !" if m < b else ""
+            lines.append(f"{tag_local:<34}{b:>7}{o:>10}{m:>8}{flag}")
         lines.append("")
 
     adds = [a for a in actions if a[0] == "ADD"]
@@ -615,6 +665,260 @@ def dedup_permset_text(text: str) -> dict:
             "report": "\n".join(report_lines), "removed": total_dupes}
 
 # ───────────────────────────────────────────────────────────────────────
+# Operation: CONTEXT DEFINITION FIX
+# ───────────────────────────────────────────────────────────────────────
+
+def _cd_get_versions(root: Element) -> Element | None:
+    return root.find(_ns("contextDefinitionVersions"))
+
+
+def _cd_get_mapping(versions: Element, title: str) -> Element | None:
+    for cm in versions.findall(_ns("contextMappings")):
+        if _child_text(cm, "title") == title:
+            return cm
+    return None
+
+
+def _cd_get_node_mapping(mapping: Element, ctx_node: str, obj: str) -> Element | None:
+    for nm in mapping.findall(_ns("contextNodeMappings")):
+        if _child_text(nm, "contextNode") == ctx_node and _child_text(nm, "object") == obj:
+            return nm
+    return None
+
+
+def _cd_get_context_node(versions: Element, title: str) -> Element | None:
+    for cn in versions.findall(_ns("contextNodes")):
+        if _child_text(cn, "title") == title:
+            return cn
+    return None
+
+
+def _cd_has_attr_mapping(node_mapping: Element, attr_name: str) -> bool:
+    return any(_child_text(cam, "contextAttribute") == attr_name
+               for cam in node_mapping.findall(_ns("contextAttributeMappings")))
+
+
+def _cd_has_context_attr(context_node: Element, title: str) -> bool:
+    return any(_child_text(ca, "title") == title
+               for ca in context_node.findall(_ns("contextAttributes")))
+
+
+def _cd_field_info(cam: Element) -> str:
+    """Human-readable field description from a contextAttributeMappings element."""
+    hd = cam.find(_ns("contextAttrHydrationDetails"))
+    if hd is not None:
+        obj = _child_text(hd, "objectName")
+        field = _child_text(hd, "queryAttribute")
+        if obj and field:
+            return f"{obj}.{field}"
+    ctxs = cam.find(_ns("ctxAttrHydrationCtxs"))
+    if ctxs is not None:
+        cqa = _child_text(ctxs, "contextQueryAttribute")
+        if cqa:
+            return f"hydration ref: {cqa}"
+    return ""
+
+
+def _cd_group_key(name: str) -> str:
+    """Strip known object-role prefixes for visual grouping."""
+    for prefix in ("AAS", "ASP", "ASS", "STI", "OLI", "Asset_"):
+        if name.startswith(prefix) and len(name) > len(prefix):
+            return name[len(prefix):]
+    return name
+
+
+def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
+    """
+    Scan Modified for contextAttributeMappings and contextAttributes that
+    do not exist in Base.  Returns the full list so the UI can let the user
+    pick which ones to apply.
+    """
+    if not base_text.strip() or not modified_text.strip():
+        return {"ok": False, "log": "Paste both Base and Modified XMLs first."}
+    try:
+        base_root = _parse(base_text, "Base")
+        mod_root  = _parse(modified_text, "Modified")
+    except (ValueError, ET.ParseError) as exc:
+        return {"ok": False, "log": str(exc)}
+
+    if _local(base_root.tag) != "ContextDefinition" or _local(mod_root.tag) != "ContextDefinition":
+        return {"ok": False,
+                "log": "Both XMLs must be ContextDefinition metadata "
+                       f"(got <{_local(base_root.tag)}> and <{_local(mod_root.tag)}>)."}
+
+    base_ver = _cd_get_versions(base_root)
+    mod_ver  = _cd_get_versions(mod_root)
+    if base_ver is None or mod_ver is None:
+        return {"ok": False, "log": "Could not find <contextDefinitionVersions> in both files."}
+
+    items: list[dict] = []
+
+    # ── contextMappings → contextNodeMappings → contextAttributeMappings ──────
+    for mod_m in mod_ver.findall(_ns("contextMappings")):
+        m_title = _child_text(mod_m, "title")
+        if not m_title:
+            continue
+        base_m = _cd_get_mapping(base_ver, m_title)
+
+        for mod_nm in mod_m.findall(_ns("contextNodeMappings")):
+            ctx_node = _child_text(mod_nm, "contextNode")
+            obj      = _child_text(mod_nm, "object")
+            if not ctx_node or not obj:
+                continue
+            base_nm = (_cd_get_node_mapping(base_m, ctx_node, obj)
+                       if base_m is not None else None)
+
+            for cam in mod_nm.findall(_ns("contextAttributeMappings")):
+                attr = _child_text(cam, "contextAttribute")
+                if not attr:
+                    continue
+                if base_nm is not None and _cd_has_attr_mapping(base_nm, attr):
+                    continue   # already in base
+                field_info = _cd_field_info(cam)
+                items.append({
+                    "id":           f"cam\x1f{m_title}\x1f{ctx_node}\x1f{obj}\x1f{attr}",
+                    "type":         "mapping",
+                    "mappingTitle": m_title,
+                    "contextNode":  ctx_node,
+                    "object":       obj,
+                    "attrName":     attr,
+                    "fieldInfo":    field_info,
+                    "group":        _cd_group_key(attr),
+                    "path":         f"{m_title} → {ctx_node} / {obj}",
+                    "missingParent": base_m is None or base_nm is None,
+                })
+
+    # ── contextNodes → contextAttributes ─────────────────────────────────────
+    for mod_cn in mod_ver.findall(_ns("contextNodes")):
+        cn_title = _child_text(mod_cn, "title")
+        if not cn_title:
+            continue
+        base_cn = _cd_get_context_node(base_ver, cn_title)
+
+        for ca in mod_cn.findall(_ns("contextAttributes")):
+            ca_title = _child_text(ca, "title")
+            if not ca_title:
+                continue
+            if base_cn is not None and _cd_has_context_attr(base_cn, ca_title):
+                continue   # already in base
+            items.append({
+                "id":        f"ca\x1f{cn_title}\x1f{ca_title}",
+                "type":      "nodeAttr",
+                "nodeName":  cn_title,
+                "attrTitle": ca_title,
+                "fieldInfo": "",
+                "group":     _cd_group_key(ca_title),
+                "path":      f"contextNodes[{cn_title}]",
+                "missingParent": base_cn is None,
+            })
+
+    if not items:
+        return {"ok": True, "items": [],
+                "summary": "No additions found — Modified has nothing new beyond Base."}
+
+    return {"ok": True, "items": items,
+            "summary": f"Found {len(items)} addition(s) in Modified that are absent from Base."}
+
+
+def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict:
+    """
+    Apply the user-selected additions from Modified into Base.
+    Returns the merged XML and a human-readable apply-report.
+    """
+    if not base_text.strip() or not modified_text.strip():
+        return {"ok": False, "log": "Base and Modified XMLs are required."}
+    if not selected_ids:
+        return {"ok": False, "log": "No items selected — tick at least one field to include."}
+    try:
+        base_root = _parse(base_text, "Base")
+        mod_root  = _parse(modified_text, "Modified")
+    except (ValueError, ET.ParseError) as exc:
+        return {"ok": False, "log": str(exc)}
+
+    base_ver = _cd_get_versions(base_root)
+    mod_ver  = _cd_get_versions(mod_root)
+    if base_ver is None or mod_ver is None:
+        return {"ok": False, "log": "Could not find <contextDefinitionVersions>."}
+
+    selected = set(selected_ids)
+    report_lines = ["CONTEXT DEFINITION FIX — APPLY REPORT", "=" * 60, ""]
+    applied = skipped = 0
+    errs: list[str] = []
+
+    # ── contextAttributeMappings ──────────────────────────────────────────────
+    for mod_m in mod_ver.findall(_ns("contextMappings")):
+        m_title = _child_text(mod_m, "title")
+        for mod_nm in mod_m.findall(_ns("contextNodeMappings")):
+            ctx_node = _child_text(mod_nm, "contextNode")
+            obj      = _child_text(mod_nm, "object")
+            for cam in mod_nm.findall(_ns("contextAttributeMappings")):
+                attr    = _child_text(cam, "contextAttribute")
+                item_id = f"cam\x1f{m_title}\x1f{ctx_node}\x1f{obj}\x1f{attr}"
+                if item_id not in selected:
+                    continue
+                base_m = _cd_get_mapping(base_ver, m_title)
+                if base_m is None:
+                    errs.append(f"  ✗ contextMappings[{m_title}] not found in Base — skipped {attr}")
+                    skipped += 1
+                    continue
+                base_nm = _cd_get_node_mapping(base_m, ctx_node, obj)
+                if base_nm is None:
+                    errs.append(f"  ✗ contextNodeMappings[{ctx_node}/{obj}] not in {m_title} — skipped {attr}")
+                    skipped += 1
+                    continue
+                if _cd_has_attr_mapping(base_nm, attr):
+                    report_lines.append(f"  ✓ already present: {attr}  [{m_title}/{ctx_node}/{obj}]")
+                    skipped += 1
+                    continue
+                new_cam = copy.deepcopy(cam)
+                children = list(base_nm)
+                idx = next((i for i, ch in enumerate(children)
+                            if _local(ch.tag) == "contextNode"), len(children))
+                base_nm.insert(idx, new_cam)
+                report_lines.append(f"  + added: {attr}  [{m_title}/{ctx_node}/{obj}]")
+                applied += 1
+
+    # ── contextAttributes in contextNodes ─────────────────────────────────────
+    for mod_cn in mod_ver.findall(_ns("contextNodes")):
+        cn_title = _child_text(mod_cn, "title")
+        for ca in mod_cn.findall(_ns("contextAttributes")):
+            ca_title = _child_text(ca, "title")
+            item_id  = f"ca\x1f{cn_title}\x1f{ca_title}"
+            if item_id not in selected:
+                continue
+            base_cn = _cd_get_context_node(base_ver, cn_title)
+            if base_cn is None:
+                errs.append(f"  ✗ contextNodes[{cn_title}] not found in Base — skipped {ca_title}")
+                skipped += 1
+                continue
+            if _cd_has_context_attr(base_cn, ca_title):
+                report_lines.append(f"  ✓ already present: {ca_title}  [contextNodes/{cn_title}]")
+                skipped += 1
+                continue
+            new_ca = copy.deepcopy(ca)
+            children = list(base_cn)
+            last_ca = max((i for i, ch in enumerate(children)
+                           if _local(ch.tag) == "contextAttributes"), default=-1)
+            base_cn.insert(last_ca + 1, new_ca)
+            report_lines.append(f"  + added: {ca_title}  [contextNodes/{cn_title}]")
+            applied += 1
+
+    report_lines += ["",
+                     f"Summary: {applied} added · {skipped} skipped · {len(errs)} error(s)"]
+    if errs:
+        report_lines += ["", "Errors:"] + errs
+
+    return {
+        "ok":      True,
+        "result":  serialize_tree(base_root),
+        "report":  "\n".join(report_lines),
+        "applied": applied,
+        "skipped": skipped,
+        "errors":  len(errs),
+    }
+
+
+# ───────────────────────────────────────────────────────────────────────
 # HTTP server
 # ───────────────────────────────────────────────────────────────────────
 
@@ -676,6 +980,12 @@ class Handler(BaseHTTPRequestHandler):
                                             body.get("tag", "")))
             elif self.path == "/api/dedup":
                 self._send(200, dedup_permset_text(body.get("content", "")))
+            elif self.path == "/api/cdfix/analyze":
+                self._send(200, cd_fix_analyze(body.get("base", ""), body.get("modified", "")))
+            elif self.path == "/api/cdfix/build":
+                self._send(200, cd_fix_build(
+                    body.get("base", ""), body.get("modified", ""),
+                    body.get("selectedIds", [])))
             else:
                 self._send(404, {"error": "not found"})
         except Exception as exc:  # noqa: BLE001
