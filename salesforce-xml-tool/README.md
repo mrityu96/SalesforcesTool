@@ -4,13 +4,14 @@ A tiny, **zero-dependency** local web app for working with Salesforce metadata X
 Paste your XML, pick an operation, and go — no terminal commands, no installs, and
 nothing ever leaves your machine.
 
-It does three things:
+It does four things:
 
 | Operation | What it does |
 |---|---|
 | **Compare** | Side-by-side diff of two XMLs (changed / only-left / only-right) **plus** an order-independent *structural* summary that ignores element ordering. Also works on plain text/Apex (line diff only). |
 | **Merge** | Merge a **Base** XML and a **Modified** XML into one. You choose which side is the base; the tool keeps the base intact and layers the other side's changes on top — matching identity keys (e.g. `apexClass`, `field`, `object`, `contextMapping title`) so nothing is duplicated or lost. |
 | **Deduplicate** | Remove duplicate entries from a Permission Set / Profile and output a clean, consistently sorted file. |
+| **Context Definition Fix** | Compare a **Base** Context Definition and a **Modified** one, find every context mapping / node attribute that exists only in the modified, then let you cherry-pick exactly which additions to apply back into the base — and download the patched file. |
 
 Built for Salesforce metadata such as **Permission Sets, Profiles, and Context
 Definitions**, but the compare works on any XML (or text).
@@ -46,12 +47,6 @@ Definitions**, but the compare works on any XML (or text).
 3. Your browser opens at `http://127.0.0.1:8799`. Done.
 
 To stop it later, double-click **`Stop XML Tool.command`**.
-
-> First launch: macOS may say *"unidentified developer."* Right-click the file →
-> **Open** → **Open**, or allow it under **System Settings → Privacy & Security →
-> Open Anyway**. This is a one-time approval per machine.
-
-if you encounter error -> 
 
 > **First launch shows a security warning?** That's normal — see
 > [macOS security warning](#macos-security-warning-apple-could-not-verify) below.
@@ -109,6 +104,47 @@ set XML_UI_PORT=8900 && python xml_tool.py  # Windows
 
 ![Deduplicate view](docs/screenshots/dedup.png)
 
+### Context Definition Fix
+
+Use this tab when you need to bring new context mappings or node attributes from
+a **Modified** Context Definition (e.g. a QA or UAT org export) into a **Base**
+Context Definition (e.g. your local working copy or your production XML) — without
+re-running a full merge that might overwrite things you want to keep.
+
+![Context Definition Fix — analyze step](docs/screenshots/cdfix-analyze.png)
+
+**Step 1 — Analyze Differences**
+
+1. Open the **Context Definition Fix** tab.
+2. Paste your **Base** Context Definition XML (Pane 1) and the **Modified** XML (Pane 2).
+3. Click **Analyze Differences**.
+
+The tool scans both files and lists every context mapping / node attribute that
+is **present in Modified but missing from Base** — grouped by the context
+attribute name they belong to. Each card shows:
+
+- Whether it's a **Mapping** (a `contextAttributeMappings` entry) or a **Node Attr**
+  (a `contextAttributes` entry on a `contextNodes` node).
+- The **full attribute name** so you can immediately see what it is.
+- The **location** — which mapping title, context node, and object the entry lives under.
+- The **SF Field** (or hydration reference, or node role).
+
+**Step 2 — Select & Apply**
+
+![Context Definition Fix — select step](docs/screenshots/cdfix-select.png)
+
+4. All differences are selected by default. Deselect any you want to skip.
+   - Use **Select all** / **Deselect all** to bulk-toggle.
+   - Each group header has its own checkbox to toggle the whole group at once.
+5. Click **Apply Selected to Base** — the tool patches the Base XML in memory,
+   inserting each selected entry into exactly the right place in the right
+   mapping / node block.
+6. A confirmation dialog shows a summary of what was applied. Click **Download
+   fixed Base XML** to save the result, or **Copy to clipboard**.
+
+> **Nothing is lost.** The tool only *adds* entries that are missing from Base.
+> It never removes or overwrites anything that already exists.
+
 Toggle **Night / Day mode** any time with the button in the top-right (the Merge
 screenshot above shows dark mode).
 
@@ -118,7 +154,7 @@ screenshot above shows dark mode).
 
 ```
 salesforce-xml-tool/
-├── xml_tool.py            # Local server + merge/compare/dedup engine (the logic)
+├── xml_tool.py            # Local server + merge/compare/dedup/cdfix engine (the logic)
 ├── xml_tool_page.py       # The web UI (HTML + CSS + JS), kept separate for clarity
 ├── Open XML Tool.command  # macOS: double-click to start (runs in background)
 ├── Stop XML Tool.command  # macOS: double-click to stop
@@ -131,8 +167,9 @@ salesforce-xml-tool/
     └── screenshots/       # Images used in this README
 ```
 
-The endpoints (`/api/compare`, `/api/merge`, `/api/dedup`) are simple JSON POSTs,
-so you can also script against the server if you want.
+The endpoints (`/api/compare`, `/api/merge`, `/api/dedup`, `/api/cdfix/analyze`,
+`/api/cdfix/build`) are simple JSON POSTs, so you can also script against the
+server if you want.
 
 ---
 
