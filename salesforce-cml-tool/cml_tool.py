@@ -27,6 +27,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -1058,6 +1059,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, PAGE, "text/html; charset=utf-8")
             elif self.path == "/api/ping":
                 self._send(200, {"app": APP_ID, "build": BUILD})
+            elif self.path == "/api/quit":
+                # Lets a newly-launched (updated) instance ask this one to exit so
+                # the new build can take over the port. Shut down from a separate
+                # thread so this response finishes first.
+                self._send(200, {"ok": True, "bye": True})
+                threading.Thread(target=lambda: (time.sleep(0.3), self.server.shutdown()), daemon=True).start()
             elif self.path == "/api/orgs":
                 self._send(200, list_orgs())
             elif self.path == "/api/debug":
@@ -1139,13 +1146,32 @@ def port_in_use(port):
 
 def is_our_server(port):
     """Return True only if a *current* CML Tool is already serving this port."""
+    return _server_build(port) is not None
+
+
+def _server_build(port):
+    """Build hash of a CML Tool already on this port, or None if it isn't ours."""
     try:
         with urllib.request.urlopen(
             f"http://127.0.0.1:{port}/api/ping", timeout=2
         ) as resp:
-            return json.loads(resp.read().decode("utf-8")).get("app") == APP_ID
+            info = json.loads(resp.read().decode("utf-8"))
+            return info.get("build") if info.get("app") == APP_ID else None
     except Exception:  # noqa: BLE001
-        return False
+        return None
+
+
+def _quit_running(port):
+    """Ask a running CML Tool to exit, then wait for the port to free up."""
+    try:
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/api/quit", timeout=3).read()
+    except Exception:  # noqa: BLE001
+        pass
+    for _ in range(40):  # up to ~10s
+        if not port_in_use(port):
+            return True
+        time.sleep(0.25)
+    return not port_in_use(port)
 
 
 
@@ -1185,7 +1211,13 @@ PAGE = r"""<!DOCTYPE html>
   .wrap { width: 100%; max-width: none; margin: 0; padding: 24px clamp(16px, 3vw, 40px) 60px; }
   .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
   h1 { font-size: 20px; margin: 0 0 4px; }
+  .byline { font-size: 13px; margin: 0 0 6px; color: var(--muted); }
+  .byline strong { color: var(--accent); font-weight: 600; }
+  .byline a { color: var(--accent); text-decoration: none; }
+  .byline a:hover { text-decoration: underline; }
+  .byline .heart { color: var(--accent); }
   .sub { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
+  .appver { color: var(--muted); font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; opacity: .8; white-space: nowrap; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; }
   .row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; }
   .field { flex: 1; min-width: 220px; }
@@ -1226,6 +1258,13 @@ PAGE = r"""<!DOCTYPE html>
   select[size] { padding: 0; height: auto; }
   select[size] option { padding: 8px 12px; border-bottom: 1px solid var(--line); }
   select[size] option:checked { background: var(--accent); color: #fff; }
+  .combo-selected { display: flex; align-items: center; gap: 10px; }
+  .selchip { flex: 1; display: inline-flex; align-items: center; gap: 8px; padding: 10px 12px;
+    border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600; font-size: 14px;
+    border: 1px solid var(--accent); min-width: 0; }
+  .selchip .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .selchip::before { content: "✓"; font-weight: 700; flex: none; }
+  [hidden] { display: none !important; }
   .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(128,128,128,.35); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; margin-right: 6px; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .conn { display: none; margin: 0 0 16px; padding: 11px 14px; border-radius: 8px; font-size: 13px;
@@ -1305,6 +1344,47 @@ PAGE = r"""<!DOCTYPE html>
   .result-row.good { background: var(--ok-bg); color: var(--ok-text); }
   .result-row.bad { background: var(--err-bg); color: var(--err-text); }
   .result-row .ico { font-weight: 700; }
+  /* ---- Best-practices lint report ---- */
+  .lint { display: none; margin-top: 16px; }
+  .lint.show { display: block; }
+  .lint-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .lint-head h4 { margin: 0; font-size: 14px; }
+  .lint-score { font-size: 13px; font-weight: 700; padding: 4px 10px; border-radius: 999px; }
+  .lint-score.good { background: var(--ok-bg); color: var(--ok-text); }
+  .lint-score.mid { background: var(--del-bg); color: var(--del-line); }
+  .lint-score.bad { background: var(--err-bg); color: var(--err-text); }
+  .lint-counts { font-size: 12px; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; }
+  .lint-caption { font-size: 12px; color: var(--muted); margin: 8px 0 12px; line-height: 1.5; }
+  .lint-item { border: 1px solid var(--line); border-left-width: 4px; border-radius: 8px; padding: 8px 12px; margin-bottom: 6px; font-size: 13px; }
+  .lint-item .rmeta { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
+  .lint-item .msg { color: var(--text); }
+  .lint-item .fix { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .lint-item.error { border-left-color: var(--red); }
+  .lint-item.warn { border-left-color: var(--del-line); }
+  .lint-item.info { border-left-color: var(--accent); }
+  .lint-line { font-family: "SF Mono", Menlo, Consolas, monospace; color: var(--accent); cursor: pointer; font-weight: 700; }
+  .lint-empty { padding: 12px; border-radius: 8px; background: var(--ok-bg); color: var(--ok-text); font-size: 13px; }
+  .lint-fix { margin-top: 8px; }
+  .lint-fix .fixhead { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 8px 0 3px; display: flex; align-items: center; gap: 8px; }
+  .lint-code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); }
+  .lint-code.before { background: var(--del-bg); color: var(--del-line); }
+  .lint-code.after { background: var(--ins-bg); color: var(--ins-line); }
+  .lint-copy { font-size: 11px; padding: 1px 8px; }
+  /* ---- Semantic diff ---- */
+  .sem-diff { display: none; margin-top: 12px; }
+  .sem-diff.show { display: block; }
+  .sem-sec { margin-bottom: 14px; }
+  .sem-sec h4 { margin: 0 0 6px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .sem-block { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin-bottom: 6px; font-size: 13px; }
+  .sem-block .nm { font-weight: 700; }
+  .sem-block .knd { font-size: 11px; color: var(--muted); }
+  .sem-mem { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; padding: 3px 8px; border-radius: 5px; margin: 3px 0; white-space: pre-wrap; }
+  .sem-mem.add { background: var(--ins-bg); color: var(--ins-line); }
+  .sem-mem.del { background: var(--del-bg); color: var(--del-line); }
+  .sem-mem.chg { background: var(--chg-bg); color: var(--chg-line); }
+  .sem-mem .lab { font-weight: 700; margin-right: 6px; }
+  .sem-ok { padding: 12px; border-radius: 8px; background: var(--ok-bg); color: var(--ok-text); font-size: 13px; }
+  .sem-moved { font-size: 12px; color: var(--muted); margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -1312,9 +1392,13 @@ PAGE = r"""<!DOCTYPE html>
     <div class="topbar">
       <div>
         <h1>CML Fetch, Deploy &amp; Compare</h1>
+        <p class="byline">Made with <span class="heart">&#128153;</span> by <a href="https://www.linkedin.com/in/mrpancholi/" target="_blank" rel="noopener noreferrer"><strong>Mritunjaya Pancholi</strong></a></p>
         <p class="sub">Pick a source org — its CMLs load automatically. Fetch, Deploy, or Compare against a target org. No terminal needed.</p>
       </div>
-      <button class="ghost" id="themeBtn" title="Toggle day/night">Night mode</button>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span class="appver" id="appver" title="Running build — confirms you're on the latest version"></span>
+        <button class="ghost" id="themeBtn" title="Toggle day/night">Night mode</button>
+      </div>
     </div>
 
     <div class="conn" id="conn"></div>
@@ -1334,9 +1418,13 @@ PAGE = r"""<!DOCTYPE html>
       <div class="row" style="margin-top:14px;">
         <div class="field">
           <label for="model">CML <span id="cmlCount" class="meta"></span></label>
-          <div class="combo">
+          <div class="combo" id="combo">
             <input id="cmlFilter" placeholder="Type to filter CMLs…" autocomplete="off" spellcheck="false" />
             <select id="model" size="6"><option value="">Choose an org first…</option></select>
+          </div>
+          <div class="combo-selected" id="comboSelected" hidden>
+            <span class="selchip"><span class="name" id="selectedName"></span></span>
+            <button type="button" class="ghost" id="changeModelBtn">Change CML</button>
           </div>
         </div>
       </div>
@@ -1355,10 +1443,15 @@ PAGE = r"""<!DOCTYPE html>
       <div class="editor">
         <div class="editor-head">
           <label>CML Content</label>
-          <button class="ghost" id="copyBtn">Copy</button>
+          <span style="display:flex;gap:8px;">
+            <button class="ghost" id="lintBtn" title="Scan the CML above against built-in best-practice rules">Check best practices</button>
+            <button class="ghost" id="copyBtn">Copy</button>
+          </span>
         </div>
         <textarea id="content" placeholder="Fetched CML appears here. You can also paste CML here and Deploy it." spellcheck="false"></textarea>
       </div>
+
+      <div class="lint" id="lint"></div>
 
       <div class="status" id="status"></div>
 
@@ -1366,10 +1459,13 @@ PAGE = r"""<!DOCTYPE html>
         <div class="diff-head">
           <div class="summary" id="diffSummary"></div>
           <div class="legend">
-            <span><i class="lg-chg">~</i>Changed</span>
-            <span><i class="lg-del">&minus;</i>Only in source</span>
-            <span><i class="lg-ins">+</i>Only in target</span>
-            <label class="diff-opts"><input type="checkbox" id="onlyDiffs" /> Show only differences</label>
+            <span id="lineLegend">
+              <span><i class="lg-chg">~</i>Changed</span>
+              <span><i class="lg-del">&minus;</i>Only in source</span>
+              <span><i class="lg-ins">+</i>Only in target</span>
+            </span>
+            <label class="diff-opts" id="onlyDiffsWrap"><input type="checkbox" id="onlyDiffs" /> Show only differences</label>
+            <label class="diff-opts" title="Compare by structure (types, attributes, relations, constraints) ignoring order and formatting"><input type="checkbox" id="semanticDiff" /> Semantic</label>
           </div>
         </div>
         <div class="diff-panes" id="diffPanes">
@@ -1382,6 +1478,7 @@ PAGE = r"""<!DOCTYPE html>
             <div class="pane-scroll" id="tgtScroll"><table class="pane-table" id="tgtTable"></table></div>
           </div>
         </div>
+        <div class="sem-diff" id="semDiff"></div>
       </div>
 
       <div class="section-head">
@@ -1449,11 +1546,15 @@ PAGE = r"""<!DOCTYPE html>
   const orgSel = $("org"), targetSel = $("targetOrg"), model = $("model"), content = $("content"), status = $("status");
   const fetchBtn = $("fetchBtn"), deployBtn = $("deployBtn"), compareBtn = $("compareBtn"), copyBtn = $("copyBtn");
   const cmlFilter = $("cmlFilter"), reloadBtn = $("reloadBtn"), cmlCount = $("cmlCount");
+  const combo = $("combo"), comboSelected = $("comboSelected"), selectedName = $("selectedName"), changeModelBtn = $("changeModelBtn");
   const deployOrgSel = $("deployOrg");
   const themeBtn = $("themeBtn"), conn = $("conn");
   const diffBox = $("diff"), diffSummary = $("diffSummary"), onlyDiffs = $("onlyDiffs");
   const diffPanes = $("diffPanes"), srcTable = $("srcTable"), tgtTable = $("tgtTable");
   const srcTitle = $("srcTitle"), tgtTitle = $("tgtTitle"), srcScroll = $("srcScroll"), tgtScroll = $("tgtScroll");
+  const lintBtn = $("lintBtn"), lintBox = $("lint");
+  const semanticChk = $("semanticDiff"), semDiff = $("semDiff"), lineLegend = $("lineLegend"), onlyDiffsWrap = $("onlyDiffsWrap");
+  let lastCompare = null;
   const loadDataBtn = $("loadDataBtn"), compareDataBtn = $("compareDataBtn"), keyField = $("keyField");
   const keyName = () => (keyField.value || "Global_Key__c").trim();
   const dataBox = $("data"), dataChips = $("dataChips"), dataTable = $("dataTable"), dataFilter = $("dataFilter");
@@ -1580,7 +1681,28 @@ PAGE = r"""<!DOCTYPE html>
     }
   }
 
+  // Collapse the picklist down to just the chosen CML once one is picked, and
+  // let the user re-open the full list with "Change CML".
+  function collapseModelView() {
+    if (!model.value) return;
+    const opt = model.options[model.selectedIndex];
+    selectedName.textContent = opt ? opt.textContent : model.value;
+    combo.hidden = true;
+    comboSelected.hidden = false;
+  }
+  function expandModelView() {
+    comboSelected.hidden = true;
+    combo.hidden = false;
+    try { cmlFilter.focus(); } catch (e) {}
+  }
+  model.addEventListener("click", () => { if (model.value) collapseModelView(); });
+  model.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && model.value) { e.preventDefault(); collapseModelView(); }
+  });
+  changeModelBtn.onclick = expandModelView;
+
   function renderModels() {
+    expandModelView();
     const f = cmlFilter.value.trim().toLowerCase();
     const list = allModels.filter(m =>
       !f || m.name.toLowerCase().includes(f) || (m.label || "").toLowerCase().includes(f));
@@ -1599,6 +1721,7 @@ PAGE = r"""<!DOCTYPE html>
   async function loadModels() {
     const org = orgSel.value;
     if (!org) return;
+    expandModelView();
     allModels = [];
     cmlCount.textContent = "";
     model.innerHTML = '<option value="">Loading CMLs…</option>';
@@ -1680,7 +1803,8 @@ PAGE = r"""<!DOCTYPE html>
     try {
       const data = await postJSON("/api/compare", { sourceOrg: orgSel.value, targetOrg: targetSel.value, model: model.value.trim() });
       if (data.ok) {
-        renderDiff(data.source, data.target);
+        lastCompare = { src: data.source, tgt: data.target };
+        renderCompare();
         setStatus("ok", `Compared "${data.model}".\nSource: ${data.source.file}\nTarget: ${data.target.file}`);
       } else {
         setStatus("err", data.log || "Compare failed.");
@@ -1813,6 +1937,487 @@ PAGE = r"""<!DOCTYPE html>
   syncScroll(tgtScroll, srcScroll);
 
   onlyDiffs.onchange = () => diffPanes.classList.toggle("hide-eq", onlyDiffs.checked);
+
+  // ========================================================================
+  //  CML analysis — semantic diff + best-practices linter (all client-side)
+  // ========================================================================
+
+  // Replace comments with blanks but keep newlines so line numbers stay exact.
+  function stripComments(text) {
+    let out = "", i = 0; const n = text.length; let s = false;
+    while (i < n) {
+      const c = text[i], d = text[i + 1];
+      if (s) { out += c; if (c === '"') s = false; i++; continue; }
+      if (c === '"') { s = true; out += c; i++; continue; }
+      if (c === '/' && d === '/') { while (i < n && text[i] !== "\n") { out += " "; i++; } continue; }
+      if (c === '/' && d === '*') {
+        out += "  "; i += 2;
+        while (i < n && !(text[i] === '*' && text[i + 1] === '/')) { out += (text[i] === "\n" ? "\n" : " "); i++; }
+        if (i < n) { out += "  "; i += 2; }
+        continue;
+      }
+      out += c; i++;
+    }
+    return out;
+  }
+
+  // Index of the matching close bracket for the open bracket at openIdx (string-aware).
+  function matchPair(text, openIdx, open, close) {
+    let depth = 0, s = false;
+    for (let i = openIdx; i < text.length; i++) {
+      const c = text[i];
+      if (s) { if (c === '"') s = false; continue; }
+      if (c === '"') { s = true; continue; }
+      if (c === open) depth++;
+      else if (c === close) { depth--; if (depth === 0) return i; }
+    }
+    return -1;
+  }
+
+  const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
+  const lineOf = (text, idx) => text.slice(0, idx).split("\n").length;
+
+  // ---- Tolerant top-level parser: returns blocks keyed by declared name ----
+  function parseCml(rawText) {
+    const text = stripComments(rawText);
+    const n = text.length; let i = 0; const units = [];
+    const ws = () => { while (i < n && /\s/.test(text[i])) i++; };
+    const findTop = (ch, from) => {
+      let s = false, d = 0;
+      for (let k = from; k < n; k++) {
+        const c = text[k];
+        if (s) { if (c === '"') s = false; continue; }
+        if (c === '"') { s = true; continue; }
+        if (c === ch && d === 0) return k;
+        if (c === '(' || c === '[' || c === '{') d++;
+        else if (c === ')' || c === ']' || c === '}') { if (d > 0) d--; }
+      }
+      return -1;
+    };
+    while (true) {
+      ws(); if (i >= n) break;
+      const start = i;
+      while (text[i] === '@' && text[i + 1] === '(') { const e = matchPair(text, i + 1, '(', ')'); if (e < 0) { i = n; break; } i = e + 1; ws(); }
+      const rest = text.slice(i);
+      let kind = "other", name = null, end;
+      let km;
+      if ((km = rest.match(/^property\s+([A-Za-z_]\w*)/))) {
+        kind = "property"; name = km[1]; const semi = findTop(';', i); end = semi < 0 ? n : semi + 1;
+      } else if ((km = rest.match(/^extern\s+[\w()\[\]]+\s+([A-Za-z_]\w*)/))) {
+        kind = "extern"; name = km[1]; const semi = findTop(';', i); end = semi < 0 ? n : semi + 1;
+      } else if ((km = rest.match(/^define\s+([A-Za-z_]\w*)/))) {
+        kind = "define"; name = km[1];
+        const br = text.indexOf('[', i); const be = br >= 0 ? matchPair(text, br, '[', ']') : -1;
+        if (be >= 0) end = be + 1; else { const semi = findTop(';', i); end = semi < 0 ? n : semi + 1; }
+      } else if ((km = rest.match(/^type\s+([A-Za-z_]\w*)/))) {
+        kind = "type"; name = km[1];
+        const brace = findTop('{', i), semi = findTop(';', i);
+        if (brace >= 0 && (semi < 0 || brace < semi)) { const be = matchPair(text, brace, '{', '}'); end = be < 0 ? n : be + 1; }
+        else end = semi < 0 ? n : semi + 1;
+      } else {
+        const semi = findTop(';', i); end = semi < 0 ? n : semi + 1;
+      }
+      const raw = text.slice(start, end);
+      units.push({ kind, name, raw, norm: norm(raw), line: lineOf(text, start) });
+      i = end > start ? end : start + 1;
+    }
+    return units;
+  }
+
+  // ---- Member parser for a type body (between the outer braces) ----
+  function parseMembers(typeRaw) {
+    const o = typeRaw.indexOf('{'); const cl = typeRaw.lastIndexOf('}');
+    if (o < 0 || cl < 0 || cl < o) return [];
+    const body = typeRaw.slice(o + 1, cl);
+    const n = body.length; let i = 0; const out = [];
+    const ws = () => { while (i < n && /\s/.test(body[i])) i++; };
+    const findTop = (ch, from) => {
+      let s = false, d = 0;
+      for (let k = from; k < n; k++) {
+        const c = body[k];
+        if (s) { if (c === '"') s = false; continue; }
+        if (c === '"') { s = true; continue; }
+        if (c === ch && d === 0) return k;
+        if (c === '(' || c === '[' || c === '{') d++;
+        else if (c === ')' || c === ']' || c === '}') { if (d > 0) d--; }
+      }
+      return -1;
+    };
+    const CALLS = ["constraint", "require", "exclude", "preference", "message", "rule"];
+    while (true) {
+      ws(); if (i >= n) break;
+      const start = i;
+      while (body[i] === '@' && body[i + 1] === '(') { const e = matchPair(body, i + 1, '(', ')'); if (e < 0) { i = n; break; } i = e + 1; ws(); }
+      const rest = body.slice(i);
+      let sig = null, end;
+      let m;
+      if ((m = rest.match(/^relation\s+([A-Za-z_]\w*)/))) {
+        sig = "relation:" + m[1];
+        const brace = findTop('{', i), semi = findTop(';', i);
+        if (brace >= 0 && (semi < 0 || brace < semi)) { const be = matchPair(body, brace, '{', '}'); end = be < 0 ? n : be + 1; }
+        else end = semi < 0 ? n : semi + 1;
+      } else if ((m = rest.match(new RegExp("^(" + CALLS.join("|") + ")\\s*\\(")))) {
+        const p = body.indexOf('(', i); const pe = matchPair(body, p, '(', ')');
+        let j = pe + 1; while (j < n && /\s/.test(body[j])) j++;
+        if (body[j] === '{') { const be = matchPair(body, j, '{', '}'); end = be < 0 ? n : be + 1; }
+        else { const semi = findTop(';', pe); end = semi < 0 ? (pe + 1) : semi + 1; }
+        sig = m[1] + ":" + norm(body.slice(i, end));
+      } else if ((m = rest.match(/^(string\[\]|string|boolean|int|double|decimal\s*\(\s*\d+\s*\))\s+([A-Za-z_]\w*)/))) {
+        sig = "field:" + m[2];
+        const semi = findTop(';', i); end = semi < 0 ? n : semi + 1;
+      } else {
+        const semi = findTop(';', i); end = semi < 0 ? n : semi + 1;
+        sig = "stmt:" + norm(body.slice(i, end));
+      }
+      const raw = body.slice(start, end);
+      out.push({ sig, raw: raw.trim(), norm: norm(raw) });
+      i = end > start ? end : start + 1;
+    }
+    return out;
+  }
+
+  // ---- Semantic diff between two CML texts ----
+  function semanticDiff(srcText, tgtText) {
+    const su = parseCml(srcText), tu = parseCml(tgtText);
+    const keyOf = (u) => (u.name ? u.kind + ":" + u.name : u.kind + "#" + u.norm);
+    const sMap = new Map(), tMap = new Map();
+    su.forEach((u, idx) => { u._i = idx; sMap.set(keyOf(u), u); });
+    tu.forEach((u, idx) => { u._i = idx; tMap.set(keyOf(u), u); });
+
+    const added = [], removed = [], changed = []; let same = 0;
+    const commonEqualKeys = [];
+    const header = (raw) => { const o = raw.indexOf('{'); return norm(o < 0 ? raw : raw.slice(0, o)); };
+    for (const [k, u] of sMap) {
+      if (!tMap.has(k)) { removed.push(u); continue; }
+      const v = tMap.get(k);
+      if (u.norm === v.norm) { same++; commonEqualKeys.push(k); continue; }
+      if (u.kind === "type") {
+        const md = memberDiff(u.raw, v.raw);
+        // Members and header match -> only order/formatting differs -> not a change.
+        if (!md.added.length && !md.removed.length && !md.changed.length && header(u.raw) === header(v.raw)) {
+          same++; commonEqualKeys.push(k); continue;
+        }
+        changed.push({ kind: u.kind, name: u.name, members: md });
+      } else {
+        changed.push({ kind: u.kind, name: u.name || "(anon)", whole: { src: u.norm, tgt: v.norm } });
+      }
+    }
+    for (const [k, v] of tMap) { if (!sMap.has(k)) added.push(v); }
+
+    // "Reordered only": blocks identical in content but whose relative order differs.
+    const sOrder = su.filter(u => commonEqualKeys.includes(keyOf(u))).map(keyOf);
+    const tOrder = tu.filter(u => commonEqualKeys.includes(keyOf(u))).map(keyOf);
+    const reordered = JSON.stringify(sOrder) !== JSON.stringify(tOrder);
+
+    return { added, removed, changed, same, reordered, srcTotal: su.length, tgtTotal: tu.length };
+  }
+
+  function memberDiff(srcType, tgtType) {
+    const sm = parseMembers(srcType), tm = parseMembers(tgtType);
+    const sMap = new Map(), tMap = new Map();
+    sm.forEach(x => sMap.set(x.sig, x));
+    tm.forEach(x => tMap.set(x.sig, x));
+    const added = [], removed = [], changed = [];
+    for (const x of sm) {
+      if (tMap.has(x.sig)) { const y = tMap.get(x.sig); if (x.norm !== y.norm) changed.push({ src: x.raw, tgt: y.raw }); }
+      else removed.push(x.raw);
+    }
+    for (const y of tm) { if (!sMap.has(y.sig)) added.push(y.raw); }
+    return { added, removed, changed };
+  }
+
+  function renderSemantic(src, tgt) {
+    const d = semanticDiff(src.content || "", tgt.content || "");
+    const total = d.added.length + d.removed.length + d.changed.length;
+    srcTitle.textContent = "Source — " + src.org;
+    tgtTitle.textContent = "Target — " + tgt.org;
+    if (total === 0) {
+      diffSummary.textContent = `Semantically identical${d.reordered ? " (only ordering/formatting differs)" : ""}.`;
+    } else {
+      diffSummary.textContent = `${d.changed.length} changed · ${d.removed.length} only in source · ${d.added.length} only in target · ${d.same} unchanged`;
+    }
+    let html = "";
+    if (total === 0) {
+      html += `<div class="sem-ok">No structural differences. The two models define the same types, attributes, relations and constraints` + (d.reordered ? `, just in a different order or formatting.` : `.`) + `</div>`;
+    }
+    const blockLine = (u) => `<div class="sem-block"><span class="nm">${esc(u.name || "(anonymous)")}</span> <span class="knd">${esc(u.kind)}</span></div>`;
+    if (d.removed.length) html += `<div class="sem-sec"><h4>Only in source (${src.org})</h4>` + d.removed.map(blockLine).join("") + `</div>`;
+    if (d.added.length) html += `<div class="sem-sec"><h4>Only in target (${tgt.org})</h4>` + d.added.map(blockLine).join("") + `</div>`;
+    if (d.changed.length) {
+      html += `<div class="sem-sec"><h4>Changed</h4>`;
+      for (const c of d.changed) {
+        html += `<div class="sem-block"><div><span class="nm">${esc(c.name)}</span> <span class="knd">${esc(c.kind)}</span></div>`;
+        if (c.whole) {
+          html += `<div class="sem-mem del"><span class="lab">src</span>${esc(c.whole.src)}</div>`;
+          html += `<div class="sem-mem add"><span class="lab">tgt</span>${esc(c.whole.tgt)}</div>`;
+        } else if (c.members) {
+          const m = c.members;
+          m.changed.forEach(x => {
+            html += `<div class="sem-mem chg"><span class="lab">−</span>${esc(x.src)}</div>`;
+            html += `<div class="sem-mem chg"><span class="lab">+</span>${esc(x.tgt)}</div>`;
+          });
+          m.removed.forEach(x => { html += `<div class="sem-mem del"><span class="lab">−</span>${esc(x)}</div>`; });
+          m.added.forEach(x => { html += `<div class="sem-mem add"><span class="lab">+</span>${esc(x)}</div>`; });
+          if (!m.changed.length && !m.removed.length && !m.added.length) html += `<div class="knd">Members match; difference is in the type header or formatting.</div>`;
+        }
+        html += `</div>`;
+      }
+      html += `</div>`;
+    }
+    if (d.reordered && total > 0) html += `<div class="sem-moved">Note: some identical blocks appear in a different order between the two orgs (no semantic change).</div>`;
+    semDiff.innerHTML = html;
+  }
+
+  // Toggle between line diff and semantic diff and (re)render the last comparison.
+  function renderCompare() {
+    const sem = semanticChk.checked;
+    diffPanes.style.display = sem ? "none" : "";
+    semDiff.classList.toggle("show", sem);
+    lineLegend.style.display = sem ? "none" : "";
+    onlyDiffsWrap.style.display = sem ? "none" : "";
+    if (!lastCompare) return;
+    if (sem) renderSemantic(lastCompare.src, lastCompare.tgt);
+    else renderDiff(lastCompare.src, lastCompare.tgt);
+    diffBox.classList.add("show");
+  }
+  semanticChk.onchange = renderCompare;
+
+  // Turn an implication constraint (pre -> post) into the recommended
+  // "guard constraint + require() auto-add" pattern (valid CML you can paste).
+  function splitImplication(blockText) {
+    const t = norm(blockText);
+    let label = "Rule";
+    const lm = t.match(/^(?:constraint|preference)\s*\(\s*([A-Za-z_]\w*)\s*\)\s*\{/);
+    if (lm) label = lm[1].replace(/_guard$/i, "");
+    let region;
+    const brace = t.indexOf("{");
+    if (brace >= 0) { const be = t.lastIndexOf("}"); region = t.slice(brace + 1, be > brace ? be : t.length); }
+    else { const p = t.indexOf("("); const pe = t.lastIndexOf(")"); region = t.slice(p + 1, pe > p ? pe : t.length); }
+    const ai = region.indexOf("->");
+    if (ai < 0) return null;
+    // Skip biconditionals (<->) — they mean something different.
+    if (region.slice(Math.max(0, ai - 2), ai).indexOf("<") >= 0) return null;
+    let pre = region.slice(0, ai).trim();
+    let post = region.slice(ai + 2).trim();
+    post = post.replace(/,\s*"[^"]*"\s*$/, "").trim();   // drop trailing , "message"
+    if (!pre || !post || pre.endsWith("<")) return null;
+    const after =
+      `constraint(${label}_guard) {\n  ${pre} -> ${post}\n}\n` +
+      `require(${label}_auto) {\n  // When ${pre} is selected, auto-add ${post}\n}`;
+    return { before: t, after };
+  }
+
+  // ---- Best-practices linter ----
+  // Each finding carries: a short note, the offending snippet (before), and a
+  // concrete, CML-valid correction (after) the user can copy and paste.
+  function lintCml(rawText) {
+    const findings = [];
+    const text = stripComments(rawText);
+    const lines = text.split(/\r?\n/);
+    const add = (rule, sev, line, msg, note, before, after) =>
+      findings.push({ rule, sev, line, msg, note, before: before || null, after: after || null });
+
+    // Inheritance map for depth (AP-5) and stub detection (AP-3).
+    const parent = {}; const typeDefs = [];
+    const typeRe = /\btype\s+([A-Za-z_]\w*)\s*(?::\s*([A-Za-z_]\w*))?\s*([;{])/g;
+    let mt;
+    while ((mt = typeRe.exec(text))) {
+      parent[mt[1]] = mt[2] || null;
+      typeDefs.push({ name: mt[1], parent: mt[2] || null, line: lineOf(text, mt.index), isStub: mt[3] === ';', decl: norm(mt[0]) });
+    }
+    const depth = (name, seen) => {
+      seen = seen || new Set();
+      if (!name || seen.has(name)) return 0; seen.add(name);
+      return parent[name] ? 1 + depth(parent[name], seen) : 0;
+    };
+    typeDefs.forEach(t => {
+      const dp = depth(t.name);
+      if (dp < 4) return;
+      const chain = []; let cur = t.name, guard = 0;
+      while (cur && guard++ < 25) { chain.push(cur); cur = parent[cur]; }
+      const base = chain[chain.length - 1];
+      add("AP-5", "warn", t.line,
+        `Type "${t.name}" sits ${dp} levels down a chain of parent types.`,
+        `This type inherits through ${dp} parents (the chain is shown below). Long chains are hard to follow and slower for the engine to resolve. Where you can, have "${t.name}" inherit directly from one shared base type and keep its own fields on it, instead of adding more in-between levels. The After sketch shows the flatter shape.`,
+        chain.slice().reverse().join("  ->  "),
+        `// Inherit directly from the shared base and keep this type's own fields here,\n// instead of stacking intermediate levels:\ntype ${t.name} : ${base} {\n    // attributes / relations that were spread across the chain\n}`);
+    });
+    const stubs = typeDefs.filter(t => t.isStub);
+    if (stubs.length >= 5) {
+      const ex = stubs.find(s => s.parent) || stubs[0];
+      const exParent = ex.parent || "LineItem";
+      add("AP-3", "info", stubs[0].line,
+        `${stubs.length} types are declared with no body (e.g. "type X;").`,
+        "These types are empty placeholders. That's fine if something references them, but extra unused ones add clutter. Delete the placeholders nothing points to, or give the ones you keep some real content (attributes / relations). The After example shows a stub turned into a real type.",
+        stubs.slice(0, 4).map(s => s.decl).join("\n"),
+        `// Either delete unused stubs, or give them meaningful content:\ntype ${ex.name} : ${exParent} {\n    @(defaultValue = "Standard")\n    string Variant = ["Standard", "Premium"];\n}`);
+    }
+
+    // Per-line rules.
+    lines.forEach((ln, idx) => {
+      const num = idx + 1; const t = ln.trim(); let m;
+      if ((m = ln.match(/^\s*double\s+([A-Za-z_]\w*)/))) {
+        add("AP-1", "warn", num,
+          `"${m[1]}" uses double — not safe for money or other exact numbers.`,
+          "double stores approximate values, so prices and totals can drift by a fraction of a cent. Change the type to decimal(2) — the 2 is how many digits to keep after the decimal point (use decimal(4) if you need more). The After line is the exact replacement.",
+          t, t.replace(/^double\b/, "decimal(2)"));
+      }
+      if (/\brelation\s+\w+\s*:\s*\w+\s*\[\s*\.\.\s*\]/.test(ln)) {
+        add("AP-9", "warn", num,
+          "This relation is unbounded ([..]) — it allows unlimited child items.",
+          "[..] lets someone add an unlimited number of these, which can slow the configurator and usually isn't intended. Put a maximum inside the brackets, like [0..50] (zero to fifty). Change 50 to the largest count you actually want to allow.",
+          t, t.replace(/\[\s*\.\.\s*\]/, "[0..50]"));
+      }
+      if (/\brelation\s+\w+\s*:\s*\w+\s*;/.test(ln) && !/\[/.test(ln)) {
+        add("AP-9", "info", num,
+          "This relation doesn't say how many child items are allowed.",
+          "With no range, the relation falls back to a hidden default. Make it explicit by adding a range in square brackets right after the type. Common choices: [0..1] = optional, at most one; [1..1] = required, exactly one; [0..5] = up to five. The After line uses [0..1] — change the numbers to match your rule.",
+          t, t.replace(/\s*;\s*$/, "[0..1];"));
+      }
+      if ((m = ln.match(/\b(?:string\[\]|string|boolean|int|double|decimal\s*\(\s*\d+\s*\))\s+(x|y|z|tmp|temp|var|foo|bar|val|data)\b/))) {
+        add("BP-2", "info", num,
+          `The name "${m[1]}" doesn't say what it holds.`,
+          "Short names like this make the model hard to read later. Rename it to a noun that describes the value — for example seatCount, monthlyTotal, or contractTerm. The After line shows where the new name goes.",
+          t, t.replace(new RegExp("\\b" + m[1] + "\\b"), "descriptiveName"));
+      }
+    });
+
+    // Constraint / preference scans (multi-line aware).
+    const kwRe = /\b(constraint|preference)\s*\(/g; let m;
+    while ((m = kwRe.exec(text))) {
+      const kw = m[1]; const p = m.index + m[0].length - 1;
+      const pe = matchPair(text, p, '(', ')'); if (pe < 0) continue;
+      const inner = text.slice(p + 1, pe);
+      let j = pe + 1; while (j < text.length && /\s/.test(text[j])) j++;
+      let blockEnd = pe;
+      if (text[j] === '{') { const be = matchPair(text, j, '{', '}'); if (be > 0) blockEnd = be; }
+      const blockText = text.slice(m.index, blockEnd + 1);
+      const oneLine = norm(blockText);
+      const line = lineOf(text, m.index);
+      if (/^\s*true\s*[,)]/.test(inner)) {
+        add("AP-6", "warn", line,
+          `This ${kw} is always true, so it never does anything.`,
+          "A condition that is always true can't block or change anything — it just adds noise. If it's a leftover, delete it. If you meant to enforce something, replace true with the real condition. The After shows the shape to use.",
+          oneLine,
+          `// Remove this no-op, or replace true with the real condition:\n${kw}(/* your real condition */, "Message shown to the user");`);
+      }
+      const ops = (blockText.match(/&&|\|\|/g) || []).length;
+      if (ops >= 6) {
+        add("AP-8", "warn", line,
+          `This ${kw} combines ${ops} conditions with && / || — too much in one rule.`,
+          "Testing many things at once in a single rule is hard to read and debug. Split it into a few smaller constraints that each check one idea — they all still apply together. The After shows how to break it up.",
+          oneLine,
+          `// Split the combined condition into separate constraints:\n${kw}(/* first part of the condition */, "Message A");\n${kw}(/* second part of the condition */, "Message B");`);
+      }
+      const split = splitImplication(blockText);
+      if (split) {
+        add("REC", "info", line,
+          `Tip: this ${kw} uses an implication (A -> B).`,
+          "This works as-is. The recommended pattern is to keep A -> B as a 'guard' and add a matching require() that spells out what gets auto-added when A is chosen — so the auto-add behaviour is obvious to the next person. The After block is ready to paste; rename the _guard / _auto labels to suit.",
+          split.before, split.after);
+      } else if (/->/.test(blockText)) {
+        add("REC", "info", line,
+          `Tip: this ${kw} uses an implication (A -> B).`,
+          "This works as-is. As a style improvement you can split it into a guard constraint plus a require() auto-add, which makes the auto-add behaviour explicit.",
+          oneLine, null);
+      }
+      kwRe.lastIndex = pe + 1;
+    }
+
+    // Repeated enum literal sets (AP-4).
+    const enumRe = /=\s*\[([^\]]*)\]/g; let em; const sets = {};
+    while ((em = enumRe.exec(text))) {
+      const items = em[1].split(",").map(s => s.trim().replace(/^"|"$/g, "")).filter(Boolean);
+      if (items.length < 2) continue;
+      const key = items.slice().sort().join("|");
+      const rec = sets[key] || (sets[key] = { lines: [], items });
+      rec.lines.push(lineOf(text, em.index));
+    }
+    Object.values(sets).forEach((rec) => {
+      if (rec.lines.length < 3) return;
+      const domain = "SharedValues";
+      const listed = rec.items.map(v => `    "${v}"`).join(",\n");
+      add("AP-4", "info", rec.lines[0],
+        `The same list of values is typed out ${rec.lines.length} times: ["${rec.items.join('", "')}"].`,
+        "Because the list is copied in many places, changing it later means editing every copy and it's easy to miss one. List the values once in a named define block (usually near the top of the file), then point to that name wherever you need the list. The After block shows the define to add — rename SharedValues to something that describes the list (e.g. ContractTerms).",
+        rec.items.map(v => `"${v}"`).join(", ") + `   (used in ${rec.lines.length} places)`,
+        `// 1) Declare the list once (near the top of the file):\ndefine ${domain} [\n${listed}\n]\n\n// 2) Then reference ${domain} instead of re-typing the values.`);
+    });
+
+    findings.sort((a, b) => (a.line || 0) - (b.line || 0));
+    return findings;
+  }
+
+  function renderLint(rawText) {
+    const findings = lintCml(rawText);
+    const sevRank = { error: 0, warn: 1, info: 2 };
+    const errors = findings.filter(f => f.sev === "error").length;
+    const warns = findings.filter(f => f.sev === "warn").length;
+    const infos = findings.filter(f => f.sev === "info").length;
+    // Scoring: weight by severity, but cap how much any single rule can cost so
+    // one repetitive finding (e.g. many relations missing cardinality) can't sink
+    // the whole score. Recommendations (REC) are optional and don't reduce it.
+    const W = { error: 15, warn: 6, info: 2 };
+    const NO_SCORE = new Set(["REC"]);
+    const RULE_CAP = 12;
+    const perRule = {};
+    findings.forEach(f => { if (NO_SCORE.has(f.rule)) return; perRule[f.rule] = (perRule[f.rule] || 0) + (W[f.sev] || 0); });
+    let penalty = 0; Object.values(perRule).forEach(p => penalty += Math.min(p, RULE_CAP));
+    const score = Math.max(0, 100 - penalty);
+    const scoreCls = score >= 85 ? "good" : score >= 60 ? "mid" : "bad";
+    let html = `<div class="lint-head"><h4>Best practices</h4>`
+      + `<span class="lint-score ${scoreCls}">Quality score ${score}/100</span></div>`
+      + `<div class="lint-counts"><span>${errors} error${errors === 1 ? "" : "s"}</span><span>${warns} warning${warns === 1 ? "" : "s"}</span><span>${infos} suggestion${infos === 1 ? "" : "s"}</span></div>`
+      + `<div class="lint-caption">The score reflects <strong>errors</strong> and <strong>warnings</strong> (each rule is capped so one repeated issue can't dominate). Blue <strong>suggestions</strong> are optional polish and don't lower the score. Every item below has a plain-English explanation and a paste-ready fix.</div>`;
+    if (!findings.length) {
+      html += `<div class="lint-empty">No issues found — this CML follows the built-in best-practice rules. 🎉</div>`;
+    } else {
+      findings.sort((a, b) => sevRank[a.sev] - sevRank[b.sev] || (a.line || 0) - (b.line || 0));
+      findings.forEach((f, i) => {
+        const where = f.line ? `<span class="lint-line" data-line="${f.line}">Line ${f.line}</span> · ` : "";
+        let fix = "";
+        if (f.before || f.after) {
+          fix += `<div class="lint-fix">`;
+          if (f.before) fix += `<div class="fixhead">Before (in your CML)</div><div class="lint-code before">${esc(f.before)}</div>`;
+          if (f.after) fix += `<div class="fixhead">After — paste-ready CML <button class="linklike lint-copy" data-idx="${i}">Copy</button></div><div class="lint-code after">${esc(f.after)}</div>`;
+          fix += `</div>`;
+        }
+        html += `<div class="lint-item ${f.sev}"><div class="rmeta">${where}${esc(f.rule)} · ${esc(f.sev)}</div>`
+          + `<div class="msg">${esc(f.msg)}</div>`
+          + (f.note ? `<div class="fix">→ ${esc(f.note)}</div>` : "")
+          + fix
+          + `</div>`;
+      });
+    }
+    lintBox.innerHTML = html;
+    lintBox.classList.add("show");
+    lintBox.querySelectorAll(".lint-line").forEach(el => {
+      el.onclick = () => {
+        const ln = parseInt(el.getAttribute("data-line"), 10) || 1;
+        const before = content.value.split("\n").slice(0, ln).join("\n").length;
+        content.focus();
+        content.setSelectionRange(Math.max(0, before - 1), before);
+        const approxTop = (ln - 1) * 16;
+        content.scrollTop = Math.max(0, approxTop - content.clientHeight / 2);
+      };
+    });
+    lintBox.querySelectorAll(".lint-copy").forEach(el => {
+      el.onclick = async (ev) => {
+        ev.stopPropagation();
+        const idx = parseInt(el.getAttribute("data-idx"), 10);
+        const txt = (findings[idx] && findings[idx].after) || "";
+        try { await navigator.clipboard.writeText(txt); el.textContent = "Copied!"; setTimeout(() => el.textContent = "Copy", 1200); }
+        catch (e) { el.textContent = "Copy failed"; }
+      };
+    });
+    lintBox.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  lintBtn.onclick = () => {
+    if (!content.value.trim()) { setStatus("err", "Paste or fetch some CML first, then check best practices."); return; }
+    renderLint(content.value);
+    setStatus("ok", "Best-practice check complete — see the report below the editor.");
+  };
 
   // ---- Constraint data (ExpressionSetConstraintObj) ----
   const TYPE_SHORT = {
@@ -2052,6 +2657,11 @@ PAGE = r"""<!DOCTYPE html>
     idle();
   };
 
+  fetch("/api/ping", { cache: "no-store" })
+    .then(r => r.json())
+    .then(d => { const e = $("appver"); if (e) e.textContent = "build " + (d.build || "?").slice(0, 8); })
+    .catch(() => {});
+
   loadOrgs();
 </script>
 </body>
@@ -2067,12 +2677,21 @@ def main():
     port = DEFAULT_PORT
     url = f"http://127.0.0.1:{port}/"
 
-    # If a CML Tool is already running here, don't start a second one.
-    if is_our_server(port):
-        print(f"CML Tool is already running at {url}")
+    # If a CML Tool is already running here, decide what to do based on its build.
+    running_build = _server_build(port)
+    if running_build == BUILD:
+        # Same code already serving — just reuse it.
+        print(f"CML Tool is already running (latest build) at {url}")
         if open_browser:
             webbrowser.open(url)
         return
+    if running_build is not None:
+        # An older build is running — stop it so this new build takes over.
+        print("A previous version of the CML Tool is running — restarting with the new build…")
+        if not _quit_running(port):
+            print(f"ERROR: Could not stop the previous version on port {port}.")
+            print("Close it manually (or reboot) and try again.")
+            sys.exit(1)
 
     # Port held by something that isn't us — fail clearly instead of drifting.
     if port_in_use(port):
