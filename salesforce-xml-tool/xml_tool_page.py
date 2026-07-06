@@ -38,7 +38,10 @@ PAGE = r"""<!DOCTYPE html>
   .wrap { max-width: 1400px; margin: 0 auto; padding: 24px 20px 60px; }
   .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
   h1 { font-size: 20px; margin: 0 0 4px; }
-  .sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 6px; }
+  .credit { color: var(--muted); font-size: 12px; margin: 0 0 20px; }
+  .credit a { color: var(--accent); text-decoration: none; }
+  .credit a:hover { text-decoration: underline; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; }
 
   /* Operation tabs */
@@ -274,6 +277,7 @@ PAGE = r"""<!DOCTYPE html>
       <div>
         <h1>Salesforce Metadata XML Tool</h1>
         <p class="sub">Compare, merge, and clean up metadata XML — permission sets, context definitions, and more. Paste your XML, pick an operation, no terminal needed.</p>
+        <p class="credit">Made with 💙 by <strong><a href="https://www.linkedin.com/in/mrpancholi/" target="_blank" rel="noopener noreferrer">Mritunjaya Pancholi</a></strong></p>
       </div>
       <button class="ghost" id="themeBtn" title="Toggle day/night">Night mode</button>
     </div>
