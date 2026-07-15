@@ -464,7 +464,29 @@ def _field_exists(org, sobject, field):
 
 def _is_auth_error(msg):
     msg = (msg or "")
-    return "INVALID_SESSION_ID" in msg or "401" in msg or "Session expired" in msg
+    return (
+        "INVALID_SESSION_ID" in msg
+        or "INVALID_AUTH_HEADER" in msg
+        or "INVALID_LOGIN" in msg
+        or "MISSING_OAUTH_TOKEN" in msg
+        or "401" in msg
+        or "Session expired" in msg
+    )
+
+
+def _auth_help(org, raw):
+    """Actionable message for auth failures a token re-read can't fix — the saved
+    session for this org is expired/invalid and needs a real re-login."""
+    return (
+        f"Salesforce rejected the saved login for '{org}'.\n"
+        f"Details: {raw}\n\n"
+        "This almost always means the org's saved session has expired or was "
+        "revoked. Re-authenticate in a terminal, then click \u201cReload list\u201d:\n"
+        f"    sf org login web --target-org {org}\n\n"
+        "If it still fails, log out and back in, then reload:\n"
+        f"    sf org logout --no-prompt --target-org {org}\n"
+        f"    sf org login web --alias {org}"
+    )
 
 
 def _query_json(org, soql, _retried=False):
@@ -486,6 +508,8 @@ def _query_json(org, soql, _retried=False):
             if _is_auth_error(e) and not _retried:
                 _org_creds(org, refresh=True)  # token likely expired; refresh once
                 return _query_json(org, soql, _retried=True)
+            if _is_auth_error(e):  # refresh didn't help — needs a real re-login
+                return None, _auth_help(org, e)
             return None, e
         records.extend(data.get("records", []) or [])
         nxt = data.get("nextRecordsUrl")
@@ -1028,6 +1052,8 @@ def deploy_cml(org, model, content):
             if cerr:
                 return {"ok": False, "log": cerr}
             _, perr = _rest("PATCH", url, token, {"ConstraintModel": b64})
+            if perr and _is_auth_error(perr):
+                return {"ok": False, "log": _auth_help(org, perr)}
         if perr:
             return {"ok": False, "log": (
                 f"Deploy failed for '{model}' ({version_id}, status "
