@@ -757,9 +757,37 @@ def compare_constraints(source_org, target_org, model, key_field=DEFAULT_KEY_FIE
 _CREDS_CACHE = {}  # org -> (token, instanceUrl) for the life of this process
 
 
+def _looks_like_token(token):
+    """A real Salesforce access token looks like `00D...!...`. Newer CLIs
+    (May 2026 security update) redact it in `sf org display`, returning a
+    placeholder like `[REDACTED] Use 'sf org auth show-access-token' to view`.
+    Every genuine token contains a `!`, so that's a reliable tell."""
+    return bool(token) and "!" in token and "REDACTED" not in token
+
+
+def _fetch_access_token(org):
+    """Get a live access token via the dedicated command that newer CLIs require
+    (`sf org display` no longer returns it). Returns (token, error)."""
+    try:
+        proc = _sf_run(["org", "auth", "show-access-token",
+                        "--target-org", org, "--json", "--no-prompt"])
+    except Exception as exc:  # noqa: BLE001
+        return None, f"Could not read the access token for '{org}': {exc}"
+    try:
+        data = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        return None, (proc.stderr or "Could not read the access token.").strip()
+    if data.get("status") != 0:
+        return None, data.get("message") or "Could not read the access token."
+    tok = (data.get("result") or {}).get("accessToken")
+    if not _looks_like_token(tok):
+        return None, None  # command exists but gave nothing usable
+    return tok, None
+
+
 def _org_creds(org, refresh=False):
     """Return (accessToken, instanceUrl, error). Cached per org; pass
-    refresh=True to force a new `sf org display` (e.g. after a 401)."""
+    refresh=True to force a new lookup (e.g. after a 401)."""
     if not refresh and org in _CREDS_CACHE:
         token, url = _CREDS_CACHE[org]
         return token, url, None
@@ -775,9 +803,14 @@ def _org_creds(org, refresh=False):
         return None, None, data.get("message") or "Could not read org credentials."
     res = data.get("result", {})
     token, url = res.get("accessToken"), res.get("instanceUrl")
+    # Newer Salesforce CLIs redact the token in `org display` output. When that
+    # happens, fetch it with the dedicated `org auth show-access-token` command.
+    if not _looks_like_token(token):
+        token, terr = _fetch_access_token(org)
+        if terr:
+            return None, None, terr
     if not token or not url:
-        return None, None, ("No access token for this org. Re-authenticate with: "
-                            f"sf org login web --alias {org}")
+        return None, None, _auth_help(org, "No usable access token was returned.")
     _CREDS_CACHE[org] = (token, url)
     return token, url, None
 
