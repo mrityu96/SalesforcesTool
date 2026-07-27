@@ -5,19 +5,78 @@ Cloud CML** (Constraint Model Language). Pick an org, choose a Constraint Model,
 and **fetch**, **deploy**, or **compare** it — no terminal commands to type, no
 installs, and nothing ever leaves your machine.
 
-It does four things:
+It does five things:
 
 | Operation | What it does |
 |---|---|
 | **Fetch** | Download the latest CML of any Expression Set / Constraint Model from an org into an editable text box (and save a copy locally). |
 | **Deploy** | Push CML (fetched or pasted) back to the latest version of that model in an org — with a confirmation prompt so nothing happens by accident. |
-| **Compare** | Fetch the **same** CML from a **source** and **target** org and show a synced, line-numbered, side-by-side diff that highlights every difference. |
+| **Compare** | Fetch the **same** CML from a **source** and **target** org and show a synced, line-numbered, side-by-side diff that highlights every difference. Includes a **Semantic** mode that compares by structure (types, attributes, relations, constraints) and ignores reordering and formatting. |
+| **Check best practices** | Scan the CML in the editor against a built-in catalog of CML anti-patterns and recommended patterns, and get a **line-numbered report** with a quality score and a suggested fix for each finding. |
 | **Constraint Data** | View, compare, and **deploy** the **Product associations** behind a CML (`ExpressionSetConstraintObj` records), matched across orgs by a **foreign key you choose** (default `Global_Key__c`) instead of by record Id. Pick exactly which rows to add or delete with checkboxes. |
 
 You select everything from dropdowns and lists, so there are **no typos** in org
 names or model API names.
 
-![Main screen](docs/screenshots/main.png)
+## Guided UI walkthrough
+
+The screenshots below use **synthetic org, model, product, and key values**. No
+customer or production data is shown. Numbered arrows explain which control to
+use and what the status messages mean.
+
+### 1. Fetch, edit, and deploy CML
+
+![Annotated Fetch and Deploy screen](docs/screenshots/01-fetch-deploy-guide.svg)
+
+1. Choose the source org, target org, and Constraint Model. After selection, the
+   model picker collapses so another model cannot be selected accidentally.
+2. Click **Fetch CML** and review the exact text in the editor.
+3. Choose **Deploy to**, click **Deploy CML**, and approve the confirmation.
+   Deployment replaces the latest version's CML content; it does not activate
+   the model automatically.
+
+### 2. Compare exact text or compare by meaning
+
+![Annotated semantic comparison screen](docs/screenshots/02-semantic-compare-guide.svg)
+
+1. The source is shown on the left and the target on the right.
+2. Turn on **Semantic** to ignore formatting, comments, and moved blocks. Leave
+   it off when exact line order matters.
+3. Changed-member explanations identify the actual impact, such as a relation
+   changing from required `[1..1]` to optional `[0..1]`.
+
+### 3. Understand and correct best-practice findings
+
+![Annotated Best Practices report](docs/screenshots/03-best-practices-guide.svg)
+
+1. The quality score is maintainability guidance, not an activation result.
+2. Each finding explains the problem in plain language and points to its line.
+3. **Before → After** examples contain supported CML. Review the meaning, then
+   use **Copy** to paste the correction into the editor.
+
+### 4. Diagnose missing catalog dependencies safely
+
+![Annotated catalog dependency preflight](docs/screenshots/04-constraint-preflight-guide.svg)
+
+1. A matched `ExpressionSetConstraintObj` can still be blocked when its
+   classification, products, attributes, component group, or relationship is
+   incomplete.
+2. The expanded message lists every missing, ambiguous, or unlinked dependency.
+   **Copy for Excel** includes these full explanations for another team.
+3. **Blocked — catalog dependency** means the catalog data must be corrected by
+   its normal deployment process. The CML Tool only reads catalog objects.
+
+### 5. Select and deploy valid CML associations
+
+![Annotated association deployment results](docs/screenshots/05-association-deploy-results-guide.svg)
+
+1. Review the add/delete count before confirming. The server repeats dependency
+   preflight immediately before writing.
+2. Safe additions are selected by default. Deletions are permanent and always
+   require explicit selection.
+3. Results show each success or the exact Salesforce error. After an association
+   change, the tool refreshes the unchanged CML so Salesforce can validate the
+   latest associations.
 
 ---
 
@@ -112,7 +171,7 @@ set CML_UI_PORT=8900 && python cml_tool.py  # Windows
 3. Click **Compare source ↔ target**. The tool fetches the CML from both orgs
    and shows a two-pane diff: **source on the left, target on the right.**
 
-![Compare view](docs/screenshots/compare.png)
+See the annotated [semantic comparison screenshot](docs/screenshots/02-semantic-compare-guide.svg).
 
 The diff is built to be **colorblind-friendly** — it uses an orange / blue /
 purple palette plus text markers (`−`, `+`, `~`) so differences are clear
@@ -130,9 +189,82 @@ without relying on color:
   the diff tells you where (e.g. `↦ also in target at L420`).
 - Tick **Show only differences** to hide the matching lines.
 
+#### Semantic diff (compare by meaning, not by line)
+
+A plain line diff flags everything that *looks* different — even when a type was
+just moved or reformatted. Tick the **Semantic** box (next to *Show only
+differences*) to compare the two CMLs by **structure** instead:
+
+- The tool parses each side into its building blocks — `property`, `extern`,
+  `define`, and every `type` with its **attributes, relations, variables, and
+  constraints** — and matches them by **name/identity**, not by position.
+- Reordering a type, re-indenting, or adding comments shows up as **no change**.
+- For each genuinely changed type, you see **exactly which members differ**
+  (added / removed / changed), and which types are **only in one org**.
+
+Use the line diff when you care about exact text; use **Semantic** when you care
+about *"are these two models actually the same configuration?"*
+
 Toggle **Night / Day mode** any time with the button in the top-right.
 
-![Dark mode](docs/screenshots/dark.png)
+### Check best practices (CML linter)
+
+See the annotated [Best Practices screenshot](docs/screenshots/03-best-practices-guide.svg).
+
+Click **Check best practices** (above the editor) to scan the CML currently in
+the box — fetched or pasted — against a built-in catalog of CML anti-patterns
+and recommended patterns. You get a **quality score** and a list of findings,
+each with a **line number** (click it to jump there), a plain-English
+explanation, and — most usefully — a **Before → After** correction written in
+**valid CML you can paste straight back into the model**. Hit **Copy** on the
+*After* block to grab the fix.
+
+For example, an implication constraint is rewritten into the recommended guard +
+auto-add pattern:
+
+```
+// Before (in your CML)
+constraint(Pricing_guard) { Service_Tier == "Ultimate" -> Billing_Cycle == "Annual" }
+
+// After — paste-ready CML
+constraint(Pricing_guard) {
+  Service_Tier == "Ultimate" -> Billing_Cycle == "Annual"
+}
+require(Pricing_auto) {
+  // When Service_Tier == "Ultimate" is selected, auto-add Billing_Cycle == "Annual"
+}
+```
+
+Other fixes are generated from **your own code** — `double price;` becomes
+`decimal(2) price;`, an unbounded `relation x : T[..];` becomes
+`relation x : T[0..50];`, and a repeated value set is turned into a shared
+`define[]` domain you can reference everywhere.
+
+What it checks:
+
+| ID | Flags | Suggests |
+|---|---|---|
+| **AP-1** | `double` used for money / precise values | use `decimal(2)` |
+| **AP-3** | many empty stub types (`type X;`) | consolidate / remove unused stubs |
+| **AP-4** | the same enum value-set repeated across attributes | extract a shared `define[]` domain |
+| **AP-5** | inheritance chains more than 4 levels deep | flatten the hierarchy |
+| **AP-6** | always-true constraints (`constraint(true, …)`) | remove the no-op or fix it |
+| **AP-8** | constraints combining 6+ boolean operators | break into smaller constraints |
+| **AP-9** | unbounded (`[..]`) or no-cardinality relations | add explicit `[min..max]` |
+| **BP-2** | vague identifiers (`x`, `temp`, `var`, …) | use descriptive names |
+| **REC** | hard `->` implications | split into a guard + `require()` auto-add |
+
+The **quality score** starts at 100 and subtracts points for **errors** and
+**warnings** only. Two things keep it meaningful on large models:
+
+- Each rule's impact is **capped**, so one repetitive issue (say, 40 relations
+  missing an explicit cardinality) can't drag the score to zero on its own.
+- Blue **suggestions** — including the `->` implication tip — are optional polish
+  and **don't lower the score**.
+
+Every finding includes a plain-English explanation of what's wrong and what to
+do, plus the Before → After fix. Everything runs **in your browser** — no CML
+leaves the page.
 
 ### Constraint Data (Product associations)
 
@@ -144,6 +276,12 @@ Groups, and Related Components**. Those links must travel with the CML.
 **The hard part:** each link points to its record by **record Id**, and Ids are
 **different in every org**. So the tool ignores Ids and matches each row on a
 **foreign key** — a field whose value is the **same for a record in every org**.
+
+> **Safe deployment boundary:** Product and catalog objects are read-only in
+> this tool. It can inspect and report missing products, classifications,
+> classification attributes, component groups, and product relationships, but
+> it never creates or updates them. The only Salesforce writes are the CML
+> content and `ExpressionSetConstraintObj` associations.
 
 #### Choose your foreign key
 
@@ -166,7 +304,7 @@ Groups, and Related Components**. Those links must travel with the CML.
   linked record's name, and your chosen key value (the last column is labelled
   with the field you picked).
 
-![View constraint data](docs/screenshots/data-view.png)
+See the annotated [constraint dependency preflight screenshot](docs/screenshots/04-constraint-preflight-guide.svg).
 
 #### Step 2 — Compare source ↔ target
 
@@ -175,16 +313,17 @@ Groups, and Related Components**. Those links must travel with the CML.
 
 | Badge | Meaning |
 |---|---|
-| **Matched** | The association exists in **both** orgs — nothing to do. |
+| **Matched** | The association and its checked catalog dependencies exist in **both** orgs — nothing to do. |
 | **Add to target** | Only in source, and the linked record **already exists** in the target — ready to create. |
 | **Only in target** | Exists in the target but **not** in source (an extra). |
-| **Blocked — ref missing in target** | Only in source, but the linked record **isn't in the target yet** — add that record first. |
+| **Blocked — catalog dependency** | A required catalog record, relationship, product-to-classification assignment, or classification attribute is missing or ambiguous. Deploy that catalog data through its normal process, then compare again. |
 | **No \<key field\>** | The linked record has no value for your key field, so it **can't be matched** across orgs. |
 
 - Use the **Show** filter to focus on matched / to-add / extra / blocked /
   duplicate rows.
 
-![Compare constraint data](docs/screenshots/data-compare.png)
+The annotated preflight screenshot above demonstrates matched associations that
+are still blocked by deeper catalog dependencies.
 
 #### Spotting duplicates
 
@@ -216,7 +355,7 @@ Then:
 - A confirmation dialog spells out exactly how many rows will be **added** and
   **deleted**.
 
-![Deploy constraint data results](docs/screenshots/data-deploy.png)
+See the annotated [association deployment results screenshot](docs/screenshots/05-association-deploy-results-guide.svg).
 
 - Each row is processed **individually** (`allOrNone=false`) — one failure never
   blocks the rest.
@@ -225,6 +364,9 @@ Then:
   active version).
 - After deploying, the comparison **refreshes automatically** so you see the new
   state.
+- The server repeats the read-only dependency preflight immediately before
+  deployment. If catalog data changed after comparison, the ESCO insert is
+  blocked safely.
 
 > **Order matters:** deploy and activate the **CML** in the target **first**,
 > then deploy its constraint data. New associations attach to the target's
@@ -275,7 +417,16 @@ JSON requests, so you can also script against the server if you want.
 - **Fetch/Deploy** read and write the `ConstraintModel` field of the latest
   `ExpressionSetDefinitionVersion` via REST (GET the blob; PATCH base64 content).
 - **Compare** fetches the CML from both orgs and diffs them in your browser with a
-  longest-common-subsequence algorithm.
+  longest-common-subsequence algorithm. **Semantic** mode additionally parses each
+  CML into structural blocks (types and their attributes/relations/constraints)
+  and compares them by identity, so reordering and formatting are ignored.
+- **Check best practices** runs a small rule engine entirely in your browser over
+  the CML text — building an inheritance map, scanning constraints with
+  bracket-aware matching, and flagging the anti-patterns/recommendations above.
+  For each finding it also generates a **paste-ready CML correction** from your
+  own snippet (e.g. `double` → `decimal(2)`, `[..]` → `[0..50]`, or an
+  implication rewritten into the guard + `require()` pattern). No CML is sent
+  anywhere.
 - **Constraint Data** queries `ExpressionSetConstraintObj` for the selected model
   and resolves each polymorphic `ReferenceObjectId` to its object type + your
   chosen **foreign key field** (default `Global_Key__c`) via a single SOQL
@@ -429,9 +580,14 @@ Another copy is running, or something else holds the port. Stop it with
 `CML_UI_PORT=8900 python3 cml_tool.py`.
 
 ### I changed the code but don't see the update
-The launcher detects a code change and restarts automatically. If you started it
-manually, stop it (`Stop CML Tool.command` or `Ctrl+C`) and run it again, then
-reload the browser tab.
+Just run the tool again — it now **auto-restarts on the new build**. When a launch
+detects an older version already running on the port, it asks that one to quit and
+takes over with the new code. You no longer have to stop it manually first.
+
+After it relaunches, **reload the browser tab** (or hard-refresh). To confirm you're
+on the latest code, check the small `build …` stamp in the top-right of the page: it
+shows the running build's hash and changes whenever the code changes. If two launches
+ever show the same stamp, they're the same build.
 
 ---
 
