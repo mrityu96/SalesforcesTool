@@ -10,77 +10,151 @@ PAGE = r"""<!DOCTYPE html>
 <script>(function(){try{var t=localStorage.getItem('xml-theme')||'light';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
 <style>
   :root {
-    --bg: #f4f6f9; --panel: #ffffff; --line: #e3e7ee; --text: #1b2330;
-    --muted: #616b7b; --accent: #2f6fed; --green: #1f9d57; --red: #d23b34;
-    --purple:#7a4fd0; --radius: 10px; --input-bg: #ffffff;
-    --ok-bg:#e7f6ec; --ok-text:#0f6b39; --err-bg:#fdeae8; --err-text:#a3241d;
-    --info-bg:#e8f0fe; --info-text:#1b4fb5;
-    --chg-bg:#f3e1ec; --del-bg:#fbe3d2; --ins-bg:#d6e9f7;
-    --chg-line:#b3589a; --del-line:#d55e00; --ins-line:#0072b2;
-    --gutter:#f1f3f7; --gutter-text:#97a1b0;
-    --teal:#0d8a78; --teal-bg:#e6f6f3; --teal-text:#085048;
+    color-scheme: light;
+    --bg:#f7f8fc; --panel:#ffffff; --gutter:#f0f3fa; --input-bg:#fbfcff;
+    --line:#dce2ef; --text:#172033; --muted:#667085; --gutter-text:#8490a6;
+    --accent:#3b82f6; --accent-strong:#06b6d4; --green:#22c55e; --red:#ef4444;
+    --purple:#8b5cf6; --amber:#f59e0b; --teal:#06b6d4; --on-accent:#ffffff;
+    --radius:18px;
+    --ok-bg:color-mix(in srgb, var(--green) 11%, var(--panel)); --ok-text:#08734f;
+    --err-bg:color-mix(in srgb, var(--red) 10%, var(--panel)); --err-text:#b4233f;
+    --info-bg:color-mix(in srgb, var(--accent) 9%, var(--panel)); --info-text:#3f40bd;
+    --chg-bg:color-mix(in srgb, var(--purple) 14%, var(--panel));
+    --del-bg:color-mix(in srgb, var(--red) 12%, var(--panel));
+    --ins-bg:color-mix(in srgb, var(--teal) 13%, var(--panel));
+    --chg-line:var(--purple); --del-line:var(--red); --ins-line:var(--teal);
+    --teal-bg:color-mix(in srgb, var(--teal) 10%, var(--panel)); --teal-text:#07657c;
+    --shadow:0 16px 44px rgba(29,39,70,.08);
   }
   html[data-theme="dark"] {
-    --bg:#0f1115; --panel:#171a21; --line:#262b35; --text:#e6e9ef; --muted:#9aa3b2;
-    --accent:#4c8bf5; --green:#2ea66b; --red:#e5534b; --purple:#9d7ae0; --input-bg:#0f131a;
-    --ok-bg:rgba(46,166,107,.12); --ok-text:#8be0b3; --err-bg:rgba(229,83,75,.12); --err-text:#f3a9a4;
-    --info-bg:rgba(76,139,245,.10); --info-text:#b9d2ff;
-    --chg-bg:rgba(204,121,167,.26); --del-bg:rgba(213,94,0,.26); --ins-bg:rgba(0,114,178,.28);
-    --chg-line:#cc79a7; --del-line:#e08a3c; --ins-line:#4ea3df;
-    --gutter:#10141b; --gutter-text:#6b7480;
-    --teal:#12b09a; --teal-bg:rgba(13,138,120,.12); --teal-text:#7ee8d8;
+    color-scheme: dark;
+    --bg:#090e1a; --panel:#11182a; --gutter:#171f34; --input-bg:#0c1323;
+    --line:#303b57; --text:#f4f7ff; --muted:#b5bfd3; --gutter-text:#7f8ba5;
+    --accent:#60a5fa; --accent-strong:#22d3ee; --green:#4ade80; --red:#f87171;
+    --purple:#a78bfa; --amber:#fbbf24; --teal:#22d3ee;
+    --ok-bg:color-mix(in srgb, var(--green) 13%, var(--panel)); --ok-text:#a7f3d0;
+    --err-bg:color-mix(in srgb, var(--red) 13%, var(--panel)); --err-text:#fecdd3;
+    --info-bg:color-mix(in srgb, var(--accent) 13%, var(--panel)); --info-text:#d9dcff;
+    --teal-bg:color-mix(in srgb, var(--teal) 12%, var(--panel)); --teal-text:#a5f3fc;
+    --shadow:0 20px 60px rgba(0,0,0,.30);
   }
   * { box-sizing: border-box; }
+  html,body { max-width:100%; overflow-x:hidden; }
   body {
-    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: var(--bg); color: var(--text); line-height: 1.5;
+    margin:0; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    min-height:100vh;
+    background:
+      radial-gradient(circle at 8% 0%,color-mix(in srgb,var(--accent) 8%,transparent),transparent 28rem),
+      radial-gradient(circle at 92% 5%,color-mix(in srgb,var(--teal) 7%,transparent),transparent 30rem),
+      var(--bg);
+    color:var(--text); line-height:1.5;
+    transition:background-color .2s ease, color .2s ease;
   }
-  .wrap { max-width: 1400px; margin: 0 auto; padding: 24px 20px 60px; }
-  .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-  h1 { font-size: 20px; margin: 0 0 4px; }
+  button,input,select,textarea { font:inherit; }
+  .app-shell { min-height:100vh; display:grid; grid-template-columns:244px minmax(0,1fr); }
+  .sidebar { position:sticky; top:0; height:100vh; display:flex; flex-direction:column; padding:22px 14px 16px;
+    background:color-mix(in srgb,var(--panel) 92%,var(--bg)); border-right:1px solid var(--line); z-index:20; }
+  .brand { display:flex; align-items:center; gap:11px; padding:0 8px 26px; color:var(--text); }
+  .brand-mark { width:36px; height:36px; display:grid; place-items:center; border-radius:12px;
+    background:linear-gradient(135deg,var(--accent),var(--accent-strong)); box-shadow:0 8px 22px color-mix(in srgb,var(--accent) 24%,transparent); }
+  .brand-mark svg { width:23px; fill:var(--on-accent); }
+  .brand strong,.brand small { display:block; line-height:1.2; }
+  .brand strong { font-size:13px; }
+  .brand small { margin-top:3px; color:var(--muted); font-size:11px; font-weight:600; }
+  .side-label,.eyebrow { color:var(--muted); font-size:10px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+  .side-label { padding:0 12px 8px; }
+  .side-menu { display:grid; min-width:0; gap:5px; }
+  .side-nav,.about-link { width:100%; border:0; display:flex; align-items:center; gap:10px; padding:10px 12px;
+    border-radius:12px; background:transparent; color:var(--muted); text-decoration:none; font-size:13px;
+    font-weight:650; text-align:left; cursor:pointer; transition:background .2s ease,color .2s ease,transform .2s ease; }
+  .side-nav:hover,.about-link:hover { color:var(--text); background:var(--gutter); transform:translateX(2px); }
+  .side-nav.active { color:var(--accent); background:color-mix(in srgb,var(--accent) 11%,var(--panel));
+    box-shadow:inset 3px 0 0 var(--accent); }
+  .nav-icon { width:21px; height:21px; display:grid; place-items:center; flex:0 0 21px; font-size:15px; }
+  .nav-icon svg { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.8;
+    stroke-linecap:round; stroke-linejoin:round; }
+  .sidebar-footer { margin-top:auto; border-top:1px solid var(--line); padding-top:12px; }
+  .sidebar .credit { padding:12px 12px 0; margin:0; font-size:10px; line-height:1.5; }
+  .app-main { min-width:0; }
+  .wrap { width:100%; max-width:none; margin:0; padding:0 clamp(14px,2.2vw,36px) 64px; }
+  .topbar { min-height:116px; display:flex; align-items:center; justify-content:space-between; gap:20px;
+    padding:22px clamp(14px,2.2vw,36px) 18px; position:relative; overflow:hidden; }
+  .topbar::after { content:""; position:absolute; right:-80px; top:-130px; width:420px; height:260px; pointer-events:none;
+    background:radial-gradient(circle,color-mix(in srgb,var(--teal) 18%,transparent),transparent 68%); }
+  .topbar > * { position:relative; z-index:1; }
+  h1 { font-size:clamp(25px,2.1vw,32px); letter-spacing:-.035em; margin:2px 0 4px; }
   .sub { color: var(--muted); font-size: 13px; margin: 0 0 6px; }
   .credit { color: var(--muted); font-size: 12px; margin: 0 0 20px; }
   .credit a { color: var(--accent); text-decoration: none; }
   .credit a:hover { text-decoration: underline; }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; }
+  .top-actions { display:flex; align-items:center; gap:10px; }
+  .local-badge { display:inline-flex; align-items:center; gap:7px; padding:8px 11px; border:1px solid var(--line);
+    border-radius:12px; background:color-mix(in srgb,var(--panel) 88%,transparent); color:var(--muted); font-size:11px; font-weight:700; }
+  .live-dot { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 0 4px color-mix(in srgb,var(--green) 14%,transparent); }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:clamp(14px,1.5vw,24px); box-shadow:var(--shadow); }
+  .section-head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px;
+    padding-bottom:16px; margin-bottom:18px; border-bottom:1px solid var(--line); }
+  .section-title { display:flex; align-items:flex-start; gap:11px; min-width:0; }
+  .step-dot { width:27px; height:27px; flex:0 0 27px; display:grid; place-items:center; border-radius:9px;
+    background:linear-gradient(135deg,var(--accent),var(--accent-strong)); color:var(--on-accent);
+    font-size:12px; font-weight:800; box-shadow:0 7px 16px color-mix(in srgb,var(--accent) 22%,transparent); }
+  .section-title h2 { margin:0; color:var(--text); font-size:15px; letter-spacing:-.01em; }
+  .section-title p { margin:3px 0 0; color:var(--muted); font-size:12px; }
 
   /* Operation tabs */
-  .tabs { display: inline-flex; gap: 4px; background: var(--gutter); border: 1px solid var(--line);
-    border-radius: 10px; padding: 4px; margin-bottom: 18px; flex-wrap: wrap; }
+  .tabs { display:inline-flex; max-width:100%; gap:5px; background:var(--gutter); border:1px solid var(--line);
+    border-radius:14px; padding:5px; margin-bottom:18px; flex-wrap:wrap; }
   .tab { border: none; background: transparent; color: var(--muted); font-weight: 600; font-size: 14px;
-    padding: 8px 16px; border-radius: 7px; cursor: pointer; }
-  .tab.active { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+    padding:9px 18px; border-radius:10px; cursor:pointer; transition:background .2s ease,color .2s ease,transform .2s ease; }
+  .tab:hover { background:color-mix(in srgb,var(--accent) 10%,transparent); color:var(--text); }
+  .tab.active { background:var(--accent); color:var(--on-accent); box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 28%,transparent); }
 
   label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px;
     text-transform: uppercase; letter-spacing: .04em; }
   select, input, textarea {
     width: 100%; background: var(--input-bg); color: var(--text); border: 1px solid var(--line);
-    border-radius: 8px; padding: 9px 11px; font-size: 14px; outline: none;
+    border-radius:14px; padding:10px 13px; font-size:14px; outline:none;
+    transition:border-color .16s ease,box-shadow .16s ease,background .16s ease;
   }
-  select:focus, input:focus, textarea:focus { border-color: var(--accent); }
+  select:focus, input:focus, textarea:focus { border-color:var(--accent); box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 16%,transparent); }
   .controls { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 16px; }
-  .controls .field { flex: 0 1 280px; }
+  .controls .field { flex:0 1 280px; max-width:100%; }
   .controls label { margin-bottom: 6px; }
   .grow { flex: 1 1 auto; }
 
-  button.action { border: none; border-radius: 8px; padding: 10px 20px; font-size: 14px; font-weight: 600;
-    cursor: pointer; color: #fff; }
+  button { font-family:inherit; }
+  .btn-icon { width:15px; height:15px; flex:0 0 15px; fill:none; stroke:currentColor;
+    stroke-width:2; stroke-linecap:round; stroke-linejoin:round; vertical-align:-3px; }
+  button .btn-icon { margin-right:6px; }
+  .tab .btn-icon,.filter-chip .btn-icon { width:13px; height:13px; margin-right:5px; }
+  button.action { min-height:44px; border:none; border-radius:12px; padding:10px 22px; font-size:14px; font-weight:700;
+    cursor:pointer; color:var(--on-accent); box-shadow:0 8px 20px rgba(29,39,70,.16);
+    transition:transform .14s ease,filter .14s ease,box-shadow .14s ease; }
+  button.action:hover:not(:disabled) { transform:translateY(-1px); filter:brightness(1.08) saturate(1.08); }
+  button.action:active:not(:disabled) { transform:translateY(1px) scale(.97); filter:brightness(.92) saturate(1.2); }
   button.action:disabled { opacity: .5; cursor: not-allowed; }
-  .b-compare { background: var(--accent); }
-  .b-merge { background: var(--green); }
-  .b-dedup { background: var(--purple); }
-  .b-cdfix { background: var(--teal); }
-  .ghost { background: transparent; border: 1px solid var(--line); color: var(--text);
-    font-weight: 500; border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
+  .b-compare { background:linear-gradient(135deg,var(--accent),var(--accent-strong)); }
+  .b-merge { background:linear-gradient(135deg,var(--green),color-mix(in srgb,var(--green) 78%,var(--text))); }
+  .b-dedup { background:linear-gradient(135deg,var(--purple),color-mix(in srgb,var(--purple) 78%,var(--text))); }
+  .b-cdfix { background:linear-gradient(135deg,var(--teal),color-mix(in srgb,var(--teal) 78%,var(--text))); }
+  .ghost { background:var(--panel); border:1px solid var(--line); color:var(--text);
+    font-weight:650; border-radius:10px; padding:8px 15px; font-size:13px; cursor:pointer;
+    transition:transform .14s ease,background .14s ease,border-color .14s ease,color .14s ease,box-shadow .14s ease; }
+  .ghost:hover { background:color-mix(in srgb,var(--accent) 9%,var(--panel)); border-color:var(--accent); color:var(--accent); }
+  .ghost:active { transform:scale(.96); background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+  button:focus-visible { outline:3px solid color-mix(in srgb,var(--accent) 35%,transparent); outline-offset:3px; }
 
   /* Editable code pane (paste areas) */
-  .panes { display: flex; gap: 12px; align-items: stretch; flex-wrap: wrap; }
-  .xpane { flex: 1 1 0; min-width: 280px; border: 1px solid var(--line); border-radius: 8px;
-    overflow: hidden; display: flex; flex-direction: column; background: var(--panel); }
-  .xpane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--gutter); }
+  .panes { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(360px,100%),1fr)); gap:14px; align-items:stretch; }
+  .xpane { min-width:0; border:1px solid var(--line); border-radius:16px;
+    overflow:hidden; display:flex; flex-direction:column; background:var(--panel);
+    transition:border-color .16s ease,box-shadow .16s ease; }
+  .xpane:focus-within { border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 12%,transparent); }
+  .xpane-head { display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:10px 13px; border-bottom:1px solid var(--line); background:var(--gutter); }
   .xpane-head .ttl { font-size: 12px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--muted); }
-  .badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 99px; color:#fff; }
+  .badge { font-size:10px; font-weight:700; padding:2px 8px; border-radius:99px; color:var(--on-accent); }
   .badge.base { background: var(--green); }
   .badge.out { background: var(--accent); }
   /* Line-numbered editor body */
@@ -100,19 +174,20 @@ PAGE = r"""<!DOCTYPE html>
   #view-cdfix .ln-gutter { overflow-y: hidden !important; }
   #view-cdfix .xpane textarea {
     flex: none   !important;
-    width: 100%  !important;
+    width: calc(100% - 46px) !important;
     height: 300px !important;
     max-height: 300px !important;
     overflow-y: auto !important;
     resize: none !important;
   }
   .ln-gutter {
-    flex-shrink: 0; width: 46px; overflow: hidden;
+    position:relative; flex-shrink:0; width:46px; overflow:hidden;
     background: var(--gutter); border-right: 1px solid var(--line);
     font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; line-height: 19px;
-    padding: 8px 8px 8px 0; text-align: right;
+    padding:0; text-align:right;
     color: var(--gutter-text); user-select: none; white-space: pre;
   }
+  .ln-inner { position:absolute; top:8px; right:8px; white-space:pre; will-change:transform; }
   .xpane textarea {
     flex: 1; border: none; border-radius: 0; resize: none; outline: none;
     font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; line-height: 19px;
@@ -121,37 +196,46 @@ PAGE = r"""<!DOCTYPE html>
   }
   .xpane textarea:focus { border: none; }
   .xpane textarea[readonly] { background: var(--gutter); }
-  .mini { display: flex; gap: 6px; }
-  .mini .ghost { padding: 4px 10px; font-size: 12px; }
+  .editor-status { min-height:31px; display:flex; align-items:center; gap:10px; padding:6px 11px;
+    border-top:1px solid var(--line); background:var(--gutter); color:var(--muted);
+    font-family:Inter,-apple-system,sans-serif; font-size:10px; font-weight:650; }
+  .editor-status .format { padding:2px 6px; border:1px solid var(--line); border-radius:6px; color:var(--text); }
+  .editor-status .valid { margin-left:auto; color:var(--green); }
+  .editor-status .invalid { margin-left:auto; color:var(--red); }
+  .editor-status .waiting { margin-left:auto; color:var(--muted); }
+  .editor-status .btn-icon { width:12px; height:12px; margin-right:4px; vertical-align:-2px; }
+  .mini { display:flex; justify-content:flex-end; gap:6px; flex-wrap:wrap; }
+  .mini .ghost { padding:5px 11px; font-size:12px; }
 
-  .status { margin-top: 16px; font-size: 13px; padding: 12px 14px; border-radius: 8px; display: none;
+  .status { margin-top:16px; font-size:13px; padding:13px 16px; border-radius:14px; display:none;
     white-space: pre-wrap; font-family: "SF Mono", Menlo, monospace; }
   .status.show { display: block; }
   .status.ok { background: var(--ok-bg); border: 1px solid var(--green); color: var(--ok-text); }
   .status.err { background: var(--err-bg); border: 1px solid var(--red); color: var(--err-text); }
   .status.info { background: var(--info-bg); border: 1px solid var(--accent); color: var(--info-text); }
-  .dup-warn { display: none; margin-top: 14px; border-radius: 8px; overflow: hidden;
-    border: 2px solid #b45309; }
+  .dup-warn { display:none; margin-top:14px; border-radius:16px; overflow:hidden;
+    border:1px solid var(--amber); }
   .dup-warn.show { display: block; }
   .dup-warn-head { display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    background: #b45309; color: #fff; padding: 10px 14px; font-size: 13px; font-weight: 700; }
+    background:var(--amber); color:var(--on-accent); padding:11px 15px; font-size:13px; font-weight:700; }
   .dup-warn-head svg { flex-shrink: 0; }
-  .dup-warn-body { background: #fffbeb; color: #78350f; padding: 12px 14px; font-size: 13px; line-height: 1.6; }
-  html[data-theme="dark"] .dup-warn { border-color: #d97706; }
-  html[data-theme="dark"] .dup-warn-head { background: #92400e; }
-  html[data-theme="dark"] .dup-warn-body { background: rgba(217,119,6,.1); color: #fcd34d; }
-  .dup-list { margin: 8px 0 0; padding: 8px 12px; background: rgba(0,0,0,.06); border-radius: 6px;
+  .dup-warn-head .ghost { background:transparent; color:var(--on-accent);
+    border-color:color-mix(in srgb,var(--on-accent) 45%,transparent); }
+  .dup-warn-head .ghost:hover { background:color-mix(in srgb,var(--on-accent) 16%,transparent);
+    border-color:var(--on-accent); color:var(--on-accent); }
+  .dup-warn-body { background:color-mix(in srgb,var(--amber) 10%,var(--panel)); color:var(--text);
+    padding:13px 15px; font-size:13px; line-height:1.6; }
+  .dup-list { margin:8px 0 0; padding:9px 12px; background:color-mix(in srgb,var(--amber) 8%,var(--gutter)); border-radius:10px;
     font-family: "SF Mono", Menlo, monospace; font-size: 12px; max-height: 180px; overflow-y: auto; }
-  html[data-theme="dark"] .dup-list { background: rgba(255,255,255,.05); }
   .dup-list li { margin: 2px 0; list-style: none; padding-left: 1.2em; text-indent: -1.2em; }
   .dup-badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px;
     border-radius: 99px; margin-right: 4px; }
-  .dup-badge.base { background: #1f9d57; color: #fff; }
-  .dup-badge.mod  { background: #2f6fed; color: #fff; }
+  .dup-badge.base { background:var(--green); color:var(--on-accent); }
+  .dup-badge.mod  { background:var(--accent); color:var(--on-accent); }
   .report { margin-top: 16px; display: none; }
   .report.show { display: block; }
-  .report pre { background: var(--gutter); border: 1px solid var(--line); border-radius: 8px;
-    padding: 14px; overflow: auto; max-height: 360px; font-family: "SF Mono", Menlo, monospace;
+  .report pre { background: var(--gutter); border: 1px solid var(--line); border-radius: 14px;
+    padding:14px; overflow:auto; max-height:260px; font-family:"JetBrains Mono","SF Mono",Menlo,monospace;
     font-size: 12.5px; margin: 0; }
   .report h3 { font-size: 13px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 
@@ -168,12 +252,13 @@ PAGE = r"""<!DOCTYPE html>
   .summary { font-size: 13px; font-weight: 600; }
   .legend { font-size: 12px; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
   .legend span { display: inline-flex; align-items: center; }
-  .legend i { width: 14px; height: 14px; border-radius: 3px; margin-right: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #1b2330; }
+  .legend i { width:14px; height:14px; border-radius:4px; margin-right:6px; display:inline-flex;
+    align-items:center; justify-content:center; font-size:10px; font-weight:700; color:var(--text); }
   .lg-chg { background: var(--chg-bg); border: 1px solid var(--chg-line); }
   .lg-del { background: var(--del-bg); border: 1px solid var(--del-line); }
   .lg-ins { background: var(--ins-bg); border: 1px solid var(--ins-line); }
   .diff-panes { display: flex; gap: 12px; align-items: stretch; }
-  .pane { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+  .pane { flex:1; min-width:0; border:1px solid var(--line); border-radius:16px; overflow:hidden; display:flex; flex-direction:column; }
   .pane-title { padding: 8px 12px; font-size: 12px; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); background: var(--gutter); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pane-scroll { overflow: auto; max-height: 620px; }
   table.pane-table { border-collapse: collapse; width: 100%; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
@@ -193,43 +278,156 @@ PAGE = r"""<!DOCTYPE html>
   .cdfix-step { margin-top: 20px; }
   .cdfix-step-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
   .cdfix-step-num { width: 24px; height: 24px; border-radius: 50%; background: var(--teal);
-    color: #fff; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    color:var(--on-accent); font-size:12px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
   .cdfix-step-title { font-size: 13px; font-weight: 700; color: var(--text); }
   .cdfix-step-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .cdf-editor-grid { grid-template-columns:minmax(0,1fr) 58px minmax(0,1fr); align-items:center; }
+  .cdf-diff-indicator { display:grid; justify-items:center; align-content:center; gap:2px; color:var(--muted); }
+  .cdf-diff-arrow { width:34px; height:34px; display:grid; place-items:center; border:1px solid var(--line);
+    border-radius:11px; background:var(--panel); color:var(--accent); font-size:18px; box-shadow:var(--shadow); }
+  .cdf-diff-indicator strong { min-width:42px; margin-top:3px; padding:5px 7px; border-radius:9px;
+    background:color-mix(in srgb,var(--accent) 11%,var(--panel)); color:var(--accent); text-align:center; font-size:13px; }
+  .cdf-diff-indicator small { font-size:9px; font-weight:700; }
+  .cdf-diff-indicator.has-diffs .cdf-diff-arrow { border-color:var(--accent);
+    box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 10%,transparent); }
+
+  /* ── Bidirectional Context Definition diagnostics ─────────────── */
+  .cdf-diagnostics { display:none; margin-top:16px; border:1px solid var(--line); border-radius:16px;
+    background:var(--input-bg); overflow:hidden; }
+  .cdf-diagnostics.show { display:block; }
+  .diag-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+    padding:14px 16px; border-bottom:1px solid var(--line); background:var(--gutter); }
+  .diag-head h3 { margin:0; color:var(--text); font-size:14px; }
+  .diag-head p { margin:3px 0 0; color:var(--muted); font-size:11px; }
+  .diag-version { flex-shrink:0; padding:5px 8px; border:1px solid var(--line); border-radius:8px;
+    background:var(--panel); color:var(--accent); font-size:10px; font-weight:750; }
+  .diag-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; padding:12px 14px 0; }
+  .diag-metrics > div { padding:10px 11px; border:1px solid var(--line); border-radius:11px; background:var(--panel); }
+  .diag-metrics span,.diag-metrics strong { display:block; }
+  .diag-metrics span { color:var(--muted); font-size:9px; font-weight:750; letter-spacing:.05em; text-transform:uppercase; }
+  .diag-metrics strong { margin-top:3px; color:var(--text); font-size:18px; line-height:1.1; }
+  .diag-explanation { margin:10px 14px; padding:10px 12px; border-left:3px solid var(--accent);
+    border-radius:8px; background:var(--info-bg); color:var(--info-text); font-size:11px; line-height:1.55; }
+  .diag-tabs { display:flex; gap:5px; flex-wrap:wrap; padding:0 14px 10px; }
+  .diag-tab { border:1px solid var(--line); border-radius:9px; padding:7px 9px; background:var(--panel);
+    color:var(--muted); font-size:10px; font-weight:750; cursor:pointer; }
+  .diag-tab span { margin-left:4px; padding:1px 5px; border-radius:99px; background:var(--gutter); color:var(--text); }
+  .diag-tab.active { border-color:var(--accent); background:var(--accent); color:var(--on-accent); }
+  .diag-tab.active span { background:color-mix(in srgb,var(--on-accent) 18%,transparent); color:var(--on-accent); }
+  .diag-list { max-height:360px; overflow:auto; border-top:1px solid var(--line); }
+  .diag-empty { padding:22px; color:var(--muted); text-align:center; font-size:11px; }
+  .diag-row { display:grid; grid-template-columns:minmax(150px,.8fr) minmax(200px,1.2fr) minmax(160px,1fr) auto;
+    gap:10px; align-items:start; padding:9px 14px; border-bottom:1px solid var(--line); }
+  .diag-row:last-child { border-bottom:0; }
+  .diag-row:hover { background:var(--gutter); }
+  .diag-kind { width:max-content; max-width:100%; padding:2px 6px; border-radius:5px;
+    background:var(--gutter); color:var(--muted); font-size:9px; font-weight:750; }
+  .diag-kind.serializer { background:color-mix(in srgb,var(--amber) 11%,var(--panel)); color:var(--amber); }
+  .diag-name { color:var(--text); font-family:"JetBrains Mono","SF Mono",monospace; font-size:10px; font-weight:700; overflow-wrap:anywhere; }
+  .diag-path,.diag-detail { color:var(--muted); font-family:"JetBrains Mono","SF Mono",monospace;
+    font-size:9px; overflow-wrap:anywhere; }
+  .diag-count { min-width:32px; padding:2px 6px; border-radius:99px; background:var(--gutter);
+    color:var(--text); font-size:9px; font-weight:800; text-align:center; }
+  .diag-count-row { display:grid; grid-template-columns:minmax(180px,1fr) repeat(3,90px);
+    gap:8px; padding:8px 14px; border-bottom:1px solid var(--line); font-size:10px; }
+  .diag-count-row.head { position:sticky; top:0; z-index:1; background:var(--gutter); color:var(--muted); font-weight:750; }
+  .diag-count-row code { color:var(--text); }
+  .diag-positive { color:var(--green); }
+  .diag-negative { color:var(--red); }
 
   /* ── CD Fix selection panel ─────────────────────────────────── */
-  .cdfix-select { display: none; margin-top: 20px; border: 1px solid var(--teal); border-radius: var(--radius); overflow: hidden; }
+  .cdfix-select { display:none; margin-top:20px; border:1px solid var(--teal); border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow); }
   .cdfix-select.show { display: block; }
-  .cdfix-sel-head { background: var(--teal); color: #fff; padding: 10px 16px; font-size: 13px; font-weight: 700;
+  .cdfix-sel-head { background:var(--teal); color:var(--on-accent); padding:12px 18px; font-size:13px; font-weight:700;
     display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .cdfix-sel-body { padding: 12px 14px; background: var(--panel); max-height: 520px; overflow-y: auto; }
+  .cdfix-sel-body { padding:16px; background:var(--panel); max-height:none; }
+  .cdfix-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-bottom:14px; }
+  .metric-card { position:relative; overflow:hidden; display:flex; flex-direction:column; gap:2px; min-height:76px;
+    padding:13px 14px; border:1px solid var(--line); border-radius:14px; background:var(--input-bg); }
+  .metric-card::before { content:""; position:absolute; inset:0 auto 0 0; width:3px; background:var(--accent); }
+  .metric-card strong { color:var(--text); font-size:22px; line-height:1.1; letter-spacing:-.03em; }
+  .metric-card span { color:var(--muted); font-size:11px; font-weight:650; }
+  .metric-map::before { background:var(--teal); }
+  .metric-node::before { background:var(--purple); }
+  .metric-error::before { background:var(--amber); }
+  .cdfix-data-toolbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  label.cdfix-search { width:min(330px,100%); margin:0; display:flex; align-items:center; gap:7px; padding:0 10px;
+    border:1px solid var(--line); border-radius:11px; background:var(--input-bg); text-transform:none; letter-spacing:0; }
+  .cdfix-search input { border:0; padding:8px 0; background:transparent; box-shadow:none !important; }
+  .cdfix-filters { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+  .filter-chip { border:1px solid var(--line); border-radius:9px; padding:7px 10px; background:var(--panel);
+    color:var(--muted); font-size:11px; font-weight:700; cursor:pointer; transition:all .2s ease; }
+  .filter-chip[data-cdf-filter="all"] { color:var(--accent); background:color-mix(in srgb,var(--accent) 9%,var(--panel)); }
+  .filter-chip[data-cdf-filter="ready"] { color:var(--ok-text); background:var(--ok-bg); }
+  .filter-chip[data-cdf-filter="errors"] {
+    color:var(--text); background:color-mix(in srgb,var(--amber) 12%,var(--panel));
+  }
+  .filter-chip[data-cdf-filter="mapping"] { color:var(--teal-text); background:var(--teal-bg); }
+  .filter-chip[data-cdf-filter="nodeAttr"] { color:var(--purple); background:color-mix(in srgb,var(--purple) 10%,var(--panel)); }
+  .filter-chip[data-cdf-filter="selected"] { color:var(--amber); background:color-mix(in srgb,var(--amber) 10%,var(--panel)); }
+  .filter-chip:hover { border-color:var(--accent); color:var(--accent); }
+  .filter-chip.active { border-color:var(--accent); background:var(--accent); color:var(--on-accent);
+    box-shadow:0 5px 14px color-mix(in srgb,var(--accent) 22%,transparent); }
+  .filter-chip[data-cdf-filter="ready"].active { border-color:var(--green); background:var(--green); }
+  .filter-chip[data-cdf-filter="errors"].active {
+    border-color:var(--amber); background:var(--amber); color:var(--text);
+  }
+  .filter-chip[data-cdf-filter="mapping"].active { border-color:var(--teal); background:var(--teal); }
+  .filter-chip[data-cdf-filter="nodeAttr"].active { border-color:var(--purple); background:var(--purple); }
+  .filter-chip[data-cdf-filter="selected"].active { border-color:var(--amber); background:var(--amber); color:var(--text); }
   .cdfix-sel-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
   .cdfix-sel-actions .ghost { padding: 5px 12px; font-size: 12px; }
   .cdfix-legend { display: flex; gap: 10px; margin-left: auto; flex-wrap: wrap; }
   .cdfix-legend-item { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
   .cdfix-legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+  .cdfix-data-layout { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr); gap:12px; align-items:start; }
+  #cdfFieldList { min-width:0; max-height:620px; overflow:auto; padding-right:3px; }
+  .cdfix-detail { position:sticky; top:12px; min-height:260px; max-height:620px; overflow:auto;
+    border:1px solid var(--line); border-radius:14px; background:var(--input-bg); }
+  .cdfix-detail-empty { min-height:258px; display:grid; place-content:center; justify-items:center; padding:24px;
+    color:var(--muted); text-align:center; }
+  .cdfix-detail-empty > span { width:38px; height:38px; display:grid; place-items:center; margin-bottom:8px;
+    border-radius:12px; background:var(--gutter); color:var(--accent); font-size:21px; }
+  .cdfix-detail-empty strong { color:var(--text); font-size:13px; }
+  .cdfix-detail-empty p { max-width:240px; margin:4px 0 0; font-size:11px; }
+  .cdfix-detail-head { padding:14px; border-bottom:1px solid var(--line); }
+  .cdfix-detail-head h4 { margin:7px 0 3px; font-size:14px; word-break:break-word; }
+  .cdfix-detail-head p { margin:0; color:var(--muted); font-size:11px; }
+  .cdfix-detail-body { padding:14px; }
+  .detail-row { margin-bottom:12px; }
+  .detail-row > span { display:block; margin-bottom:4px; color:var(--muted); font-size:10px; font-weight:800;
+    letter-spacing:.08em; text-transform:uppercase; }
+  .detail-row code,.detail-preview { font-family:"JetBrains Mono","SF Mono",Menlo,monospace; font-size:11px; }
+  .detail-row code { color:var(--text); overflow-wrap:anywhere; }
+  .detail-preview { margin:0; padding:11px; border:1px solid var(--line); border-radius:10px; background:var(--gutter);
+    color:var(--text); white-space:pre-wrap; overflow:auto; line-height:1.55; }
+  .cdfix-card:has(input:checked) { background:color-mix(in srgb,var(--green) 4%,var(--input-bg)); }
+  .cdfix-card.is-active { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 7%,var(--input-bg));
+    box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 12%,transparent); }
+  .cdfix-card[hidden] { display:none; }
+  .cdfix-group.is-filtered-empty { display:none; }
 
   /* ── Group header ────────────────────────────────────────────── */
   .cdfix-group { margin-bottom: 14px; }
-  .cdfix-group-head { display: flex; align-items: center; gap: 8px; padding: 7px 12px;
-    background: var(--teal-bg); border: 1px solid rgba(13,138,120,.25); border-radius: 7px;
+  .cdfix-group-head { display:flex; align-items:center; gap:8px; padding:9px 13px;
+    background:var(--teal-bg); border:1px solid color-mix(in srgb,var(--teal) 28%,var(--line)); border-radius:12px;
     margin-bottom: 6px; cursor: pointer; user-select: none; }
-  .cdfix-group-head:hover { filter: brightness(.97); }
-  .cdfix-group-check { accent-color: var(--teal); width: 15px; height: 15px; cursor: pointer; flex-shrink: 0; }
+  .cdfix-group-head:hover { border-color:var(--teal); filter:brightness(1.02); }
+  .cdfix-group-check { accent-color:var(--green); width:15px; height:15px; cursor:pointer; flex-shrink:0; }
   .cdfix-group-name { font-size: 13px; font-weight: 700; color: var(--teal-text); flex: 1;
     font-family: "SF Mono", Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .cdfix-group-meta { font-size: 11px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
-  .cdfix-group-badge { background: var(--teal); color: #fff; font-size: 10px; font-weight: 700;
+  .cdfix-group-badge { background:var(--teal); color:var(--on-accent); font-size:10px; font-weight:700;
     padding: 1px 8px; border-radius: 99px; }
   .cdfix-toggle-arrow { font-size: 11px; color: var(--muted); flex-shrink: 0; transition: transform .2s; }
   .cdfix-toggle-arrow.open { transform: rotate(180deg); }
 
   /* ── Item card — flat 3-row layout ──────────────────────────── */
-  label.cdfix-card { display: flex; gap: 10px; align-items: flex-start; padding: 9px 12px;
-    border: 1px solid var(--line); border-radius: 7px; margin-bottom: 5px;
-    cursor: pointer; transition: border-color .12s, background .12s; }
-  label.cdfix-card:hover { border-color: var(--teal); background: rgba(13,138,120,.03); }
-  label.cdfix-card input[type=checkbox] { margin-top: 2px; flex-shrink: 0; accent-color: var(--teal);
+  label.cdfix-card { display:flex; gap:10px; align-items:flex-start; padding:11px 13px;
+    border:1px solid var(--line); border-radius:14px; margin-bottom:7px; background:var(--input-bg);
+    cursor:pointer; text-transform:none; letter-spacing:normal; transition:border-color .2s,background .2s; }
+  label.cdfix-card:hover { border-color:var(--teal); background:var(--teal-bg); }
+  label.cdfix-card input[type=checkbox] { margin-top:2px; flex-shrink:0; accent-color:var(--green);
     width: 15px; height: 15px; cursor: pointer; }
   .cdfix-ci { flex: 1; min-width: 0; }                     /* info column — takes remaining width */
 
@@ -237,14 +435,26 @@ PAGE = r"""<!DOCTYPE html>
   .cdfix-r1 { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
   .cdfix-tbadge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px;
     text-transform: uppercase; letter-spacing: .04em; flex-shrink: 0; }
-  .cdfix-tbadge-m { background: rgba(13,138,120,.12); color: var(--teal-text); border: 1px solid rgba(13,138,120,.3); }
-  .cdfix-tbadge-n { background: rgba(124,79,208,.1);  color: var(--purple);    border: 1px solid rgba(124,79,208,.25); }
+  .cdfix-tbadge-m { background:var(--teal-bg); color:var(--teal-text); border:1px solid color-mix(in srgb,var(--teal) 32%,var(--line)); }
+  .cdfix-tbadge-n { background:color-mix(in srgb,var(--purple) 11%,var(--panel)); color:var(--purple);
+    border:1px solid color-mix(in srgb,var(--purple) 30%,var(--line)); }
   .cdfix-cname { font-family: "SF Mono", Menlo, monospace; font-size: 13px; font-weight: 700;
     color: var(--text); word-break: break-word; }
   .cdfix-modtag { font-size: 10px; padding: 2px 7px; border-radius: 4px; flex-shrink: 0;
-    background: rgba(47,111,237,.1); color: var(--accent); border: 1px solid rgba(47,111,237,.25); font-weight: 600; }
+    background:color-mix(in srgb,var(--accent) 10%,var(--panel)); color:var(--accent);
+    border:1px solid color-mix(in srgb,var(--accent) 28%,var(--line)); font-weight:600; }
   .cdfix-warntag { font-size: 10px; padding: 2px 7px; border-radius: 4px; flex-shrink: 0;
-    background: #b45309; color: #fff; }
+    background:var(--red); color:var(--on-accent); }
+  .cdfix-parenttag { font-size:10px; padding:2px 7px; border-radius:4px; flex-shrink:0;
+    background:color-mix(in srgb,var(--amber) 18%,var(--panel)); color:var(--text);
+    border:1px solid color-mix(in srgb,var(--amber) 55%,var(--line)); font-weight:700; }
+  .cdfix-readytag { font-size:10px; padding:2px 7px; border-radius:4px; flex-shrink:0;
+    background:var(--ok-bg); color:var(--ok-text); border:1px solid color-mix(in srgb,var(--green) 28%,var(--line)); }
+  .cdfix-parent-help { margin-top: 7px; padding: 8px 10px; border-radius: 6px;
+    border:1px solid color-mix(in srgb,var(--amber) 55%,var(--line));
+    background:color-mix(in srgb,var(--amber) 10%,var(--panel)); color:var(--text);
+    font-size: 11px; line-height: 1.5; }
+  .cdfix-parent-help strong { font-weight: 700; }
 
   /* Row 2: location breadcrumb */
   .cdfix-r2 { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; margin-bottom: 3px; }
@@ -258,39 +468,144 @@ PAGE = r"""<!DOCTYPE html>
   .cdfix-fval { font-size: 11px; font-family: "SF Mono", Menlo, monospace;
     padding: 1px 7px; border-radius: 4px; word-break: break-all; }
   .cdfix-fval-sf  { background: var(--teal-bg); color: var(--teal-text); }
-  .cdfix-fval-hyd { background: rgba(124,79,208,.08); color: var(--purple); }
+  .cdfix-fval-hyd { background:color-mix(in srgb,var(--purple) 10%,var(--panel)); color:var(--purple); }
   .cdfix-fval-role { color: var(--muted); font-style: italic; font-size: 11px; }
+  .report-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; margin-bottom:10px; }
+  .report-summary > div { padding:9px 10px; border:1px solid var(--line); border-radius:10px; background:var(--input-bg); }
+  .report-summary strong,.report-summary span { display:block; }
+  .report-summary strong { color:var(--text); font-size:18px; line-height:1.1; }
+  .report-summary span { margin-top:2px; color:var(--muted); font-size:9px; font-weight:750; text-transform:uppercase; letter-spacing:.06em; }
+  .report-summary > div:first-child { border-top:2px solid var(--green); }
+  .report-summary > div:nth-child(2) { border-top:2px solid var(--amber); }
+  .report-summary > div:last-child { border-top:2px solid var(--red); }
+  .apply-timeline { display:grid; gap:8px; margin-bottom:10px; }
+  .timeline-item { display:grid; grid-template-columns:24px minmax(0,1fr); gap:9px; padding:9px 11px;
+    border:1px solid var(--line); border-radius:11px; background:var(--input-bg); }
+  .timeline-icon { width:22px; height:22px; display:grid; place-items:center; border-radius:50%; font-size:11px; font-weight:800; }
+  .timeline-item.add .timeline-icon { color:var(--green); background:var(--ok-bg); }
+  .timeline-item.skip .timeline-icon { color:var(--amber); background:color-mix(in srgb,var(--amber) 12%,var(--panel)); }
+  .timeline-item.error .timeline-icon { color:var(--red); background:var(--err-bg); }
+  .timeline-copy strong { display:block; color:var(--text); font-size:11px; }
+  .timeline-copy span { display:block; margin-top:2px; color:var(--muted); font-family:"JetBrains Mono",monospace; font-size:10px; overflow-wrap:anywhere; }
+  .timeline-toggle { width:100%; margin:2px 0 10px; }
+  .raw-report { border-top:1px solid var(--line); padding-top:9px; }
+  .raw-report summary { color:var(--muted); font-size:11px; font-weight:700; cursor:pointer; }
+  .raw-report pre { margin-top:9px; }
+  #cdfBuildStep:not(.hidden) { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(320px,.9fr);
+    gap:12px; margin-top:20px; padding-top:20px; border-top:1px solid var(--line); }
+  #cdfBuildStep .cdfix-step-head { grid-column:1 / -1; }
+  #cdfBuildStep > .panes,#cdfBuildStep > .status { grid-column:1; }
+  #cdfBuildStep > .report { grid-column:2; grid-row:2 / span 2; margin-top:14px; }
   /* ── Fixed floating scroll buttons ────────────────────────────── */
-  .fab { position: fixed; z-index: 99999; width: 46px; height: 46px; border-radius: 50%;
+  .fab { position:fixed; z-index:99999; width:48px; height:48px; border-radius:50%;
     border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 4px 14px rgba(0,0,0,.30); transition: transform .15s, box-shadow .15s;
+    box-shadow:var(--shadow); transition:transform .15s,box-shadow .15s,filter .15s;
     bottom: 26px; }
-  .fab:hover { transform: scale(1.13); box-shadow: 0 6px 20px rgba(0,0,0,.40); }
-  .fab-up   { right: 26px; background: var(--teal); color: #fff; }
-  .fab-down { left:  26px; background: var(--panel); color: var(--teal);
+  .fab:hover { transform:translateY(-2px) scale(1.06); filter:brightness(1.08); }
+  .fab:active { transform:scale(.94); }
+  .fab-up   { right:26px; background:var(--teal); color:var(--on-accent); }
+  .fab-down { left:270px; background:var(--panel); color:var(--teal);
     border: 2px solid var(--teal); }
+
+  @media (max-width: 1050px) {
+    .app-shell { display:block; }
+    .sidebar { position:sticky; height:auto; padding:9px 12px; flex-direction:row; align-items:center;
+      gap:12px; border-right:0; border-bottom:1px solid var(--line); }
+    .brand { padding:0; min-width:max-content; }
+    .brand-mark { width:32px; height:32px; border-radius:10px; }
+    .brand small,.side-label,.sidebar-footer { display:none; }
+    .side-menu { display:flex; flex:1; gap:4px; overflow-x:auto; scrollbar-width:none; }
+    .side-menu::-webkit-scrollbar { display:none; }
+    .side-nav { width:auto; min-width:max-content; padding:8px 10px; }
+    .side-nav:hover { transform:none; }
+    .side-nav.active { box-shadow:inset 0 -2px 0 var(--accent); }
+    .topbar { min-height:104px; }
+    .fab-down { left:14px; }
+    .cdfix-data-layout { grid-template-columns:1fr; }
+    .cdfix-detail { position:static; }
+    #cdfBuildStep:not(.hidden) { grid-template-columns:1fr; }
+    #cdfBuildStep > .panes,#cdfBuildStep > .status,#cdfBuildStep > .report {
+      grid-column:1; grid-row:auto; }
+  }
+  @media (max-width: 760px) {
+    .sidebar { align-items:flex-start; }
+    .brand { padding-top:2px; }
+    .brand > span:last-child { display:none; }
+    .side-nav .nav-icon { display:none; }
+    .wrap { padding:0 10px 72px; }
+    .topbar { align-items:stretch; flex-direction:column; gap:8px; }
+    .top-actions { justify-content:space-between; flex-wrap:wrap; }
+    .tabs { display:flex; width:100%; border-radius:18px; }
+    .tab { flex:1 1 140px; }
+    .panel { border-radius:18px; }
+    .cdfix-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .diag-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .diag-row { grid-template-columns:1fr; gap:4px; }
+    .diag-count-row { grid-template-columns:minmax(130px,1fr) repeat(3,64px); }
+    .cdf-editor-grid { grid-template-columns:1fr; }
+    .cdf-diff-indicator { padding:4px 0; }
+    .cdf-diff-arrow { transform:rotate(90deg); }
+    .diff-panes { flex-direction:column; }
+    .cdfix-step-head { align-items:flex-start; flex-wrap:wrap; }
+    .cdfix-step-head .action { margin-left:34px !important; }
+    .fab-up { right:14px; }
+    .fab-down { left:14px; }
+  }
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="topbar">
-      <div>
-        <h1>Salesforce Metadata XML Tool</h1>
-        <p class="sub">Compare, merge, and clean up metadata XML — permission sets, context definitions, and more. Paste your XML, pick an operation, no terminal needed.</p>
-        <p class="credit">Made with 💙 by <strong><a href="https://www.linkedin.com/in/mrpancholi/" target="_blank" rel="noopener noreferrer">Mritunjaya Pancholi</a></strong></p>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M7.2 18.5c-3.1 0-5.7-2.1-5.7-4.8 0-2.1 1.5-3.9 3.7-4.5C5.7 6.5 8 4.5 10.8 4.5c2.2 0 4.1 1.2 5.1 3 3.6-.3 6.6 2 6.6 5.2 0 3.2-2.8 5.8-6.4 5.8H7.2Z"/></svg>
+        </span>
+        <span><strong>Salesforce</strong><small>Metadata XML Tool</small></span>
       </div>
-      <button class="ghost" id="themeBtn" title="Toggle day/night">Night mode</button>
-    </div>
+      <div class="side-label">Tools</div>
+      <nav class="side-menu">
+        <button class="side-nav active" data-mode="compare"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M10 8l-3 4 3 4M14 8l3 4-3 4"/></svg></span><span>Compare</span></button>
+        <button class="side-nav" data-mode="merge"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M8 6h10M14 2l4 4-4 4M16 18H6M10 14l-4 4 4 4"/></svg></span><span>Merge</span></button>
+        <button class="side-nav" data-mode="dedup"><span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2M11 14h6"/></svg></span><span>Deduplicate</span></button>
+        <button class="side-nav" data-mode="cdfix"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 3v6M12 15v6M3 12h6M15 12h6"/><circle cx="12" cy="12" r="3"/><circle cx="12" cy="3" r="1"/><circle cx="12" cy="21" r="1"/><circle cx="3" cy="12" r="1"/><circle cx="21" cy="12" r="1"/></svg></span><span>Context Definition Fix</span></button>
+      </nav>
+      <div class="sidebar-footer">
+        <a class="about-link" href="https://www.linkedin.com/in/mrpancholi/" target="_blank" rel="noopener noreferrer">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg></span><span>About</span>
+        </a>
+        <p class="credit">Made with 💙 by <strong>Mritunjaya Pancholi</strong></p>
+      </div>
+    </aside>
 
-    <div class="tabs" id="tabs">
-      <button class="tab active" data-mode="compare">Compare</button>
-      <button class="tab" data-mode="merge">Merge</button>
-      <button class="tab" data-mode="dedup">Deduplicate</button>
-      <button class="tab" data-mode="cdfix">Context Definition Fix</button>
-    </div>
+    <main class="app-main">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">Developer tools</div>
+          <h1 id="pageTitle">Compare XML</h1>
+          <p class="sub" id="pageSubtitle">Inspect two Salesforce metadata files with structural and line-level differences.</p>
+        </div>
+        <div class="top-actions">
+          <span class="local-badge"><span class="live-dot"></span>Runs locally</span>
+          <button class="ghost theme-toggle" id="themeBtn" title="Toggle day/night" aria-label="Toggle color theme">Night mode</button>
+        </div>
+      </header>
+
+      <div class="wrap">
+        <div class="tabs" id="tabs" aria-label="Tool switcher">
+          <button class="tab active" data-mode="compare">Compare</button>
+          <button class="tab" data-mode="merge">Merge</button>
+          <button class="tab" data-mode="dedup">Deduplicate</button>
+          <button class="tab" data-mode="cdfix">Context Definition Fix</button>
+        </div>
 
     <!-- ============================ COMPARE ============================ -->
     <div class="panel" id="view-compare">
+      <div class="section-head">
+        <div class="section-title"><span class="step-dot">1</span><div>
+          <h2>Paste XML files to compare</h2>
+          <p>See only unique XML changes. Matching content is ignored even when it appears on different lines or in a different order.</p>
+        </div></div>
+      </div>
       <div class="controls">
         <div class="field">
           <label for="cmpTag">Limit to element (optional)</label>
@@ -307,16 +622,24 @@ PAGE = r"""<!DOCTYPE html>
         <div class="xpane">
           <div class="xpane-head">
             <span class="ttl">Left XML</span>
-            <div class="mini"><button class="ghost" data-clear="cmpA">Clear</button></div>
+            <div class="mini">
+              <button class="ghost" data-paste="cmpA">Paste</button>
+              <button class="ghost" data-copy="cmpA">Copy</button>
+              <button class="ghost" data-clear="cmpA">Clear</button>
+            </div>
           </div>
-          <div class="xpane-body"><div class="ln-gutter" id="ln-cmpA"></div><textarea id="cmpA" placeholder="Paste the first XML here…" spellcheck="false"></textarea></div>
+          <div class="xpane-body"><div class="ln-gutter" id="ln-cmpA"></div><textarea id="cmpA" placeholder="Paste the first XML here.&#10;This file will appear on the left side of the comparison." spellcheck="false"></textarea></div>
         </div>
         <div class="xpane">
           <div class="xpane-head">
             <span class="ttl">Right XML</span>
-            <div class="mini"><button class="ghost" data-clear="cmpB">Clear</button></div>
+            <div class="mini">
+              <button class="ghost" data-paste="cmpB">Paste</button>
+              <button class="ghost" data-copy="cmpB">Copy</button>
+              <button class="ghost" data-clear="cmpB">Clear</button>
+            </div>
           </div>
-          <div class="xpane-body"><div class="ln-gutter" id="ln-cmpB"></div><textarea id="cmpB" placeholder="Paste the second XML here…" spellcheck="false"></textarea></div>
+          <div class="xpane-body"><div class="ln-gutter" id="ln-cmpB"></div><textarea id="cmpB" placeholder="Paste the second XML here.&#10;This file will appear on the right side of the comparison." spellcheck="false"></textarea></div>
         </div>
       </div>
 
@@ -339,11 +662,11 @@ PAGE = r"""<!DOCTYPE html>
         </div>
         <div class="diff-panes" id="diffPanes">
           <div class="pane">
-            <div class="pane-title">Left</div>
+            <div class="pane-title">Left — unique structural differences</div>
             <div class="pane-scroll" id="srcScroll"><table class="pane-table" id="srcTable"></table></div>
           </div>
           <div class="pane">
-            <div class="pane-title">Right</div>
+            <div class="pane-title">Right — unique structural differences</div>
             <div class="pane-scroll" id="tgtScroll"><table class="pane-table" id="tgtTable"></table></div>
           </div>
         </div>
@@ -352,6 +675,12 @@ PAGE = r"""<!DOCTYPE html>
 
     <!-- ============================= MERGE ============================= -->
     <div class="panel hidden" id="view-merge">
+      <div class="section-head">
+        <div class="section-title"><span class="step-dot">1</span><div>
+          <h2>Choose a base and layer in modifications</h2>
+          <p>The base remains authoritative; matching entries from Modified override it and new entries are added.</p>
+        </div></div>
+      </div>
       <div class="controls">
         <div class="field">
           <label for="baseSelect">Which pane is the base?</label>
@@ -372,16 +701,24 @@ PAGE = r"""<!DOCTYPE html>
         <div class="xpane">
           <div class="xpane-head">
             <span class="ttl">Pane 1 — Base XML <span class="badge base" id="badge1">BASE</span></span>
-            <div class="mini"><button class="ghost" data-clear="mrgA">Clear</button></div>
+            <div class="mini">
+              <button class="ghost" data-paste="mrgA">Paste</button>
+              <button class="ghost" data-copy="mrgA">Copy</button>
+              <button class="ghost" data-clear="mrgA">Clear</button>
+            </div>
           </div>
-          <div class="xpane-body"><div class="ln-gutter" id="ln-mrgA"></div><textarea id="mrgA" placeholder="Paste the BASE XML here (the authoritative version to build on)…" spellcheck="false"></textarea></div>
+          <div class="xpane-body"><div class="ln-gutter" id="ln-mrgA"></div><textarea id="mrgA" placeholder="Paste the BASE XML here.&#10;This is the authoritative version the merge will build on." spellcheck="false"></textarea></div>
         </div>
         <div class="xpane">
           <div class="xpane-head">
             <span class="ttl">Pane 2 — Modified XML <span class="badge base hidden" id="badge2">BASE</span></span>
-            <div class="mini"><button class="ghost" data-clear="mrgB">Clear</button></div>
+            <div class="mini">
+              <button class="ghost" data-paste="mrgB">Paste</button>
+              <button class="ghost" data-copy="mrgB">Copy</button>
+              <button class="ghost" data-clear="mrgB">Clear</button>
+            </div>
           </div>
-          <div class="xpane-body"><div class="ln-gutter" id="ln-mrgB"></div><textarea id="mrgB" placeholder="Paste the MODIFIED XML here (the changes to layer on)…" spellcheck="false"></textarea></div>
+          <div class="xpane-body"><div class="ln-gutter" id="ln-mrgB"></div><textarea id="mrgB" placeholder="Paste the MODIFIED XML here.&#10;Its matching changes and new entries will be layered onto Base." spellcheck="false"></textarea></div>
         </div>
         <div class="xpane">
           <div class="xpane-head">
@@ -389,9 +726,10 @@ PAGE = r"""<!DOCTYPE html>
             <div class="mini">
               <button class="ghost" id="mergeCopyBtn">Copy</button>
               <button class="ghost" id="mergeDownloadBtn">Download</button>
+              <button class="ghost" data-clear="mrgOut">Clear</button>
             </div>
           </div>
-          <div class="xpane-body"><div class="ln-gutter" id="ln-mrgOut"></div><textarea id="mrgOut" placeholder="The merged XML will appear here. Use Copy to grab it in one click." spellcheck="false" readonly></textarea></div>
+          <div class="xpane-body"><div class="ln-gutter" id="ln-mrgOut"></div><textarea id="mrgOut" placeholder="The merged XML will appear here.&#10;Use Copy or Download when the merge completes." spellcheck="false" readonly></textarea></div>
         </div>
       </div>
 
@@ -426,6 +764,12 @@ PAGE = r"""<!DOCTYPE html>
 
     <!-- =========================== DEDUPLICATE ========================= -->
     <div class="panel hidden" id="view-dedup">
+      <div class="section-head">
+        <div class="section-title"><span class="step-dot">1</span><div>
+          <h2>Clean a Permission Set or Profile</h2>
+          <p>Duplicate identity keys are collapsed and the metadata is returned in stable Salesforce order.</p>
+        </div></div>
+      </div>
       <div class="controls">
         <div class="grow"></div>
         <div class="field" style="flex:0 0 auto;">
@@ -436,9 +780,13 @@ PAGE = r"""<!DOCTYPE html>
         <div class="xpane">
           <div class="xpane-head">
             <span class="ttl">Permission Set XML</span>
-            <div class="mini"><button class="ghost" data-clear="dedIn">Clear</button></div>
+            <div class="mini">
+              <button class="ghost" data-paste="dedIn">Paste</button>
+              <button class="ghost" data-copy="dedIn">Copy</button>
+              <button class="ghost" data-clear="dedIn">Clear</button>
+            </div>
           </div>
-          <div class="xpane-body"><div class="ln-gutter" id="ln-dedIn"></div><textarea id="dedIn" placeholder="Paste a Permission Set (or Profile) XML here…" spellcheck="false"></textarea></div>
+          <div class="xpane-body"><div class="ln-gutter" id="ln-dedIn"></div><textarea id="dedIn" placeholder="Paste a Permission Set or Profile XML here.&#10;Duplicate identity entries will be detected and collapsed." spellcheck="false"></textarea></div>
         </div>
         <div class="xpane">
           <div class="xpane-head">
@@ -446,9 +794,10 @@ PAGE = r"""<!DOCTYPE html>
             <div class="mini">
               <button class="ghost" id="dedupCopyBtn">Copy</button>
               <button class="ghost" id="dedupDownloadBtn">Download</button>
+              <button class="ghost" data-clear="dedOut">Clear</button>
             </div>
           </div>
-          <div class="xpane-body"><div class="ln-gutter" id="ln-dedOut"></div><textarea id="dedOut" placeholder="The deduplicated, sorted XML will appear here." spellcheck="false" readonly></textarea></div>
+          <div class="xpane-body"><div class="ln-gutter" id="ln-dedOut"></div><textarea id="dedOut" placeholder="The cleaned and sorted XML will appear here.&#10;Use Copy or Download when processing completes." spellcheck="false" readonly></textarea></div>
         </div>
       </div>
       <div class="status" id="dedStatus"></div>
@@ -469,29 +818,35 @@ PAGE = r"""<!DOCTYPE html>
             <div class="cdfix-step-title">Paste your Base and Modified Context Definitions</div>
             <div class="cdfix-step-sub">Base = the org you are deploying TO (e.g. QA). Modified = the org with your new fields (e.g. dev sandbox).</div>
           </div>
+          <button class="ghost" id="cdfClearAll" style="margin-left:auto;">Clear All</button>
         </div>
-        <div class="panes">
+        <div class="panes cdf-editor-grid">
           <div class="xpane">
             <div class="xpane-head">
               <span class="ttl">Base Context Definition <span class="badge base">BASE</span></span>
               <div class="mini">
-                <button class="ghost" id="cdfBasePasteBtn">Paste</button>
-                <button class="ghost" id="cdfBaseCopyBtn">Copy</button>
+                <button class="ghost" id="cdfBasePasteBtn" data-paste="cdfBase">Paste</button>
+                <button class="ghost" id="cdfBaseCopyBtn" data-copy="cdfBase">Copy</button>
                 <button class="ghost" data-clear="cdfBase">Clear</button>
               </div>
             </div>
-            <div class="xpane-body"><div class="ln-gutter" id="ln-cdfBase"></div><textarea id="cdfBase" placeholder="Paste the BASE Context Definition XML here (e.g. QA org — the authoritative version; nothing from here will be deleted)…" spellcheck="false"></textarea></div>
+            <div class="xpane-body"><div class="ln-gutter" id="ln-cdfBase"></div><textarea id="cdfBase" placeholder="Paste the BASE Context Definition XML here.&#10;Use the target org version—the tool will not delete its existing entries." spellcheck="false"></textarea></div>
+          </div>
+          <div class="cdf-diff-indicator" id="cdfDiffIndicator" aria-live="polite">
+            <span class="cdf-diff-arrow">↔</span>
+            <strong id="cdfDiffCount">—</strong>
+            <small>changes</small>
           </div>
           <div class="xpane">
             <div class="xpane-head">
               <span class="ttl">Modified Context Definition</span>
               <div class="mini">
-                <button class="ghost" id="cdfModPasteBtn">Paste</button>
-                <button class="ghost" id="cdfModCopyBtn">Copy</button>
+                <button class="ghost" id="cdfModPasteBtn" data-paste="cdfMod">Paste</button>
+                <button class="ghost" id="cdfModCopyBtn" data-copy="cdfMod">Copy</button>
                 <button class="ghost" data-clear="cdfMod">Clear</button>
               </div>
             </div>
-            <div class="xpane-body"><div class="ln-gutter" id="ln-cdfMod"></div><textarea id="cdfMod" placeholder="Paste the MODIFIED Context Definition XML here (e.g. dev sandbox — contains your new field mappings)…" spellcheck="false"></textarea></div>
+            <div class="xpane-body"><div class="ln-gutter" id="ln-cdfMod"></div><textarea id="cdfMod" placeholder="Paste the MODIFIED Context Definition XML here.&#10;Use the source org version containing the new field mappings." spellcheck="false"></textarea></div>
           </div>
         </div>
       </div>
@@ -509,6 +864,31 @@ PAGE = r"""<!DOCTYPE html>
         <div class="status" id="cdfAnalyzeStatus"></div>
       </div>
 
+      <!-- Bidirectional diagnostics: explains line count and what changed -->
+      <section class="cdf-diagnostics" id="cdfDiagnostics">
+        <div class="diag-head">
+          <div>
+            <h3>Why are the line counts different?</h3>
+            <p>Separates Salesforce serializer omissions from actual metadata additions, removals, and changes.</p>
+          </div>
+          <span class="diag-version" id="cdfDiagVersions"></span>
+        </div>
+        <div class="diag-metrics">
+          <div><span>Base lines</span><strong id="cdfDiagBaseLines">0</strong></div>
+          <div><span>Modified lines</span><strong id="cdfDiagModifiedLines">0</strong></div>
+          <div><span>Line difference</span><strong id="cdfDiagLineDelta">0</strong></div>
+          <div><span>Business items missing</span><strong id="cdfDiagBusinessRemoved">0</strong></div>
+        </div>
+        <div class="diag-explanation" id="cdfDiagExplanation"></div>
+        <div class="diag-tabs" id="cdfDiagTabs">
+          <button class="diag-tab active" data-diag-view="removed">Present only in Base <span id="cdfDiagRemovedCount">0</span></button>
+          <button class="diag-tab" data-diag-view="added">Present only in Modified <span id="cdfDiagAddedCount">0</span></button>
+          <button class="diag-tab" data-diag-view="changed">Materially changed <span id="cdfDiagChangedCount">0</span></button>
+          <button class="diag-tab" data-diag-view="counts">Element counts</button>
+        </div>
+        <div class="diag-list" id="cdfDiagList"></div>
+      </section>
+
       <!-- Step 3: Selection panel (shown after analyze) -->
       <div class="cdfix-select" id="cdfSelectPanel">
         <div class="cdfix-sel-head">
@@ -516,11 +896,39 @@ PAGE = r"""<!DOCTYPE html>
           <span id="cdfSelCount" style="font-size:12px;opacity:.85;"></span>
         </div>
         <div class="cdfix-sel-body">
+          <div class="cdfix-metrics" id="cdfMetrics">
+            <div class="metric-card metric-all"><strong id="cdfMetricAll">0</strong><span>Total additions</span></div>
+            <div class="metric-card metric-map"><strong id="cdfMetricMappings">0</strong><span>Mappings</span></div>
+            <div class="metric-card metric-node"><strong id="cdfMetricNodes">0</strong><span>Node attributes</span></div>
+            <div class="metric-card metric-error"><strong id="cdfMetricErrors">0</strong><span>Parent blocks</span></div>
+          </div>
+          <div class="cdfix-data-toolbar">
+            <label class="cdfix-search"><span>⌕</span><input id="cdfSearch" type="search" placeholder="Search fields, mappings, nodes…" /></label>
+            <div class="cdfix-filters" id="cdfFilters">
+              <button class="filter-chip active" data-cdf-filter="all">All</button>
+              <button class="filter-chip" data-cdf-filter="ready">Ready</button>
+              <button class="filter-chip" data-cdf-filter="errors">Parent blocks</button>
+              <button class="filter-chip" data-cdf-filter="mapping">Mappings</button>
+              <button class="filter-chip" data-cdf-filter="nodeAttr">Node attrs</button>
+              <button class="filter-chip" data-cdf-filter="selected">Selected</button>
+            </div>
+          </div>
           <div class="cdfix-sel-actions" id="cdfSelActions">
             <button class="ghost" id="cdfSelAll">Select all</button>
             <button class="ghost" id="cdfSelNone">Deselect all</button>
+            <button class="ghost" id="cdfExpandAll">Expand all</button>
+            <button class="ghost" id="cdfCollapseAll">Collapse all</button>
           </div>
-          <div id="cdfFieldList"></div>
+          <div class="cdfix-data-layout">
+            <div id="cdfFieldList"></div>
+            <aside class="cdfix-detail" id="cdfDetail">
+              <div class="cdfix-detail-empty">
+                <span>⌁</span>
+                <strong>Select an addition</strong>
+                <p>Choose a row to inspect its mapping path and XML preview.</p>
+              </div>
+            </aside>
+          </div>
         </div>
       </div>
 
@@ -530,7 +938,7 @@ PAGE = r"""<!DOCTYPE html>
           <span class="cdfix-step-num">3</span>
           <div>
             <div class="cdfix-step-title">Build the patched Context Definition</div>
-            <div class="cdfix-step-sub">Applies only the selected field additions on top of Base. Everything else stays exactly as it is in Base.</div>
+            <div class="cdfix-step-sub">Applies selected fields and complete required parent blocks on top of Base. Every structural addition is listed in the report.</div>
           </div>
           <button class="action b-cdfix" id="cdfBuildBtn" style="margin-left:auto;">Build Context Definition</button>
         </div>
@@ -545,38 +953,149 @@ PAGE = r"""<!DOCTYPE html>
                 <button class="ghost" data-clear="cdfOut">Clear</button>
               </div>
             </div>
-            <div class="xpane-body"><div class="ln-gutter" id="ln-cdfOut"></div><textarea id="cdfOut" placeholder="The patched Context Definition will appear here." spellcheck="false" readonly></textarea></div>
+            <div class="xpane-body"><div class="ln-gutter" id="ln-cdfOut"></div><textarea id="cdfOut" placeholder="The patched Context Definition will appear here.&#10;Review the quick report before copying or downloading it." spellcheck="false" readonly></textarea></div>
           </div>
         </div>
 
         <div class="status" id="cdfBuildStatus"></div>
         <div class="report" id="cdfReport">
           <h3>Apply report</h3>
-          <pre id="cdfReportBody"></pre>
+          <div class="report-summary" id="cdfReportSummary">
+            <div><strong id="cdfReportAdded">0</strong><span>Added</span></div>
+            <div><strong id="cdfReportSkipped">0</strong><span>Skipped</span></div>
+            <div><strong id="cdfReportErrors">0</strong><span>Errors</span></div>
+          </div>
+          <div class="apply-timeline" id="cdfTimeline"></div>
+          <button class="ghost timeline-toggle hidden" id="cdfTimelineToggle">Show all details</button>
+          <details class="raw-report">
+            <summary>View raw report</summary>
+            <pre id="cdfReportBody"></pre>
+          </details>
         </div>
 
       </div>
 
-    </div>
+        </div>
+      </div>
+    </main>
   </div>
 
 <script>
   const $ = (id) => document.getElementById(id);
+
+  // ── Consistent Lucide-style button icons ─────────────────────────────────
+  const ICON_PATHS = {
+    copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+    paste: '<path d="M9 5h6M9 3h6v4H9z"/><path d="M9 5H6a2 2 0 0 0-2 2v13h16V7a2 2 0 0 0-2-2h-3"/>',
+    clear: '<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>',
+    trash: '<path d="M4 7h16M9 7V4h6v3m3 0-1 14H7L6 7M10 11v6m4-6v6"/>',
+    download: '<path d="M12 3v12m-5-5 5 5 5-5M5 21h14"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+    compare: '<path d="M8 5H4v14h4M16 5h4v14h-4M10 8l-3 4 3 4m4-8 3 4-3 4"/>',
+    merge: '<path d="M6 3v6a6 6 0 0 0 6 6h6M6 21v-5a6 6 0 0 1 6-6h6M15 7l3 3-3 3"/>',
+    sparkles: '<path d="m12 3 1.2 3.3L16.5 7.5l-3.3 1.2L12 12l-1.2-3.3-3.3-1.2 3.3-1.2L12 3ZM5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14Zm13-2 .8 2.2 2.2.8-2.2.8L18 18l-.8-2.2L15 15l2.2-.8L18 12Z"/>',
+    selectAll: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="m8 12 3 3 5-6"/>',
+    deselectAll: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12h8"/>',
+    expand: '<path d="m7 9 5 5 5-5M7 3l5 5 5-5"/>',
+    collapse: '<path d="m7 15 5-5 5 5M7 21l5-5 5 5"/>',
+    swap: '<path d="M7 7h12l-3-3m3 3-3 3M17 17H5l3 3m-3-3 3-3"/>',
+    build: '<path d="m14.7 6.3 3 3M4 20l4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z"/>',
+    moon: '<path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5Z"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+    check: '<path d="m5 12 4 4L19 6"/>',
+    alert: '<path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 9v4m0 3h.01"/>'
+  };
+  function buttonIcon(name) {
+    return `<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[name] || ''}</svg>`;
+  }
+  function decorateButton(id, icon) {
+    const btn = $(id);
+    if (btn && !btn.querySelector('.btn-icon')) btn.insertAdjacentHTML('afterbegin', buttonIcon(icon));
+  }
+  function decorateButtons() {
+    document.querySelectorAll('[data-clear]').forEach(btn => {
+      if (!btn.querySelector('.btn-icon')) btn.insertAdjacentHTML('afterbegin', buttonIcon('clear'));
+    });
+    document.querySelectorAll('[data-paste]').forEach(btn => {
+      if (!btn.querySelector('.btn-icon')) btn.insertAdjacentHTML('afterbegin', buttonIcon('paste'));
+    });
+    document.querySelectorAll('[data-copy]').forEach(btn => {
+      if (!btn.querySelector('.btn-icon')) btn.insertAdjacentHTML('afterbegin', buttonIcon('copy'));
+    });
+    [
+      ['compareBtn','compare'],['mergeBtn','merge'],['dedupBtn','sparkles'],['swapBtn','swap'],
+      ['mergeCopyBtn','copy'],['mergeDownloadBtn','download'],['dedupCopyBtn','copy'],['dedupDownloadBtn','download'],
+      ['cdfAnalyzeBtn','search'],['cdfBuildBtn','build'],['cdfCopyBtn','copy'],['cdfDownloadBtn','download'],
+      ['cdfBasePasteBtn','paste'],['cdfModPasteBtn','paste'],['cdfBaseCopyBtn','copy'],['cdfModCopyBtn','copy'],
+      ['cdfSelAll','selectAll'],['cdfSelNone','deselectAll'],['cdfExpandAll','expand'],['cdfCollapseAll','collapse'],
+      ['cdfClearAll','trash']
+    ].forEach(([id,icon]) => decorateButton(id,icon));
+    const tabIcons = {compare:'compare',merge:'merge',dedup:'sparkles',cdfix:'build'};
+    document.querySelectorAll('.tab').forEach(tab => {
+      if (!tab.querySelector('.btn-icon')) tab.insertAdjacentHTML('afterbegin',buttonIcon(tabIcons[tab.dataset.mode]));
+    });
+  }
+  decorateButtons();
 
   // ── Line-number gutter ─────────────────────────────────────────────────────
   const _lnRefresh = {};
   function initLN(taId) {
     const ta = $(taId);
     const gut = $('ln-' + taId);
+    const lineInner = document.createElement('span');
+    lineInner.className = 'ln-inner';
+    gut.replaceChildren(lineInner);
+    const pane = ta.closest('.xpane');
+    const status = document.createElement('div');
+    status.className = 'editor-status';
+    status.innerHTML = '<span class="format">XML</span><span data-lines></span><span data-chars></span><span class="waiting" data-validity>Awaiting XML</span>';
+    pane.appendChild(status);
+    let validityTimer, validityVersion = 0, totalLines = 1;
+    function countLines(text) {
+      let count = 1;
+      for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) count++;
+      return count;
+    }
+    function renderVisibleLines() {
+      const lineHeight = 19;
+      const first = Math.max(0, Math.floor(ta.scrollTop / lineHeight));
+      const visible = Math.ceil((ta.clientHeight || 420) / lineHeight) + 2;
+      const last = Math.min(totalLines, first + visible);
+      let numbers = '';
+      for (let line = first + 1; line <= last; line++) numbers += line + '\n';
+      lineInner.textContent = numbers;
+      lineInner.style.transform = `translateY(${-1 * (ta.scrollTop % lineHeight)}px)`;
+    }
+    function refreshValidity(version) {
+      if (version !== validityVersion) return;
+      const validity = status.querySelector('[data-validity]');
+      if (!ta.value.trim()) {
+        validity.className = 'waiting';
+        validity.textContent = 'Awaiting XML';
+        return;
+      }
+      const parsed = new DOMParser().parseFromString(ta.value, 'application/xml');
+      const invalid = parsed.querySelector('parsererror');
+      validity.className = invalid ? 'invalid' : 'valid';
+      validity.innerHTML = buttonIcon(invalid ? 'alert' : 'check') + (invalid ? 'Invalid XML' : 'Valid XML');
+    }
     function refresh() {
-      const lines = ta.value ? ta.value.split('\n').length : 1;
-      let s = '';
-      for (let i = 1; i <= lines; i++) s += i + '\n';
-      gut.textContent = s;
-      gut.scrollTop = ta.scrollTop;
+      totalLines = ta.value ? countLines(ta.value) : 1;
+      renderVisibleLines();
+      status.querySelector('[data-lines]').textContent = `${totalLines.toLocaleString()} lines`;
+      status.querySelector('[data-chars]').textContent = `${ta.value.length.toLocaleString()} characters`;
+      clearTimeout(validityTimer);
+      const version = ++validityVersion;
+      const delay = ta.value.length > 200000 ? 900 : 300;
+      validityTimer = setTimeout(() => {
+        const run = () => refreshValidity(version);
+        if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 1500 });
+        else run();
+      }, delay);
     }
     ta.addEventListener('input', refresh);
-    ta.addEventListener('scroll', () => { gut.scrollTop = ta.scrollTop; });
+    ta.addEventListener('scroll', renderVisibleLines, { passive: true });
+    if ('ResizeObserver' in window) new ResizeObserver(renderVisibleLines).observe(ta);
     refresh();
     _lnRefresh[taId] = refresh;
   }
@@ -587,7 +1106,7 @@ PAGE = r"""<!DOCTYPE html>
   const themeBtn = $("themeBtn");
   function applyThemeLabel() {
     const t = document.documentElement.getAttribute("data-theme") || "light";
-    themeBtn.textContent = t === "light" ? "Night mode" : "Day mode";
+    themeBtn.innerHTML = buttonIcon(t === "light" ? "moon" : "sun") + (t === "light" ? "Night mode" : "Day mode");
   }
   themeBtn.onclick = () => {
     const cur = document.documentElement.getAttribute("data-theme") || "light";
@@ -600,13 +1119,21 @@ PAGE = r"""<!DOCTYPE html>
 
   // ---- Tab switching ----
   const views = { compare: $("view-compare"), merge: $("view-merge"), dedup: $("view-dedup"), cdfix: $("view-cdfix") };
-  document.querySelectorAll(".tab").forEach(t => {
-    t.onclick = () => {
-      document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
-      t.classList.add("active");
-      Object.values(views).forEach(v => v.classList.add("hidden"));
-      views[t.dataset.mode].classList.remove("hidden");
-    };
+  const pageMeta = {
+    compare: ["Compare XML", "Inspect two Salesforce metadata files with structural and line-level differences."],
+    merge: ["Merge Metadata", "Layer selected changes onto an authoritative base without losing unrelated metadata."],
+    dedup: ["Deduplicate XML", "Remove repeated Permission Set or Profile entries and produce a clean, stable output."],
+    cdfix: ["Context Definition Fix", "Compare, analyze, and build Salesforce Context Definitions with confidence."]
+  };
+  function switchMode(mode) {
+    if (!views[mode]) return;
+    document.querySelectorAll("[data-mode]").forEach(x => x.classList.toggle("active", x.dataset.mode === mode));
+    Object.entries(views).forEach(([key, view]) => view.classList.toggle("hidden", key !== mode));
+    $("pageTitle").textContent = pageMeta[mode][0];
+    $("pageSubtitle").textContent = pageMeta[mode][1];
+  }
+  document.querySelectorAll(".tab,.side-nav").forEach(t => {
+    t.onclick = () => switchMode(t.dataset.mode);
   });
 
   // ---- Helpers ----
@@ -629,13 +1156,20 @@ PAGE = r"""<!DOCTYPE html>
     try { return JSON.parse(text); }
     catch (e) { return { ok: false, log: "Unexpected server response (HTTP " + res.status + "):\n" + text.slice(0, 500) }; }
   }
-  function busy(btn, label) { btn.dataset.label = btn.textContent; btn.innerHTML = '<span class="spinner"></span>' + label; btn.disabled = true; }
-  function idle(btn) { btn.textContent = btn.dataset.label || btn.textContent; btn.disabled = false; }
+  function busy(btn, label) { btn.dataset.originalHtml = btn.innerHTML; btn.innerHTML = '<span class="spinner"></span>' + label; btn.disabled = true; }
+  function idle(btn) { btn.innerHTML = btn.dataset.originalHtml || btn.innerHTML; btn.disabled = false; }
   async function copyFrom(textarea, btn) {
     if (!textarea.value) return;
     try { await navigator.clipboard.writeText(textarea.value); }
-    catch (e) { textarea.removeAttribute("readonly"); textarea.select(); document.execCommand("copy"); textarea.setAttribute("readonly",""); }
-    const old = btn.textContent; btn.textContent = "Copied!"; setTimeout(() => btn.textContent = old, 1200);
+    catch (e) {
+      const wasReadonly = textarea.hasAttribute("readonly");
+      if (wasReadonly) textarea.removeAttribute("readonly");
+      textarea.select(); document.execCommand("copy");
+      if (wasReadonly) textarea.setAttribute("readonly","");
+    }
+    const old = btn.innerHTML;
+    btn.innerHTML = buttonIcon("check") + "Copied!";
+    setTimeout(() => btn.innerHTML = old, 1200);
   }
   function download(textarea, name) {
     if (!textarea.value) return;
@@ -662,6 +1196,12 @@ PAGE = r"""<!DOCTYPE html>
       alert("Clipboard read blocked — click inside the text area and use Ctrl/Cmd+V to paste.");
     }
   }
+  document.querySelectorAll('[data-paste]').forEach(btn => {
+    btn.onclick = () => pasteInto(btn.dataset.paste);
+  });
+  document.querySelectorAll('[data-copy]').forEach(btn => {
+    btn.onclick = () => copyFrom($(btn.dataset.copy), btn);
+  });
 
   // ============================ COMPARE ============================
   const compareBtn = $("compareBtn"), cmpA = $("cmpA"), cmpB = $("cmpB"), cmpTag = $("cmpTag");
@@ -676,10 +1216,11 @@ PAGE = r"""<!DOCTYPE html>
     diffBox.classList.remove("show"); cmpReport.classList.remove("show");
     const data = await postJSON("/api/compare", { a: cmpA.value, b: cmpB.value, tag: cmpTag.value });
     if (data.ok) {
-      renderDiff(cmpA.value, cmpB.value);
+      if (data.xml === false) renderDiff(cmpA.value, cmpB.value);
+      else renderStructuralDiff(data);
       showReport(cmpReport, cmpReportBody, data.report);
       if (data.xml === false) setStatus(cmpStatus, "info", "Not valid XML — showing a line-by-line diff only.");
-      else setStatus(cmpStatus, "ok", `Compared. ${data.matched} matched · ${data.onlyLeft} only in left · ${data.onlyRight} only in right.`);
+      else setStatus(cmpStatus, "ok", `Compared by XML content, ignoring line position. ${data.matched} matched · ${data.onlyLeft} only in left · ${data.onlyRight} only in right.`);
     } else {
       setStatus(cmpStatus, "err", data.log || "Compare failed.");
     }
@@ -710,7 +1251,78 @@ PAGE = r"""<!DOCTYPE html>
     if (rowType === "filler") return `<tr class="row-filler"><td class="gutter">&nbsp;</td><td class="code">&nbsp;</td></tr>`;
     return `<tr class="${cls}"><td class="gutter">${num}</td><td class="code"><span class="mk">${marker}</span>${codeHtml}</td></tr>`;
   }
+  function pairStructuralItems(leftItems, rightItems) {
+    const pairs = [];
+    const unusedRight = new Set(rightItems.map((_, index) => index));
+    for (const left of leftItems) {
+      let match = -1;
+      if (left.identity) {
+        match = rightItems.findIndex((right, index) =>
+          unusedRight.has(index) && right.tag === left.tag && right.identity === left.identity);
+      }
+      if (match < 0 && !left.identity) {
+        match = rightItems.findIndex((right, index) =>
+          unusedRight.has(index) && right.tag === left.tag && !right.identity);
+      }
+      if (match >= 0) {
+        unusedRight.delete(match);
+        pairs.push([left, rightItems[match]]);
+      } else {
+        pairs.push([left, null]);
+      }
+    }
+    for (const index of unusedRight) pairs.push([null, rightItems[index]]);
+    return pairs;
+  }
+  function structuralItemLines(item) {
+    if (!item) return [];
+    const identity = item.identity ? ` — ${item.identity}` : "";
+    const occurrences = item.count > 1 ? ` (x${item.count})` : "";
+    return [`<${item.tag}>${identity}${occurrences}`, ...String(item.snippet || "").split("\n")];
+  }
+  function renderStructuralDiff(data) {
+    const leftItems = data.uniqueLeft || [];
+    const rightItems = data.uniqueRight || [];
+    const pairs = pairStructuralItems(leftItems, rightItems);
+    let left = "", right = "";
+    if (!pairs.length) {
+      const message = "No unique structural differences — matching XML content may appear on different lines.";
+      left = paneRow("eq", "✓", esc(message), " ");
+      right = paneRow("eq", "✓", esc(message), " ");
+    } else {
+      pairs.forEach(([leftItem, rightItem], pairIndex) => {
+        const leftLines = structuralItemLines(leftItem);
+        const rightLines = structuralItemLines(rightItem);
+        const length = Math.max(leftLines.length, rightLines.length);
+        const rowType = leftItem && rightItem ? "chg" : leftItem ? "del" : "ins";
+        const leftMarker = rowType === "chg" ? "~" : "−";
+        const rightMarker = rowType === "chg" ? "~" : "+";
+        for (let index = 0; index < length; index++) {
+          const label = index === 0 ? `Δ${pairIndex + 1}` : "";
+          if (index < leftLines.length)
+            left += paneRow(rowType, label, esc(leftLines[index]), leftMarker);
+          else
+            left += paneRow("filler");
+          if (index < rightLines.length)
+            right += paneRow(rowType, label, esc(rightLines[index]), rightMarker);
+          else
+            right += paneRow("filler");
+        }
+      });
+    }
+    srcTable.innerHTML = "<tbody>" + left + "</tbody>";
+    tgtTable.innerHTML = "<tbody>" + right + "</tbody>";
+    onlyDiffs.checked = false;
+    onlyDiffs.closest(".diff-opts").style.display = "none";
+    diffPanes.classList.remove("hide-eq");
+    diffSummary.textContent = (data.onlyLeft + data.onlyRight === 0)
+      ? `Structurally identical — line position and element order ignored.`
+      : `${data.onlyLeft} unique occurrence${data.onlyLeft === 1 ? "" : "s"} only in left · ` +
+        `${data.onlyRight} unique occurrence${data.onlyRight === 1 ? "" : "s"} only in right`;
+    diffBox.classList.add("show");
+  }
   function renderDiff(aText, bText) {
+    onlyDiffs.closest(".diff-opts").style.display = "";
     const a = aText.replace(/\r\n/g, "\n").split("\n");
     const b = bText.replace(/\r\n/g, "\n").split("\n");
     const ops = diffOps(a, b);
@@ -826,7 +1438,7 @@ PAGE = r"""<!DOCTYPE html>
     }
     idle(mergeBtn);
   };
-  $("mergeCopyBtn").onclick = (e) => copyFrom(mrgOut, e.target);
+  $("mergeCopyBtn").onclick = (e) => copyFrom(mrgOut, e.currentTarget);
   $("mergeDownloadBtn").onclick = () => download(mrgOut, "merged.xml");
 
   // =========================== DEDUPLICATE =========================
@@ -847,7 +1459,7 @@ PAGE = r"""<!DOCTYPE html>
     }
     idle(dedupBtn);
   };
-  $("dedupCopyBtn").onclick = (e) => copyFrom(dedOut, e.target);
+  $("dedupCopyBtn").onclick = (e) => copyFrom(dedOut, e.currentTarget);
   $("dedupDownloadBtn").onclick = () => download(dedOut, "deduplicated.xml");
 
   // ====================== CONTEXT DEFINITION FIX =========================
@@ -858,42 +1470,207 @@ PAGE = r"""<!DOCTYPE html>
   const cdfFieldList    = $("cdfFieldList"),      cdfSelCount  = $("cdfSelCount");
   const cdfReport       = $("cdfReport"),         cdfReportBody = $("cdfReportBody");
   const cdfSelHeadText  = $("cdfSelHeadText");
+  const cdfDetail       = $("cdfDetail"),          cdfSearch = $("cdfSearch");
+  const cdfTimeline     = $("cdfTimeline"),        cdfTimelineToggle = $("cdfTimelineToggle");
+  const cdfDiffCount    = $("cdfDiffCount"),       cdfDiffIndicator = $("cdfDiffIndicator");
+  const cdfDiagnostics  = $("cdfDiagnostics"),     cdfDiagList = $("cdfDiagList");
 
   let _cdfItems = [];   // raw analysis results stored between steps
+  let _cdfById = new Map();
+  let _cdfFilter = 'all';
+  let _cdfItemCheckboxes = [];
+  let _cdfCards = [];
+  let _cdfActiveCard = null;
+  let _cdfTimelineEntries = [];
+  let _cdfTimelineExpanded = false;
+  let _cdfDiagnostics = null;
+  let _cdfDiagView = "removed";
+
+  $("cdfClearAll").onclick = () => {
+    [cdfBase,cdfMod,cdfOut].forEach(ta => {
+      ta.value = "";
+      if (_lnRefresh[ta.id]) _lnRefresh[ta.id]();
+    });
+    _cdfItems = []; _cdfById = new Map(); _cdfItemCheckboxes = []; _cdfCards = []; _cdfActiveCard = null;
+    cdfFieldList.innerHTML = "";
+    cdfSelectPanel.classList.remove("show");
+    cdfBuildStep.classList.add("hidden");
+    cdfReport.classList.remove("show");
+    cdfDiagnostics.classList.remove("show");
+    _cdfDiagnostics = null;
+    [cdfAnalyzeStatus,cdfBuildStatus].forEach(el => { el.className = "status"; el.textContent = ""; });
+    cdfDiffCount.textContent = "—";
+    cdfDiffIndicator.classList.remove("has-diffs");
+  };
+
+  function cdfRenderDiagnosticList(view) {
+    _cdfDiagView = view;
+    document.querySelectorAll('[data-diag-view]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.diagView === view);
+    });
+    if (!_cdfDiagnostics) {
+      cdfDiagList.innerHTML = "";
+      return;
+    }
+    if (view === "counts") {
+      const rows = _cdfDiagnostics.counts || [];
+      cdfDiagList.innerHTML =
+        `<div class="diag-count-row head"><span>Element</span><span>Base</span><span>Modified</span><span>Δ</span></div>` +
+        rows.map(row => {
+          const cls = row.delta > 0 ? "diag-positive" : row.delta < 0 ? "diag-negative" : "";
+          const delta = row.delta > 0 ? `+${row.delta}` : String(row.delta);
+          return `<div class="diag-count-row"><code>${esc(row.tag)}</code>` +
+            `<span>${Number(row.base).toLocaleString()}</span>` +
+            `<span>${Number(row.modified).toLocaleString()}</span>` +
+            `<strong class="${cls}">${delta}</strong></div>`;
+        }).join('');
+      return;
+    }
+    const rows = _cdfDiagnostics[view] || [];
+    if (!rows.length) {
+      const label = view === "removed" ? "Base-only metadata" : view === "added" ? "Modified-only metadata" : "material changes";
+      cdfDiagList.innerHTML = `<div class="diag-empty">No ${label} found.</div>`;
+      return;
+    }
+    cdfDiagList.innerHTML = rows.map(row => {
+      const serializer = String(row.type || "").startsWith("Serializer/");
+      return `<div class="diag-row">` +
+        `<span class="diag-kind ${serializer ? 'serializer' : ''}">${esc(row.type)}</span>` +
+        `<span class="diag-name">${esc(row.name)}</span>` +
+        `<span><span class="diag-path">${esc(row.path)}</span>` +
+          (row.detail ? `<br><span class="diag-detail">${esc(row.detail)}</span>` : '') +
+        `</span><span class="diag-count">${Number(row.count || 1).toLocaleString()}</span></div>`;
+    }).join('');
+  }
+
+  function cdfRenderDiagnostics(diagnostics) {
+    _cdfDiagnostics = diagnostics || null;
+    if (!_cdfDiagnostics) {
+      cdfDiagnostics.classList.remove("show");
+      return;
+    }
+    $("cdfDiagBaseLines").textContent = Number(_cdfDiagnostics.baseLines || 0).toLocaleString();
+    $("cdfDiagModifiedLines").textContent = Number(_cdfDiagnostics.modifiedLines || 0).toLocaleString();
+    const delta = Number(_cdfDiagnostics.lineDelta || 0);
+    const deltaEl = $("cdfDiagLineDelta");
+    deltaEl.textContent = delta > 0 ? `+${delta.toLocaleString()}` : delta.toLocaleString();
+    deltaEl.className = delta > 0 ? "diag-positive" : delta < 0 ? "diag-negative" : "";
+    $("cdfDiagBusinessRemoved").textContent = Number(_cdfDiagnostics.businessRemovedCount || 0).toLocaleString();
+    $("cdfDiagVersions").textContent =
+      `Version ${_cdfDiagnostics.baseVersion || "?"} → ${_cdfDiagnostics.modifiedVersion || "?"}`;
+    $("cdfDiagExplanation").textContent = _cdfDiagnostics.summary || "";
+    $("cdfDiagRemovedCount").textContent = Number(_cdfDiagnostics.removedCount || 0).toLocaleString();
+    $("cdfDiagAddedCount").textContent = Number(_cdfDiagnostics.addedCount || 0).toLocaleString();
+    $("cdfDiagChangedCount").textContent = Number(_cdfDiagnostics.changedCount || 0).toLocaleString();
+    cdfDiagnostics.classList.add("show");
+    cdfRenderDiagnosticList("removed");
+  }
+  document.querySelectorAll('[data-diag-view]').forEach(btn => {
+    btn.onclick = () => cdfRenderDiagnosticList(btn.dataset.diagView);
+  });
 
   // ── helpers ─────────────────────────────────────────────────────────────
   function cdfUpdateSelCount() {
     const total   = _cdfItems.length;
-    const checked = document.querySelectorAll('#cdfFieldList input[type=checkbox][data-item]:checked').length;
+    let checked = 0;
+    for (const cb of _cdfItemCheckboxes) if (cb.checked) checked++;
     cdfSelCount.textContent = `${checked} / ${total} selected`;
+    if (_cdfFilter === 'selected') cdfApplyFilters();
+  }
+
+  function cdfShowDetail(id) {
+    const it = _cdfById.get(id);
+    if (!it) return;
+    if (_cdfActiveCard) _cdfActiveCard.classList.remove('is-active');
+    _cdfActiveCard = _cdfCards.find(card => card.dataset.cardId === id) || null;
+    if (_cdfActiveCard) _cdfActiveCard.classList.add('is-active');
+    const isParentBlock = !!it.parentPatch;
+    const isMapping = ['mapping','mappingBlock','nodeMappingBlock'].includes(it.type);
+    const name = it.attrName || it.attrTitle || it.mappingTitle || it.nodeName || '';
+    const location = it.type === 'mappingBlock'
+      ? `contextMappings › ${it.mappingTitle}`
+      : it.type === 'nodeMappingBlock' || it.type === 'mapping'
+        ? `${it.mappingTitle} › ${it.contextNode} › ${it.object}`
+        : `contextNodes › ${it.nodeName}`;
+    const preview = it.type === 'mappingBlock'
+      ? `<contextMappings>\n    <!-- complete mapping and all children -->\n    <title>${it.mappingTitle}</title>\n</contextMappings>`
+      : it.type === 'nodeMappingBlock'
+        ? `<contextNodeMappings>\n    <!-- complete block and all children -->\n    <contextNode>${it.contextNode}</contextNode>\n    <object>${it.object}</object>\n</contextNodeMappings>`
+        : it.type === 'contextNodeBlock'
+          ? `<contextNodes>\n    <!-- complete node and all children -->\n    <title>${it.nodeName}</title>\n</contextNodes>`
+          : isMapping
+            ? `<contextAttributeMappings>\n    <contextAttribute>${name}</contextAttribute>\n    ${it.fieldInfo ? `<!-- ${it.fieldInfo} -->\n    ` : ''}...\n</contextAttributeMappings>`
+            : `<contextAttributes>\n    <title>${name}</title>\n    ...\n</contextAttributes>`;
+    const parentNote = isParentBlock
+      ? `<div class="cdfix-parent-help"><strong>Full-block patch:</strong> ${esc(it.parentPatchMessage || '')}</div>`
+      : '';
+    const badgeLabel = isParentBlock ? 'Parent Block' : isMapping ? 'Mapping' : 'Node Attr';
+    cdfDetail.innerHTML =
+      `<div class="cdfix-detail-head">` +
+        `<span class="cdfix-tbadge ${isMapping ? 'cdfix-tbadge-m' : 'cdfix-tbadge-n'}">${badgeLabel}</span>` +
+        `<h4>${esc(name)}</h4><p>${isParentBlock ? 'Ready — Step 3 will copy the complete required block' : 'Ready to apply'}</p>` +
+      `</div><div class="cdfix-detail-body">` +
+        `<div class="detail-row"><span>Location</span><code>${esc(location)}</code></div>` +
+        (it.fieldInfo ? `<div class="detail-row"><span>Source</span><code>${esc(it.fieldInfo)}</code></div>` : '') +
+        `<div class="detail-row"><span>XML preview</span><pre class="detail-preview">${esc(preview)}</pre></div>` +
+        parentNote +
+      `</div>`;
+  }
+
+  function cdfApplyFilters() {
+    const query = (cdfSearch.value || '').trim().toLowerCase();
+    _cdfCards.forEach(card => {
+      const cb = card.querySelector('input[data-item]');
+      const it = cb ? _cdfById.get(cb.dataset.item) : null;
+      if (!it) return;
+      const haystack = [it.attrName, it.attrTitle, it.mappingTitle, it.contextNode,
+        it.object, it.nodeName, it.fieldInfo, it.group].filter(Boolean).join(' ').toLowerCase();
+      const filterMatch =
+        _cdfFilter === 'all' ||
+        (_cdfFilter === 'ready' && !it.parentPatch) ||
+        (_cdfFilter === 'errors' && it.parentPatch) ||
+        (_cdfFilter === 'mapping' && ['mapping','mappingBlock','nodeMappingBlock'].includes(it.type)) ||
+        (_cdfFilter === 'nodeAttr' && ['nodeAttr','contextNodeBlock'].includes(it.type)) ||
+        (_cdfFilter === 'selected' && cb.checked);
+      card.hidden = !filterMatch || (query && !haystack.includes(query));
+    });
+    document.querySelectorAll('#cdfFieldList .cdfix-group').forEach(group => {
+      const cards = [...group.querySelectorAll('.cdfix-card')];
+      group.classList.toggle('is-filtered-empty', !cards.some(card => !card.hidden));
+    });
   }
 
   function cdfRenderItems(items) {
     _cdfItems = items;
+    _cdfById = new Map(items.map(it => [it.id, it]));
+    $("cdfMetricAll").textContent = items.length;
+    $("cdfMetricMappings").textContent = items.filter(it => ['mapping','mappingBlock','nodeMappingBlock'].includes(it.type)).length;
+    $("cdfMetricNodes").textContent = items.filter(it => ['nodeAttr','contextNodeBlock'].includes(it.type)).length;
+    $("cdfMetricErrors").textContent = items.filter(it => it.parentPatch).length;
 
     // Build groups
     const groups = {};
     for (const it of items) (groups[it.group] = groups[it.group] || []).push(it);
 
     // Legend
-    const nM = items.filter(i => i.type === 'mapping').length;
-    const nN = items.filter(i => i.type === 'nodeAttr').length;
+    const nM = items.filter(i => ['mapping','mappingBlock','nodeMappingBlock'].includes(i.type)).length;
+    const nN = items.filter(i => ['nodeAttr','contextNodeBlock'].includes(i.type)).length;
     const actBar = $('cdfSelActions');
     if (actBar) {
       const old = actBar.querySelector('.cdfix-legend');
       if (old) old.remove();
       actBar.insertAdjacentHTML('beforeend',
         `<div class="cdfix-legend">` +
-        (nM ? `<span class="cdfix-legend-item"><span class="cdfix-legend-dot" style="background:rgba(13,138,120,.55)"></span>${nM} mapping${nM>1?'s':''}</span>` : '') +
-        (nN ? `<span class="cdfix-legend-item"><span class="cdfix-legend-dot" style="background:rgba(124,79,208,.55)"></span>${nN} node attr${nN>1?'s':''}</span>` : '') +
+        (nM ? `<span class="cdfix-legend-item"><span class="cdfix-legend-dot" style="background:var(--teal)"></span>${nM} mapping${nM>1?'s':''}</span>` : '') +
+        (nN ? `<span class="cdfix-legend-item"><span class="cdfix-legend-dot" style="background:var(--purple)"></span>${nN} node attr${nN>1?'s':''}</span>` : '') +
         `</div>`);
     }
 
     let html = '';
     for (const [grpKey, grpItems] of Object.entries(groups)) {
       const grpId = 'grp_' + grpKey.replace(/\W/g, '_');
-      const mC = grpItems.filter(i => i.type==='mapping').length;
-      const nC = grpItems.filter(i => i.type==='nodeAttr').length;
+      const mC = grpItems.filter(i => ['mapping','mappingBlock','nodeMappingBlock'].includes(i.type)).length;
+      const nC = grpItems.filter(i => ['nodeAttr','contextNodeBlock'].includes(i.type)).length;
       const meta = [mC && `${mC} mapping${mC>1?'s':''}`, nC && `${nC} node attr${nC>1?'s':''}`].filter(Boolean).join(' · ');
 
       // ── Group header ────────────────────────────────────────────────────────
@@ -910,19 +1687,25 @@ PAGE = r"""<!DOCTYPE html>
       // ── Item cards ──────────────────────────────────────────────────────────
       for (const it of grpItems) {
         const sid  = it.id.replace(/\W/g, '_');
-        const isM  = it.type === 'mapping';
-        const name = esc(it.attrName || it.attrTitle || '');
+        const isParentBlock = !!it.parentPatch;
+        const isM  = ['mapping','mappingBlock','nodeMappingBlock'].includes(it.type);
+        const name = esc(it.attrName || it.attrTitle || it.mappingTitle || it.nodeName || '');
 
         // Row 1 pieces
         const tbadge = isM
-          ? `<span class="cdfix-tbadge cdfix-tbadge-m">Mapping</span>`
-          : `<span class="cdfix-tbadge cdfix-tbadge-n">Node Attr</span>`;
-        const warn = it.missingParent
-          ? `<span class="cdfix-warntag" title="Parent location not found in Base — may fail to apply">⚠ parent missing</span>` : '';
+          ? `<span class="cdfix-tbadge cdfix-tbadge-m">${isParentBlock ? 'Parent Block' : 'Mapping'}</span>`
+          : `<span class="cdfix-tbadge cdfix-tbadge-n">${isParentBlock ? 'Parent Block' : 'Node Attr'}</span>`;
+        const warn = isParentBlock
+          ? `<span class="cdfix-parenttag" title="Step 3 copies this complete required block">Full block patch</span>`
+          : `<span class="cdfix-readytag">Ready</span>`;
+        const parentHelp = isParentBlock
+          ? `<div class="cdfix-parent-help"><strong>Will be applied in Step 3:</strong> ` +
+            `${esc(it.parentPatchMessage || 'The complete required block will be copied from Modified into Base.')}</div>`
+          : '';
 
         // Row 2: location breadcrumb
         const segs = isM
-          ? [it.mappingTitle, it.contextNode, it.object]
+          ? [it.mappingTitle, it.contextNode, it.object].filter(Boolean)
           : ['contextNodes', it.nodeName];
         const bc = segs.map((s, i) =>
           `<span class="cdfix-seg">${esc(s)}</span>` +
@@ -938,26 +1721,36 @@ PAGE = r"""<!DOCTYPE html>
           } else {
             r3 = `<div class="cdfix-r3"><span class="cdfix-rlabel">SF Field</span><span class="cdfix-fval cdfix-fval-sf">${esc(it.fieldInfo)}</span></div>`;
           }
-        } else if (!isM) {
+        } else if (!isM && !isParentBlock) {
           r3 = `<div class="cdfix-r3"><span class="cdfix-fval-role">Declares this context attribute on the node</span></div>`;
         }
 
         html +=
-          `<label class="cdfix-card" for="ci_${sid}">` +
+          `<label class="cdfix-card" data-card-id="${esc(it.id)}" for="ci_${sid}">` +
             `<input type="checkbox" id="ci_${sid}" data-item="${esc(it.id)}" checked` +
             ` onchange="cdfUpdateGroupHeader('${grpId}');cdfUpdateSelCount()" />` +
             `<div class="cdfix-ci">` +
               `<div class="cdfix-r1">${tbadge}<span class="cdfix-cname">${name}</span>${warn}<span class="cdfix-modtag">Modified only</span></div>` +
               `<div class="cdfix-r2"><span class="cdfix-rlabel">Location</span>${bc}</div>` +
               r3 +
+              parentHelp +
             `</div>` +
           `</label>`;
       }
       html += `</div></div>`;
     }
     cdfFieldList.innerHTML = html;
+    _cdfCards = [...cdfFieldList.querySelectorAll('.cdfix-card')];
+    _cdfItemCheckboxes = [...cdfFieldList.querySelectorAll('input[data-item]')];
+    _cdfActiveCard = null;
+    cdfApplyFilters();
     cdfUpdateSelCount();
+    if (items.length) cdfShowDetail(items[0].id);
   }
+  cdfFieldList.addEventListener('click', event => {
+    const card = event.target.closest('.cdfix-card');
+    if (card && cdfFieldList.contains(card)) cdfShowDetail(card.dataset.cardId);
+  });
 
   window.cdfToggleGroup = function(grpId) {
     const el  = $(grpId);
@@ -967,6 +1760,14 @@ PAGE = r"""<!DOCTYPE html>
     el.style.display = hidden ? '' : 'none';
     if (arr) arr.classList.toggle('open', hidden);
   };
+  function cdfSetAllGroups(expanded) {
+    document.querySelectorAll('#cdfFieldList .cdfix-group').forEach(group => {
+      const body = group.querySelector('.cdfix-group-head + div');
+      const arrow = group.querySelector('.cdfix-toggle-arrow');
+      if (body) body.style.display = expanded ? '' : 'none';
+      if (arrow) arrow.classList.toggle('open', expanded);
+    });
+  }
   window.cdfGroupHeaderClick = function(grpId) {
     const hdr = $(grpId + '_hdr');
     if (!hdr) return;
@@ -987,13 +1788,62 @@ PAGE = r"""<!DOCTYPE html>
   };
 
   $("cdfSelAll").onclick = () => {
-    document.querySelectorAll('#cdfFieldList input[type=checkbox]').forEach(cb => { cb.checked = true; cb.indeterminate = false; });
+    _cdfItemCheckboxes.forEach(cb => { cb.checked = true; });
+    document.querySelectorAll('#cdfFieldList .cdfix-group-check').forEach(cb => { cb.checked = true; cb.indeterminate = false; });
     cdfUpdateSelCount();
   };
   $("cdfSelNone").onclick = () => {
-    document.querySelectorAll('#cdfFieldList input[type=checkbox]').forEach(cb => { cb.checked = false; cb.indeterminate = false; });
+    _cdfItemCheckboxes.forEach(cb => { cb.checked = false; });
+    document.querySelectorAll('#cdfFieldList .cdfix-group-check').forEach(cb => { cb.checked = false; cb.indeterminate = false; });
     cdfUpdateSelCount();
   };
+  $("cdfExpandAll").onclick = () => cdfSetAllGroups(true);
+  $("cdfCollapseAll").onclick = () => cdfSetAllGroups(false);
+  let cdfSearchFrame;
+  cdfSearch.oninput = () => {
+    cancelAnimationFrame(cdfSearchFrame);
+    cdfSearchFrame = requestAnimationFrame(cdfApplyFilters);
+  };
+  document.querySelectorAll('[data-cdf-filter]').forEach(btn => {
+    btn.onclick = () => {
+      _cdfFilter = btn.dataset.cdfFilter;
+      document.querySelectorAll('[data-cdf-filter]').forEach(b => b.classList.toggle('active', b === btn));
+      cdfApplyFilters();
+    };
+  });
+
+  function paintCdfTimeline() {
+    const visible = _cdfTimelineExpanded ? _cdfTimelineEntries : _cdfTimelineEntries.slice(0, 6);
+    cdfTimeline.innerHTML = visible.map(line => {
+      const kind = line.startsWith('✗') ? 'error' : line.startsWith('+') ? 'add' : 'skip';
+      const icon = kind === 'error' ? '!' : kind === 'add' ? '+' : '✓';
+      const clean = line.replace(/^[+✓✗]\s*/, '');
+      const splitAt = clean.indexOf(':');
+      const label = splitAt >= 0 ? clean.slice(0, splitAt) : (kind === 'add' ? 'Added' : kind === 'error' ? 'Error' : 'Skipped');
+      const detail = splitAt >= 0 ? clean.slice(splitAt + 1).trim() : clean;
+      return `<div class="timeline-item ${kind}"><span class="timeline-icon">${icon}</span>` +
+        `<div class="timeline-copy"><strong>${esc(label)}</strong><span>${esc(detail)}</span></div></div>`;
+    }).join('');
+    cdfTimelineToggle.classList.toggle('hidden', _cdfTimelineEntries.length <= 6);
+    cdfTimelineToggle.innerHTML = buttonIcon(_cdfTimelineExpanded ? 'collapse' : 'expand') +
+      (_cdfTimelineExpanded ? 'Show quick view' : `Show all ${_cdfTimelineEntries.length} details`);
+  }
+  function renderCdfTimeline(report, data) {
+    $("cdfReportAdded").textContent = (data.applied || 0).toLocaleString();
+    $("cdfReportSkipped").textContent = (data.skipped || 0).toLocaleString();
+    $("cdfReportErrors").textContent = (data.errors || 0).toLocaleString();
+    _cdfTimelineEntries = (report || '').split('\n').map(line => line.trim()).filter(line =>
+      line.startsWith('+') || line.startsWith('✓') || line.startsWith('✗')
+    );
+    _cdfTimelineExpanded = false;
+    if (!_cdfTimelineEntries.length) {
+      cdfTimeline.innerHTML = '<div class="cdfix-detail-empty" style="min-height:100px"><p>No item-level changes were reported.</p></div>';
+      cdfTimelineToggle.classList.add('hidden');
+      return;
+    }
+    paintCdfTimeline();
+  }
+  cdfTimelineToggle.onclick = () => { _cdfTimelineExpanded = !_cdfTimelineExpanded; paintCdfTimeline(); };
 
   // ── Step 2: Analyze ──────────────────────────────────────────────────────
   cdfAnalyzeBtn.onclick = async () => {
@@ -1002,24 +1852,33 @@ PAGE = r"""<!DOCTYPE html>
       return;
     }
     busy(cdfAnalyzeBtn, "Analyzing…");
+    cdfDiffCount.textContent = "…";
+    cdfDiffIndicator.classList.remove("has-diffs");
     cdfSelectPanel.classList.remove("show");
     cdfBuildStep.classList.add("hidden");
     cdfReport.classList.remove("show");
+    cdfDiagnostics.classList.remove("show");
+    _cdfDiagnostics = null;
 
     const data = await postJSON("/api/cdfix/analyze", { base: cdfBase.value, modified: cdfMod.value });
     idle(cdfAnalyzeBtn);
 
     if (!data.ok) {
+      cdfDiffCount.textContent = "—";
       setStatus(cdfAnalyzeStatus, "err", data.log || "Analysis failed.");
       return;
     }
+    cdfRenderDiagnostics(data.diagnostics);
     if (!data.items || data.items.length === 0) {
+      cdfDiffCount.textContent = "0";
       setStatus(cdfAnalyzeStatus, "ok", data.summary || "No differences found.");
       return;
     }
 
+    cdfDiffCount.textContent = data.items.length.toLocaleString();
+    cdfDiffIndicator.classList.add("has-diffs");
     setStatus(cdfAnalyzeStatus, "ok", data.summary);
-    cdfSelHeadText.textContent = "Step 2 — Select which field additions to include";
+    cdfSelHeadText.textContent = "Step 2 — Select fields and required parent blocks";
     cdfRenderItems(data.items);
     cdfSelectPanel.classList.add("show");
     cdfBuildStep.classList.remove("hidden");
@@ -1029,8 +1888,7 @@ PAGE = r"""<!DOCTYPE html>
 
   // ── Step 3: Build ────────────────────────────────────────────────────────
   cdfBuildBtn.onclick = async () => {
-    const selectedIds = [...document.querySelectorAll('#cdfFieldList input[data-item]:checked')]
-      .map(cb => cb.dataset.item);
+    const selectedIds = _cdfItemCheckboxes.filter(cb => cb.checked).map(cb => cb.dataset.item);
     if (!selectedIds.length) {
       setStatus(cdfBuildStatus, "err", "Select at least one field to include.");
       return;
@@ -1049,19 +1907,26 @@ PAGE = r"""<!DOCTYPE html>
     }
     cdfOut.value = data.result; _lnRefresh.cdfOut();
     showReport(cdfReport, cdfReportBody, data.report);
+    renderCdfTimeline(data.report, data);
     const errs = data.errors || 0;
+    const parentBlocks = data.parentBlocks || 0;
+    const parentNote = parentBlocks
+      ? `, including ${parentBlocks} complete parent block${parentBlocks === 1 ? '' : 's'}`
+      : '';
+    const normalizedDefaults = data.normalizedDefaults || 0;
+    const normalizedRootFields = data.normalizedRootFields || [];
+    const normalizedTotal = normalizedDefaults + normalizedRootFields.length;
+    const normalizationNote = normalizedTotal
+      ? `; normalized ${normalizedTotal} API-incompatible serializer field${normalizedTotal === 1 ? '' : 's'}`
+      : '';
     const msg = errs
       ? `Built with ${data.applied} addition(s) applied · ${errs} error(s) — see report.`
-      : `Done — ${data.applied} addition(s) applied, ${data.skipped} already present. Use Copy to grab the result.`;
+      : `Done — ${data.applied} addition(s) applied${parentNote}, ${data.skipped} already present${normalizationNote}. Use Copy to grab the result.`;
     setStatus(cdfBuildStatus, errs ? "info" : "ok", msg);
   };
 
-  $("cdfCopyBtn").onclick      = (e) => copyFrom(cdfOut, e.target);
+  $("cdfCopyBtn").onclick      = (e) => copyFrom(cdfOut, e.currentTarget);
   $("cdfDownloadBtn").onclick  = () => download(cdfOut, "context-definition-patched.xml");
-  $("cdfBasePasteBtn").onclick = () => pasteInto("cdfBase");
-  $("cdfModPasteBtn").onclick  = () => pasteInto("cdfMod");
-  $("cdfBaseCopyBtn").onclick  = (e) => copyFrom(cdfBase, e.target);
-  $("cdfModCopyBtn").onclick   = (e) => copyFrom(cdfMod,  e.target);
 
   // ── CD Fix pane height guard — JS fallback if CSS alone isn't enough ─────────
   // Fires on every keystroke/paste (including Ctrl+V) and resets height to 300px.
