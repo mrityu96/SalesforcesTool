@@ -534,6 +534,23 @@ def _pretty_snippet(elem: Element, max_lines: int = 12) -> str:
     return "\n".join(out)
 
 
+def _compare_diff_items(counter: Counter, index: dict[str, Element]) -> list[dict]:
+    """Create one display item per unique structural difference."""
+    items = []
+    for fingerprint, count in counter.items():
+        elem = index[fingerprint]
+        identity = get_identity(elem) or ""
+        items.append({
+            "tag": _local(elem.tag),
+            "identity": identity.replace("\x1f", " / "),
+            "count": count,
+            "snippet": _pretty_snippet(elem, max_lines=80),
+        })
+    return sorted(items, key=lambda item: (
+        item["tag"].lower(), item["identity"].lower(), item["snippet"]
+    ))
+
+
 def compare_xml(a_text: str, b_text: str, tag_filter: str | None = None) -> dict:
     """Structural comparison of two XML strings. Returns {ok, report, xml}."""
     if not a_text.strip() or not b_text.strip():
@@ -594,9 +611,16 @@ def compare_xml(a_text: str, b_text: str, tag_filter: str | None = None) -> dict
     if not only_a and not only_b:
         lines.append("FILES ARE STRUCTURALLY IDENTICAL (no missing elements).")
 
-    return {"ok": True, "xml": True, "report": "\n".join(lines),
-            "onlyLeft": sum(only_a.values()), "onlyRight": sum(only_b.values()),
-            "matched": sum(common.values())}
+    return {
+        "ok": True,
+        "xml": True,
+        "report": "\n".join(lines),
+        "onlyLeft": sum(only_a.values()),
+        "onlyRight": sum(only_b.values()),
+        "matched": sum(common.values()),
+        "uniqueLeft": _compare_diff_items(only_a, index_a),
+        "uniqueRight": _compare_diff_items(only_b, index_b),
+    }
 
 # ───────────────────────────────────────────────────────────────────────
 # Operation: DEDUPLICATE (permission sets)
@@ -727,11 +751,264 @@ def _cd_group_key(name: str) -> str:
     return name
 
 
+def _cd_normalize_serializer_fields(root: Element) -> dict:
+    """Omit serializer-only fields that the UAT API 66 schema rejects."""
+    localization_defaults = 0
+    for parent in root.iter():
+        for child in list(parent):
+            if (_local(child.tag) == "localizationDisabled"
+                    and (child.text or "").strip().lower() == "false"):
+                parent.remove(child)
+                localization_defaults += 1
+
+    root_fields = []
+    for child in list(root):
+        tag = _local(child.tag)
+        if tag in {"isTransformationEnabled", "releaseVersion"}:
+            root.remove(child)
+            root_fields.append(tag)
+
+    return {
+        "localizationDefaults": localization_defaults,
+        "rootFields": root_fields,
+    }
+
+
+def _cd_semantic_signature(elem: Element, skip_children: set[str] | None = None) -> str:
+    """Order-independent signature that ignores serializer-only default false fields."""
+    skip_children = skip_children or set()
+
+    def walk(node: Element) -> str:
+        local = _local(node.tag)
+        text = (node.text or "").strip()
+        if local == "localizationDisabled" and text.lower() == "false":
+            return ""
+        parts = [local]
+        if text:
+            parts.append(f"TEXT:{text}")
+        children = []
+        for child in node:
+            if _local(child.tag) in skip_children:
+                continue
+            value = walk(child)
+            if value:
+                children.append(value)
+        parts.extend(sorted(children))
+        return "|".join(parts)
+
+    return hashlib.sha256(walk(elem).encode()).hexdigest()[:16]
+
+
+def _cd_diag_indexes(versions: Element) -> dict[str, dict[tuple, Element]]:
+    """Build natural-identity indexes used by the bidirectional diagnostics UI."""
+    indexes: dict[str, dict[tuple, Element]] = {
+        "mapping": {}, "nodeMapping": {}, "attributeMapping": {},
+        "contextNode": {}, "contextAttribute": {},
+    }
+    for mapping in versions.findall(_ns("contextMappings")):
+        mapping_title = _child_text(mapping, "title")
+        if not mapping_title:
+            continue
+        indexes["mapping"][(mapping_title,)] = mapping
+        for node_mapping in mapping.findall(_ns("contextNodeMappings")):
+            context_node = _child_text(node_mapping, "contextNode")
+            obj = _child_text(node_mapping, "object")
+            if not context_node or not obj:
+                continue
+            parent_key = (mapping_title, context_node, obj)
+            indexes["nodeMapping"][parent_key] = node_mapping
+            for attr_mapping in node_mapping.findall(_ns("contextAttributeMappings")):
+                attr = _child_text(attr_mapping, "contextAttribute")
+                if attr:
+                    indexes["attributeMapping"][parent_key + (attr,)] = attr_mapping
+    for context_node in versions.findall(_ns("contextNodes")):
+        node_title = _child_text(context_node, "title")
+        if not node_title:
+            continue
+        indexes["contextNode"][(node_title,)] = context_node
+        for context_attr in context_node.findall(_ns("contextAttributes")):
+            attr_title = _child_text(context_attr, "title")
+            if attr_title:
+                indexes["contextAttribute"][(node_title, attr_title)] = context_attr
+    return indexes
+
+
+def _cd_diag_entry(kind: str, key: tuple, elem: Element) -> dict:
+    labels = {
+        "mapping": "Context mapping",
+        "nodeMapping": "Node mapping parent",
+        "attributeMapping": "Attribute mapping",
+        "contextNode": "Context node parent",
+        "contextAttribute": "Context attribute",
+    }
+    if kind == "mapping":
+        path, name = f"contextMappings[{key[0]}]", key[0]
+    elif kind == "nodeMapping":
+        path = f"{key[0]} / {key[1]} / {key[2]}"
+        name = f"{key[1]} → {key[2]}"
+    elif kind == "attributeMapping":
+        path = f"{key[0]} / {key[1]} / {key[2]}"
+        name = key[3]
+    elif kind == "contextNode":
+        path, name = f"contextNodes[{key[0]}]", key[0]
+    else:
+        path, name = f"contextNodes[{key[0]}]", key[1]
+    detail = _cd_field_info(elem) if kind == "attributeMapping" else ""
+    return {"type": labels[kind], "name": name, "path": path, "detail": detail, "count": 1}
+
+
+def _cd_compare_diagnostics(base_text: str, modified_text: str,
+                            base_root: Element, mod_root: Element,
+                            base_ver: Element, mod_ver: Element) -> dict:
+    """Explain line-count and semantic differences in both directions."""
+    base_idx = _cd_diag_indexes(base_ver)
+    mod_idx = _cd_diag_indexes(mod_ver)
+    removed: list[dict] = []
+    added: list[dict] = []
+    changed: list[dict] = []
+
+    kind_order = ("mapping", "nodeMapping", "attributeMapping",
+                  "contextNode", "contextAttribute")
+    for kind in kind_order:
+        b_keys, m_keys = set(base_idx[kind]), set(mod_idx[kind])
+        for key in sorted(b_keys - m_keys):
+            removed.append(_cd_diag_entry(kind, key, base_idx[kind][key]))
+        for key in sorted(m_keys - b_keys):
+            added.append(_cd_diag_entry(kind, key, mod_idx[kind][key]))
+
+    # Material changes inside identities that exist on both sides. Ignore the
+    # localizationDisabled=false noise that Salesforce may omit on retrieval.
+    for kind in ("attributeMapping", "contextAttribute"):
+        common = set(base_idx[kind]) & set(mod_idx[kind])
+        for key in sorted(common):
+            before, after = base_idx[kind][key], mod_idx[kind][key]
+            if _cd_semantic_signature(before) == _cd_semantic_signature(after):
+                continue
+            entry = _cd_diag_entry(kind, key, after)
+            entry["before"] = _cd_field_info(before) if kind == "attributeMapping" else ""
+            entry["after"] = _cd_field_info(after) if kind == "attributeMapping" else ""
+            changed.append(entry)
+
+    def direct_leaf_values(root: Element) -> dict[str, list[str]]:
+        values: dict[str, list[str]] = {}
+        for child in root:
+            if len(child) == 0:
+                values.setdefault(_local(child.tag), []).append((child.text or "").strip())
+        return values
+
+    base_leaf, mod_leaf = direct_leaf_values(base_root), direct_leaf_values(mod_root)
+    for tag in sorted(set(base_leaf) | set(mod_leaf)):
+        b_values, m_values = base_leaf.get(tag, []), mod_leaf.get(tag, [])
+        if b_values == m_values:
+            continue
+        if b_values and not m_values:
+            serializer_field = tag in {"isTransformationEnabled", "releaseVersion"}
+            removed.append({
+                "type": "Serializer/root omission" if serializer_field else "Root field",
+                "name": tag,
+                "path": "ContextDefinition",
+                "detail": (
+                    f"{', '.join(b_values)}. This field may be normalized or omitted by "
+                    "Salesforce retrieval."
+                    if serializer_field else ", ".join(b_values)
+                ),
+                "count": len(b_values),
+            })
+        elif m_values and not b_values:
+            added.append({"type": "Root field", "name": tag, "path": "ContextDefinition",
+                          "detail": ", ".join(m_values), "count": len(m_values)})
+        else:
+            changed.append({"type": "Root field", "name": tag, "path": "ContextDefinition",
+                            "detail": f"{', '.join(b_values)} → {', '.join(m_values)}",
+                            "before": ", ".join(b_values), "after": ", ".join(m_values),
+                            "count": 1})
+
+    tracked_tags = (
+        "contextMappings", "contextNodeMappings", "contextAttributeMappings",
+        "contextNodes", "contextAttributes", "ctxAttrHydrationCtxs",
+        "contextAttrHydrationDetails", "contextTags", "localizationDisabled",
+    )
+    counts = []
+    for tag in tracked_tags:
+        base_count = sum(1 for el in base_root.iter() if _local(el.tag) == tag)
+        mod_count = sum(1 for el in mod_root.iter() if _local(el.tag) == tag)
+        counts.append({"tag": tag, "base": base_count, "modified": mod_count,
+                       "delta": mod_count - base_count})
+
+    base_loc_false = sum(
+        1 for el in base_root.iter()
+        if _local(el.tag) == "localizationDisabled"
+        and (el.text or "").strip().lower() == "false"
+    )
+    mod_loc_false = sum(
+        1 for el in mod_root.iter()
+        if _local(el.tag) == "localizationDisabled"
+        and (el.text or "").strip().lower() == "false"
+    )
+    default_delta = base_loc_false - mod_loc_false
+    if default_delta > 0:
+        removed.insert(0, {
+            "type": "Serializer/default omission",
+            "name": "localizationDisabled=false",
+            "path": "Repeated metadata entries",
+            "detail": (
+                f"Modified contains {default_delta} fewer explicit default-false values. "
+                "Salesforce retrieval commonly omits these defaults; this is not by itself "
+                "a business-metadata deletion."
+            ),
+            "count": default_delta,
+        })
+    elif default_delta < 0:
+        added.insert(0, {
+            "type": "Serializer/default expansion",
+            "name": "localizationDisabled=false",
+            "path": "Repeated metadata entries",
+            "detail": f"Modified contains {-default_delta} more explicit default-false values.",
+            "count": -default_delta,
+        })
+
+    base_lines = len(base_text.splitlines())
+    mod_lines = len(modified_text.splitlines())
+    line_delta = mod_lines - base_lines
+    if line_delta < 0:
+        line_summary = f"Modified has {-line_delta:,} fewer lines than Base."
+    elif line_delta > 0:
+        line_summary = f"Modified has {line_delta:,} more lines than Base."
+    else:
+        line_summary = "Base and Modified have the same number of lines."
+    if default_delta > 0:
+        line_summary += (
+            f" It also has {default_delta:,} fewer explicit "
+            "localizationDisabled=false defaults; added metadata may offset part of that reduction."
+        )
+    line_summary += " Use the lists below to separate serializer omissions from real metadata changes."
+
+    return {
+        "baseLines": base_lines,
+        "modifiedLines": mod_lines,
+        "lineDelta": line_delta,
+        "baseVersion": _child_text(base_ver, "versionNumber"),
+        "modifiedVersion": _child_text(mod_ver, "versionNumber"),
+        "summary": line_summary,
+        "removed": removed,
+        "added": added,
+        "changed": changed,
+        "counts": counts,
+        "removedCount": sum(item.get("count", 1) for item in removed),
+        "addedCount": sum(item.get("count", 1) for item in added),
+        "changedCount": len(changed),
+        "businessRemovedCount": sum(
+            item.get("count", 1) for item in removed
+            if not item["type"].startswith("Serializer/")
+        ),
+    }
+
+
 def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
     """
-    Scan Modified for contextAttributeMappings and contextAttributes that
-    do not exist in Base.  Returns the full list so the UI can let the user
-    pick which ones to apply.
+    Scan Modified for additions that do not exist in Base. Missing structural
+    parents are returned as one selectable full-block addition instead of
+    reporting every child as an unpatchable error.
     """
     if not base_text.strip() or not modified_text.strip():
         return {"ok": False, "log": "Paste both Base and Modified XMLs first."}
@@ -751,6 +1028,8 @@ def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
     if base_ver is None or mod_ver is None:
         return {"ok": False, "log": "Could not find <contextDefinitionVersions> in both files."}
 
+    diagnostics = _cd_compare_diagnostics(
+        base_text, modified_text, base_root, mod_root, base_ver, mod_ver)
     items: list[dict] = []
 
     # ── contextMappings → contextNodeMappings → contextAttributeMappings ──────
@@ -759,20 +1038,65 @@ def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
         if not m_title:
             continue
         base_m = _cd_get_mapping(base_ver, m_title)
+        if base_m is None:
+            node_count = len(mod_m.findall(_ns("contextNodeMappings")))
+            attr_count = sum(
+                len(node.findall(_ns("contextAttributeMappings")))
+                for node in mod_m.findall(_ns("contextNodeMappings"))
+            )
+            items.append({
+                "id": f"cm\x1f{m_title}",
+                "type": "mappingBlock",
+                "mappingTitle": m_title,
+                "attrName": m_title,
+                "fieldInfo": f"{node_count} node mapping(s) · {attr_count} attribute mapping(s)",
+                "includedCount": attr_count,
+                "group": "Required parent blocks",
+                "path": f"contextMappings[{m_title}]",
+                "parentPatch": True,
+                "missingParent": False,
+                "parentPatchMessage": (
+                    f"Base does not contain mapping '{m_title}'. Step 3 will copy the complete "
+                    "<contextMappings> block from Modified, including all of its node and "
+                    "attribute mappings."
+                ),
+            })
+            continue
 
         for mod_nm in mod_m.findall(_ns("contextNodeMappings")):
             ctx_node = _child_text(mod_nm, "contextNode")
             obj      = _child_text(mod_nm, "object")
             if not ctx_node or not obj:
                 continue
-            base_nm = (_cd_get_node_mapping(base_m, ctx_node, obj)
-                       if base_m is not None else None)
+            base_nm = _cd_get_node_mapping(base_m, ctx_node, obj)
+            if base_nm is None:
+                attr_count = len(mod_nm.findall(_ns("contextAttributeMappings")))
+                items.append({
+                    "id": f"nm\x1f{m_title}\x1f{ctx_node}\x1f{obj}",
+                    "type": "nodeMappingBlock",
+                    "mappingTitle": m_title,
+                    "contextNode": ctx_node,
+                    "object": obj,
+                    "attrName": f"{ctx_node} / {obj}",
+                    "fieldInfo": f"{attr_count} attribute mapping(s)",
+                    "includedCount": attr_count,
+                    "group": "Required parent blocks",
+                    "path": f"{m_title} → {ctx_node} / {obj}",
+                    "parentPatch": True,
+                    "missingParent": False,
+                    "parentPatchMessage": (
+                        f"Base mapping '{m_title}' does not contain the {ctx_node} / {obj} "
+                        "node mapping. Step 3 will copy the complete <contextNodeMappings> "
+                        "block from Modified, including all of its attribute mappings."
+                    ),
+                })
+                continue
 
             for cam in mod_nm.findall(_ns("contextAttributeMappings")):
                 attr = _child_text(cam, "contextAttribute")
                 if not attr:
                     continue
-                if base_nm is not None and _cd_has_attr_mapping(base_nm, attr):
+                if _cd_has_attr_mapping(base_nm, attr):
                     continue   # already in base
                 field_info = _cd_field_info(cam)
                 items.append({
@@ -785,7 +1109,8 @@ def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
                     "fieldInfo":    field_info,
                     "group":        _cd_group_key(attr),
                     "path":         f"{m_title} → {ctx_node} / {obj}",
-                    "missingParent": base_m is None or base_nm is None,
+                    "parentPatch":  False,
+                    "missingParent": False,
                 })
 
     # ── contextNodes → contextAttributes ─────────────────────────────────────
@@ -794,6 +1119,26 @@ def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
         if not cn_title:
             continue
         base_cn = _cd_get_context_node(base_ver, cn_title)
+        if base_cn is None:
+            attr_count = len(mod_cn.findall(_ns("contextAttributes")))
+            items.append({
+                "id": f"cn\x1f{cn_title}",
+                "type": "contextNodeBlock",
+                "nodeName": cn_title,
+                "attrTitle": cn_title,
+                "fieldInfo": f"{attr_count} context attribute(s)",
+                "includedCount": attr_count,
+                "group": "Required parent blocks",
+                "path": f"contextNodes[{cn_title}]",
+                "parentPatch": True,
+                "missingParent": False,
+                "parentPatchMessage": (
+                    f"Base does not contain context node '{cn_title}'. Step 3 will copy the "
+                    "complete <contextNodes> block from Modified, including all of its "
+                    "context attributes."
+                ),
+            })
+            continue
 
         for ca in mod_cn.findall(_ns("contextAttributes")):
             ca_title = _child_text(ca, "title")
@@ -809,15 +1154,22 @@ def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
                 "fieldInfo": "",
                 "group":     _cd_group_key(ca_title),
                 "path":      f"contextNodes[{cn_title}]",
-                "missingParent": base_cn is None,
+                "parentPatch": False,
+                "missingParent": False,
             })
 
     if not items:
         return {"ok": True, "items": [],
-                "summary": "No additions found — Modified has nothing new beyond Base."}
+                "summary": "No additions found — Modified has nothing new beyond Base.",
+                "diagnostics": diagnostics}
 
+    parent_blocks = sum(1 for item in items if item.get("parentPatch"))
+    summary = f"Found {len(items)} selectable addition(s) in Modified that are absent from Base."
+    if parent_blocks:
+        summary += f" {parent_blocks} will add a complete required parent block."
     return {"ok": True, "items": items,
-            "summary": f"Found {len(items)} addition(s) in Modified that are absent from Base."}
+            "summary": summary,
+            "diagnostics": diagnostics}
 
 
 def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict:
@@ -842,8 +1194,98 @@ def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict
 
     selected = set(selected_ids)
     report_lines = ["CONTEXT DEFINITION FIX — APPLY REPORT", "=" * 60, ""]
-    applied = skipped = 0
+    applied = skipped = parent_blocks = 0
     errs: list[str] = []
+
+    # ── complete contextMappings blocks ───────────────────────────────────────
+    for mod_m in mod_ver.findall(_ns("contextMappings")):
+        m_title = _child_text(mod_m, "title")
+        item_id = f"cm\x1f{m_title}"
+        if item_id not in selected:
+            continue
+        if _cd_get_mapping(base_ver, m_title) is not None:
+            report_lines.append(f"  ✓ parent block already present: contextMappings[{m_title}]")
+            skipped += 1
+            continue
+        children = list(base_ver)
+        last_mapping = max(
+            (i for i, child in enumerate(children) if _local(child.tag) == "contextMappings"),
+            default=-1,
+        )
+        base_ver.insert(last_mapping + 1, copy.deepcopy(mod_m))
+        node_count = len(mod_m.findall(_ns("contextNodeMappings")))
+        attr_count = sum(
+            len(node.findall(_ns("contextAttributeMappings")))
+            for node in mod_m.findall(_ns("contextNodeMappings"))
+        )
+        report_lines.append(
+            f"  + added parent block: contextMappings[{m_title}] "
+            f"({node_count} node mapping(s), {attr_count} attribute mapping(s))"
+        )
+        applied += 1
+        parent_blocks += 1
+
+    # ── complete contextNodeMappings blocks ──────────────────────────────────
+    for mod_m in mod_ver.findall(_ns("contextMappings")):
+        m_title = _child_text(mod_m, "title")
+        for mod_nm in mod_m.findall(_ns("contextNodeMappings")):
+            ctx_node = _child_text(mod_nm, "contextNode")
+            obj = _child_text(mod_nm, "object")
+            item_id = f"nm\x1f{m_title}\x1f{ctx_node}\x1f{obj}"
+            if item_id not in selected:
+                continue
+            base_m = _cd_get_mapping(base_ver, m_title)
+            if base_m is None:
+                errs.append(
+                    f"  ✗ parent mapping unavailable: contextMappings[{m_title}] "
+                    f"for {ctx_node}/{obj}"
+                )
+                skipped += 1
+                continue
+            if _cd_get_node_mapping(base_m, ctx_node, obj) is not None:
+                report_lines.append(
+                    f"  ✓ parent block already present: {m_title}/{ctx_node}/{obj}"
+                )
+                skipped += 1
+                continue
+            children = list(base_m)
+            insert_at = next(
+                (i for i, child in enumerate(children)
+                 if _local(child.tag) in {"default", "description", "inheritedFrom", "title"}),
+                len(children),
+            )
+            base_m.insert(insert_at, copy.deepcopy(mod_nm))
+            attr_count = len(mod_nm.findall(_ns("contextAttributeMappings")))
+            report_lines.append(
+                f"  + added parent block: {m_title}/{ctx_node}/{obj} "
+                f"({attr_count} attribute mapping(s))"
+            )
+            applied += 1
+            parent_blocks += 1
+
+    # ── complete contextNodes blocks ─────────────────────────────────────────
+    for mod_cn in mod_ver.findall(_ns("contextNodes")):
+        cn_title = _child_text(mod_cn, "title")
+        item_id = f"cn\x1f{cn_title}"
+        if item_id not in selected:
+            continue
+        if _cd_get_context_node(base_ver, cn_title) is not None:
+            report_lines.append(f"  ✓ parent block already present: contextNodes[{cn_title}]")
+            skipped += 1
+            continue
+        children = list(base_ver)
+        last_node = max(
+            (i for i, child in enumerate(children) if _local(child.tag) == "contextNodes"),
+            default=-1,
+        )
+        base_ver.insert(last_node + 1, copy.deepcopy(mod_cn))
+        attr_count = len(mod_cn.findall(_ns("contextAttributes")))
+        report_lines.append(
+            f"  + added parent block: contextNodes[{cn_title}] "
+            f"({attr_count} context attribute(s))"
+        )
+        applied += 1
+        parent_blocks += 1
 
     # ── contextAttributeMappings ──────────────────────────────────────────────
     for mod_m in mod_ver.findall(_ns("contextMappings")):
@@ -903,6 +1345,21 @@ def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict
             report_lines.append(f"  + added: {ca_title}  [contextNodes/{cn_title}]")
             applied += 1
 
+    normalization = _cd_normalize_serializer_fields(base_root)
+    normalized_defaults = normalization["localizationDefaults"]
+    normalized_root_fields = normalization["rootFields"]
+    if normalized_defaults:
+        report_lines += [
+            "",
+            f"  ✓ normalized: omitted {normalized_defaults} explicit "
+            "localizationDisabled=false serializer default(s)",
+        ]
+    if normalized_root_fields:
+        report_lines.append(
+            "  ✓ normalized: omitted API-incompatible root field(s): "
+            + ", ".join(normalized_root_fields)
+        )
+
     report_lines += ["",
                      f"Summary: {applied} added · {skipped} skipped · {len(errs)} error(s)"]
     if errs:
@@ -915,6 +1372,9 @@ def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict
         "applied": applied,
         "skipped": skipped,
         "errors":  len(errs),
+        "parentBlocks": parent_blocks,
+        "normalizedDefaults": normalized_defaults,
+        "normalizedRootFields": normalized_root_fields,
     }
 
 
