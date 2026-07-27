@@ -8,7 +8,7 @@ It does four things:
 
 | Operation | What it does |
 |---|---|
-| **Compare** | Side-by-side diff of two XMLs (changed / only-left / only-right) **plus** an order-independent *structural* summary that ignores element ordering. Also works on plain text/Apex (line diff only). |
+| **Compare** | Side-by-side view of only the unique XML differences (changed / only-left / only-right), using an order-independent structural comparison. Matching XML is ignored even when it appears on different lines. Plain text/Apex still uses a line diff. |
 | **Merge** | Merge a **Base** XML and a **Modified** XML into one. You choose which side is the base; the tool keeps the base intact and layers the other side's changes on top — matching identity keys (e.g. `apexClass`, `field`, `object`, `contextMapping title`) so nothing is duplicated or lost. |
 | **Deduplicate** | Remove duplicate entries from a Permission Set / Profile and output a clean, consistently sorted file. |
 | **Context Definition Fix** | Compare a **Base** Context Definition and a **Modified** one, find every context mapping / node attribute that exists only in the modified, then let you cherry-pick exactly which additions to apply back into the base — and download the patched file. |
@@ -16,7 +16,7 @@ It does four things:
 Built for Salesforce metadata such as **Permission Sets, Profiles, and Context
 Definitions**, but the compare works on any XML (or text).
 
-![Merge view (dark mode)](docs/screenshots/merge.png)
+![Latest merge workspace in dark mode](docs/screenshots/merge-dark.png)
 
 ---
 
@@ -85,9 +85,10 @@ set XML_UI_PORT=8900 && python xml_tool.py  # Windows
 2. Paste XML into the **Left** and **Right** panes.
 3. (Optional) Type an element name in *"Limit to element"* (e.g. `fieldPermissions`)
    to focus the structural summary.
-4. Click **Compare**. You get a synced two-pane line diff and a structural summary.
+4. Click **Compare**. The two-pane result shows only unique structural differences;
+   unchanged elements moved to another line or reordered within XML are not reported.
 
-![Compare view](docs/screenshots/compare.png)
+![Unique structural comparison results](docs/screenshots/compare-unique.png)
 
 ### Merge
 1. Open the **Merge** tab.
@@ -102,16 +103,14 @@ set XML_UI_PORT=8900 && python xml_tool.py  # Windows
 2. Paste a Permission Set / Profile XML.
 3. Click **Remove duplicates** → copy/download the cleaned result.
 
-![Deduplicate view](docs/screenshots/dedup.png)
+![Permission Set deduplication result](docs/screenshots/deduplicate.png)
 
 ### Context Definition Fix
 
-Use this tab when you need to bring new context mappings or node attributes from
-a **Modified** Context Definition (e.g. a QA or UAT org export) into a **Base**
-Context Definition (e.g. your local working copy or your production XML) — without
-re-running a full merge that might overwrite things you want to keep.
-
-![Context Definition Fix — analyze step](docs/screenshots/cdfix-analyze.png)
+Use this tab to bring selected mappings, node attributes, or complete required
+parent blocks from a **Modified** Context Definition into a **Base** definition.
+When the result is intended for deployment, use the current target-org XML as
+Base so its version and existing metadata remain authoritative.
 
 **Step 1 — Analyze Differences**
 
@@ -119,31 +118,42 @@ re-running a full merge that might overwrite things you want to keep.
 2. Paste your **Base** Context Definition XML (Pane 1) and the **Modified** XML (Pane 2).
 3. Click **Analyze Differences**.
 
-The tool scans both files and lists every context mapping / node attribute that
-is **present in Modified but missing from Base** — grouped by the context
-attribute name they belong to. Each card shows:
+The tool first explains line-count differences, separating serializer omissions
+from actual metadata additions, removals, and material changes. It then lists
+every selectable addition that is **present in Modified but missing from Base**.
+
+![Context Definition diagnostics and selectable additions](docs/screenshots/context-analysis.png)
+
+Each card shows:
 
 - Whether it's a **Mapping** (a `contextAttributeMappings` entry) or a **Node Attr**
   (a `contextAttributes` entry on a `contextNodes` node).
 - The **full attribute name** so you can immediately see what it is.
 - The **location** — which mapping title, context node, and object the entry lives under.
 - The **SF Field** (or hydration reference, or node role).
+- Whether Step 3 must copy a complete required parent block. Parent blocks are
+  selectable and are no longer skipped as errors.
 
-**Step 2 — Select & Apply**
-
-![Context Definition Fix — select step](docs/screenshots/cdfix-select.png)
+**Step 2 — Select additions**
 
 4. All differences are selected by default. Deselect any you want to skip.
    - Use **Select all** / **Deselect all** to bulk-toggle.
    - Each group header has its own checkbox to toggle the whole group at once.
-5. Click **Apply Selected to Base** — the tool patches the Base XML in memory,
-   inserting each selected entry into exactly the right place in the right
-   mapping / node block.
-6. A confirmation dialog shows a summary of what was applied. Click **Download
-   fixed Base XML** to save the result, or **Copy to clipboard**.
+5. Review any **Full block patch** cards. Selecting one copies that complete
+   required mapping or context-node block, including its child attributes.
 
-> **Nothing is lost.** The tool only *adds* entries that are missing from Base.
-> It never removes or overwrites anything that already exists.
+**Step 3 — Build and review**
+
+6. Click **Build Context Definition**. The result and compact apply report show
+   every selected field and complete parent block that was added.
+7. Review the output, then use **Copy** or **Download**.
+
+![Patched Context Definition and apply report](docs/screenshots/context-patched.png)
+
+> **Business metadata is preserved.** Step 3 adds only selected business entries.
+> It can omit explicit serializer defaults such as
+> `localizationDisabled=false` and API-incompatible root fields that Salesforce
+> itself omits on retrieval; these normalizations are listed in the apply report.
 
 Toggle **Night / Day mode** any time with the button in the top-right (the Merge
 screenshot above shows dark mode).
@@ -248,6 +258,19 @@ Python you can inspect.
 Another copy is already running, or something else holds the port. Stop it with
 `Stop XML Tool.command`, or start on a different port:
 `XML_UI_PORT=8900 python3 xml_tool.py`.
+
+### macOS says you do not have appropriate access privileges
+
+The executable permission was removed while the files were copied or uploaded.
+From Terminal, run:
+
+```bash
+cd "/path/to/salesforce-xml-tool"
+chmod 755 "Open XML Tool.command" "Stop XML Tool.command"
+```
+
+For GitHub distributions, commit both launchers with executable mode `100755`
+(`git add --chmod=+x ...`) so clones and release archives preserve it.
 
 ---
 
