@@ -103,6 +103,12 @@ set XML_UI_PORT=8900 && python xml_tool.py  # Windows
 2. Paste a Permission Set / Profile XML.
 3. Click **Remove duplicates** → copy/download the cleaned result.
 
+The operation handles both keyed repeating sections (such as
+`fieldPermissions`) and singleton metadata (such as `description`, `label`, and
+`license`). Identical singleton copies are reduced to one. If duplicate
+singleton values conflict, the first occurrence is kept and the report shows a
+warning instead of resolving the conflict silently.
+
 ![Permission Set deduplication result](docs/screenshots/deduplicate.png)
 
 ### Context Definition Fix
