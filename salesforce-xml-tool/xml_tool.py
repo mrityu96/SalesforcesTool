@@ -638,6 +638,8 @@ def dedup_permset_text(text: str) -> dict:
     singles: "OrderedDict[str, Element]" = OrderedDict()
     sections: "OrderedDict[str, OrderedDict[str, Element]]" = OrderedDict()
     stats: dict[str, dict] = {}
+    singleton_stats: "OrderedDict[str, dict]" = OrderedDict()
+    warnings: list[str] = []
 
     for child in root:
         tag = _local(child.tag)
@@ -652,7 +654,17 @@ def dedup_permset_text(text: str) -> dict:
             else:
                 sections[tag][key_val or f"__unknown_{stats[tag]['total']}"] = child
         else:
-            singles[tag] = child
+            if tag not in singleton_stats:
+                singleton_stats[tag] = {"total": 0, "dupes": 0, "conflicts": 0}
+            singleton_stats[tag]["total"] += 1
+            if tag in singles:
+                singleton_stats[tag]["dupes"] += 1
+                if _normalize(singles[tag]) != _normalize(child):
+                    singleton_stats[tag]["conflicts"] += 1
+            else:
+                # Singleton metadata is authoritative at its first occurrence.
+                # Later copies are removed, with conflicting values reported.
+                singles[tag] = child
 
     new_root = Element(root.tag, root.attrib)
     items: list[tuple] = []
@@ -673,7 +685,9 @@ def dedup_permset_text(text: str) -> dict:
     for _tag, _k, elem in items:
         new_root.append(copy.deepcopy(elem))
 
-    total_dupes = sum(s["dupes"] for s in stats.values())
+    section_dupes = sum(s["dupes"] for s in stats.values())
+    singleton_dupes = sum(s["dupes"] for s in singleton_stats.values())
+    total_dupes = section_dupes + singleton_dupes
     report_lines = ["DEDUPLICATION REPORT", "-" * 40]
     for tag in PERMSET_SECTION_ORDER:
         if tag in stats:
@@ -682,11 +696,29 @@ def dedup_permset_text(text: str) -> dict:
             report_lines.append(
                 f"  {tag}: {s['total']} -> {unique} unique "
                 f"({s['dupes']} duplicates removed)")
+    duplicated_singletons = [
+        (tag, values) for tag, values in singleton_stats.items() if values["dupes"]
+    ]
+    if duplicated_singletons:
+        report_lines += ["", "SINGLETON ELEMENTS:"]
+        for tag, values in duplicated_singletons:
+            report_lines.append(
+                f"  {tag}: {values['total']} -> 1 "
+                f"({values['dupes']} duplicate{'s' if values['dupes'] != 1 else ''} removed)"
+            )
+            if values["conflicts"]:
+                warning = (
+                    f"<{tag}> had {values['conflicts']} conflicting duplicate value(s); "
+                    "the first occurrence was kept."
+                )
+                warnings.append(warning)
+                report_lines.append(f"    ! {warning}")
     report_lines.append("")
     report_lines.append(f"TOTAL duplicates removed: {total_dupes}")
 
     return {"ok": True, "result": serialize_tree(new_root),
-            "report": "\n".join(report_lines), "removed": total_dupes}
+            "report": "\n".join(report_lines), "removed": total_dupes,
+            "singletonDuplicates": singleton_dupes, "warnings": warnings}
 
 # ───────────────────────────────────────────────────────────────────────
 # Operation: CONTEXT DEFINITION FIX
