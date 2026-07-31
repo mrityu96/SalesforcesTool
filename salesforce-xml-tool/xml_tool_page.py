@@ -1452,7 +1452,11 @@ PAGE = r"""<!DOCTYPE html>
     if (data.ok) {
       dedOut.value = data.result; _lnRefresh.dedOut();
       showReport(dedReport, dedReportBody, data.report);
-      setStatus(dedStatus, "ok", `Done — ${data.removed} duplicate entr${data.removed === 1 ? "y" : "ies"} removed.`);
+      const warnings = data.warnings || [];
+      const message = `Done — ${data.removed} duplicate entr${data.removed === 1 ? "y" : "ies"} removed.` +
+        (data.singletonDuplicates ? ` ${data.singletonDuplicates} came from singleton metadata such as description.` : "") +
+        (warnings.length ? ` ${warnings.length} conflicting value warning${warnings.length === 1 ? "" : "s"} — see report.` : "");
+      setStatus(dedStatus, warnings.length ? "info" : "ok", message);
     } else {
       dedOut.value = ""; _lnRefresh.dedOut();
       setStatus(dedStatus, "err", data.log || "Deduplication failed.");
