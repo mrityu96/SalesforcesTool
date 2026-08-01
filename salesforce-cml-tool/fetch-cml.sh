@@ -6,8 +6,8 @@
 #   ./scripts/fetch-cml.sh <orgAlias> <constraintModelName> [outputFile]
 #
 # Examples:
-#   ./scripts/fetch-cml.sh tigerDev TestConstraint
-#   ./scripts/fetch-cml.sh catalogGold PCM_Constraint_Model ./my-model.cml
+#   ./scripts/fetch-cml.sh Dev TestConstraint
+#   ./scripts/fetch-cml.sh QA PCM_Constraint_Model ./my-model.cml
 # ==============================================================================
 
 set -euo pipefail
