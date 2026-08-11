@@ -362,6 +362,9 @@ PAGE = r"""<!DOCTYPE html>
   .filter-chip[data-cdf-filter="errors"] {
     color:var(--text); background:color-mix(in srgb,var(--amber) 12%,var(--panel));
   }
+  .filter-chip[data-cdf-filter="updates"] {
+    color:var(--purple); background:color-mix(in srgb,var(--purple) 10%,var(--panel));
+  }
   .filter-chip[data-cdf-filter="mapping"] { color:var(--teal-text); background:var(--teal-bg); }
   .filter-chip[data-cdf-filter="nodeAttr"] { color:var(--purple); background:color-mix(in srgb,var(--purple) 10%,var(--panel)); }
   .filter-chip[data-cdf-filter="selected"] { color:var(--amber); background:color-mix(in srgb,var(--amber) 10%,var(--panel)); }
@@ -372,6 +375,7 @@ PAGE = r"""<!DOCTYPE html>
   .filter-chip[data-cdf-filter="errors"].active {
     border-color:var(--amber); background:var(--amber); color:var(--text);
   }
+  .filter-chip[data-cdf-filter="updates"].active { border-color:var(--purple); background:var(--purple); }
   .filter-chip[data-cdf-filter="mapping"].active { border-color:var(--teal); background:var(--teal); }
   .filter-chip[data-cdf-filter="nodeAttr"].active { border-color:var(--purple); background:var(--purple); }
   .filter-chip[data-cdf-filter="selected"].active { border-color:var(--amber); background:var(--amber); color:var(--text); }
@@ -448,6 +452,9 @@ PAGE = r"""<!DOCTYPE html>
   .cdfix-parenttag { font-size:10px; padding:2px 7px; border-radius:4px; flex-shrink:0;
     background:color-mix(in srgb,var(--amber) 18%,var(--panel)); color:var(--text);
     border:1px solid color-mix(in srgb,var(--amber) 55%,var(--line)); font-weight:700; }
+  .cdfix-updatetag { font-size:10px; padding:2px 7px; border-radius:4px; flex-shrink:0;
+    background:color-mix(in srgb,var(--purple) 12%,var(--panel)); color:var(--purple);
+    border:1px solid color-mix(in srgb,var(--purple) 35%,var(--line)); font-weight:700; }
   .cdfix-readytag { font-size:10px; padding:2px 7px; border-radius:4px; flex-shrink:0;
     background:var(--ok-bg); color:var(--ok-text); border:1px solid color-mix(in srgb,var(--green) 28%,var(--line)); }
   .cdfix-parent-help { margin-top: 7px; padding: 8px 10px; border-radius: 6px;
@@ -468,21 +475,24 @@ PAGE = r"""<!DOCTYPE html>
   .cdfix-fval { font-size: 11px; font-family: "SF Mono", Menlo, monospace;
     padding: 1px 7px; border-radius: 4px; word-break: break-all; }
   .cdfix-fval-sf  { background: var(--teal-bg); color: var(--teal-text); }
+  .cdfix-fval-before { background:var(--gutter); color:var(--muted); text-decoration:line-through; }
   .cdfix-fval-hyd { background:color-mix(in srgb,var(--purple) 10%,var(--panel)); color:var(--purple); }
   .cdfix-fval-role { color: var(--muted); font-style: italic; font-size: 11px; }
-  .report-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; margin-bottom:10px; }
+  .report-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:7px; margin-bottom:10px; }
   .report-summary > div { padding:9px 10px; border:1px solid var(--line); border-radius:10px; background:var(--input-bg); }
   .report-summary strong,.report-summary span { display:block; }
   .report-summary strong { color:var(--text); font-size:18px; line-height:1.1; }
   .report-summary span { margin-top:2px; color:var(--muted); font-size:9px; font-weight:750; text-transform:uppercase; letter-spacing:.06em; }
   .report-summary > div:first-child { border-top:2px solid var(--green); }
-  .report-summary > div:nth-child(2) { border-top:2px solid var(--amber); }
+  .report-summary > div:nth-child(2) { border-top:2px solid var(--purple); }
+  .report-summary > div:nth-child(3) { border-top:2px solid var(--amber); }
   .report-summary > div:last-child { border-top:2px solid var(--red); }
   .apply-timeline { display:grid; gap:8px; margin-bottom:10px; }
   .timeline-item { display:grid; grid-template-columns:24px minmax(0,1fr); gap:9px; padding:9px 11px;
     border:1px solid var(--line); border-radius:11px; background:var(--input-bg); }
   .timeline-icon { width:22px; height:22px; display:grid; place-items:center; border-radius:50%; font-size:11px; font-weight:800; }
   .timeline-item.add .timeline-icon { color:var(--green); background:var(--ok-bg); }
+  .timeline-item.update .timeline-icon { color:var(--purple); background:color-mix(in srgb,var(--purple) 10%,var(--panel)); }
   .timeline-item.skip .timeline-icon { color:var(--amber); background:color-mix(in srgb,var(--amber) 12%,var(--panel)); }
   .timeline-item.error .timeline-icon { color:var(--red); background:var(--err-bg); }
   .timeline-copy strong { display:block; color:var(--text); font-size:11px; }
@@ -897,7 +907,7 @@ PAGE = r"""<!DOCTYPE html>
         </div>
         <div class="cdfix-sel-body">
           <div class="cdfix-metrics" id="cdfMetrics">
-            <div class="metric-card metric-all"><strong id="cdfMetricAll">0</strong><span>Total additions</span></div>
+            <div class="metric-card metric-all"><strong id="cdfMetricAll">0</strong><span>Total changes</span></div>
             <div class="metric-card metric-map"><strong id="cdfMetricMappings">0</strong><span>Mappings</span></div>
             <div class="metric-card metric-node"><strong id="cdfMetricNodes">0</strong><span>Node attributes</span></div>
             <div class="metric-card metric-error"><strong id="cdfMetricErrors">0</strong><span>Parent blocks</span></div>
@@ -908,6 +918,7 @@ PAGE = r"""<!DOCTYPE html>
               <button class="filter-chip active" data-cdf-filter="all">All</button>
               <button class="filter-chip" data-cdf-filter="ready">Ready</button>
               <button class="filter-chip" data-cdf-filter="errors">Parent blocks</button>
+              <button class="filter-chip" data-cdf-filter="updates">Value changes</button>
               <button class="filter-chip" data-cdf-filter="mapping">Mappings</button>
               <button class="filter-chip" data-cdf-filter="nodeAttr">Node attrs</button>
               <button class="filter-chip" data-cdf-filter="selected">Selected</button>
@@ -962,6 +973,7 @@ PAGE = r"""<!DOCTYPE html>
           <h3>Apply report</h3>
           <div class="report-summary" id="cdfReportSummary">
             <div><strong id="cdfReportAdded">0</strong><span>Added</span></div>
+            <div><strong id="cdfReportUpdated">0</strong><span>Updated</span></div>
             <div><strong id="cdfReportSkipped">0</strong><span>Skipped</span></div>
             <div><strong id="cdfReportErrors">0</strong><span>Errors</span></div>
           </div>
@@ -1589,6 +1601,7 @@ PAGE = r"""<!DOCTYPE html>
     _cdfActiveCard = _cdfCards.find(card => card.dataset.cardId === id) || null;
     if (_cdfActiveCard) _cdfActiveCard.classList.add('is-active');
     const isParentBlock = !!it.parentPatch;
+    const isUpdate = it.changeKind === 'update';
     const isMapping = ['mapping','mappingBlock','nodeMappingBlock'].includes(it.type);
     const name = it.attrName || it.attrTitle || it.mappingTitle || it.nodeName || '';
     const location = it.type === 'mappingBlock'
@@ -1608,14 +1621,19 @@ PAGE = r"""<!DOCTYPE html>
     const parentNote = isParentBlock
       ? `<div class="cdfix-parent-help"><strong>Full-block patch:</strong> ${esc(it.parentPatchMessage || '')}</div>`
       : '';
+    const changeDetails = isUpdate
+      ? `<div class="detail-row"><span>Current Base value</span><code>${esc(it.beforeField || 'Existing XML definition')}</code></div>` +
+        `<div class="detail-row"><span>Modified value</span><code>${esc(it.afterField || 'Modified XML definition')}</code></div>`
+      : '';
     const badgeLabel = isParentBlock ? 'Parent Block' : isMapping ? 'Mapping' : 'Node Attr';
     cdfDetail.innerHTML =
       `<div class="cdfix-detail-head">` +
         `<span class="cdfix-tbadge ${isMapping ? 'cdfix-tbadge-m' : 'cdfix-tbadge-n'}">${badgeLabel}</span>` +
-        `<h4>${esc(name)}</h4><p>${isParentBlock ? 'Ready — Step 3 will copy the complete required block' : 'Ready to apply'}</p>` +
+        `<h4>${esc(name)}</h4><p>${isParentBlock ? 'Ready — Step 3 will copy the complete required block' : isUpdate ? 'Ready — Step 3 will replace the selected Base definition' : 'Ready to apply'}</p>` +
       `</div><div class="cdfix-detail-body">` +
         `<div class="detail-row"><span>Location</span><code>${esc(location)}</code></div>` +
         (it.fieldInfo ? `<div class="detail-row"><span>Source</span><code>${esc(it.fieldInfo)}</code></div>` : '') +
+        changeDetails +
         `<div class="detail-row"><span>XML preview</span><pre class="detail-preview">${esc(preview)}</pre></div>` +
         parentNote +
       `</div>`;
@@ -1628,11 +1646,12 @@ PAGE = r"""<!DOCTYPE html>
       const it = cb ? _cdfById.get(cb.dataset.item) : null;
       if (!it) return;
       const haystack = [it.attrName, it.attrTitle, it.mappingTitle, it.contextNode,
-        it.object, it.nodeName, it.fieldInfo, it.group].filter(Boolean).join(' ').toLowerCase();
+        it.object, it.nodeName, it.fieldInfo, it.beforeField, it.afterField, it.group].filter(Boolean).join(' ').toLowerCase();
       const filterMatch =
         _cdfFilter === 'all' ||
         (_cdfFilter === 'ready' && !it.parentPatch) ||
         (_cdfFilter === 'errors' && it.parentPatch) ||
+        (_cdfFilter === 'updates' && it.changeKind === 'update') ||
         (_cdfFilter === 'mapping' && ['mapping','mappingBlock','nodeMappingBlock'].includes(it.type)) ||
         (_cdfFilter === 'nodeAttr' && ['nodeAttr','contextNodeBlock'].includes(it.type)) ||
         (_cdfFilter === 'selected' && cb.checked);
@@ -1692,6 +1711,7 @@ PAGE = r"""<!DOCTYPE html>
       for (const it of grpItems) {
         const sid  = it.id.replace(/\W/g, '_');
         const isParentBlock = !!it.parentPatch;
+        const isUpdate = it.changeKind === 'update';
         const isM  = ['mapping','mappingBlock','nodeMappingBlock'].includes(it.type);
         const name = esc(it.attrName || it.attrTitle || it.mappingTitle || it.nodeName || '');
 
@@ -1701,6 +1721,8 @@ PAGE = r"""<!DOCTYPE html>
           : `<span class="cdfix-tbadge cdfix-tbadge-n">${isParentBlock ? 'Parent Block' : 'Node Attr'}</span>`;
         const warn = isParentBlock
           ? `<span class="cdfix-parenttag" title="Step 3 copies this complete required block">Full block patch</span>`
+          : isUpdate
+            ? `<span class="cdfix-updatetag" title="Step 3 replaces the existing Base definition">Value change</span>`
           : `<span class="cdfix-readytag">Ready</span>`;
         const parentHelp = isParentBlock
           ? `<div class="cdfix-parent-help"><strong>Will be applied in Step 3:</strong> ` +
@@ -1718,7 +1740,12 @@ PAGE = r"""<!DOCTYPE html>
 
         // Row 3: field / hydration / role
         let r3 = '';
-        if (isM && it.fieldInfo) {
+        if (isUpdate) {
+          r3 = `<div class="cdfix-r3"><span class="cdfix-rlabel">Change</span>` +
+            `<span class="cdfix-fval cdfix-fval-before">${esc(it.beforeField || 'Existing XML')}</span>` +
+            `<span class="cdfix-sep">→</span>` +
+            `<span class="cdfix-fval cdfix-fval-sf">${esc(it.afterField || 'Modified XML')}</span></div>`;
+        } else if (isM && it.fieldInfo) {
           if (it.fieldInfo.startsWith('hydration ref:')) {
             const ref = esc(it.fieldInfo.replace('hydration ref:','').trim());
             r3 = `<div class="cdfix-r3"><span class="cdfix-rlabel">Hydration</span><span class="cdfix-fval cdfix-fval-hyd">${ref}</span></div>`;
@@ -1734,7 +1761,7 @@ PAGE = r"""<!DOCTYPE html>
             `<input type="checkbox" id="ci_${sid}" data-item="${esc(it.id)}" checked` +
             ` onchange="cdfUpdateGroupHeader('${grpId}');cdfUpdateSelCount()" />` +
             `<div class="cdfix-ci">` +
-              `<div class="cdfix-r1">${tbadge}<span class="cdfix-cname">${name}</span>${warn}<span class="cdfix-modtag">Modified only</span></div>` +
+              `<div class="cdfix-r1">${tbadge}<span class="cdfix-cname">${name}</span>${warn}<span class="cdfix-modtag">${isUpdate ? 'Modified value' : 'Modified only'}</span></div>` +
               `<div class="cdfix-r2"><span class="cdfix-rlabel">Location</span>${bc}</div>` +
               r3 +
               parentHelp +
@@ -1819,11 +1846,11 @@ PAGE = r"""<!DOCTYPE html>
   function paintCdfTimeline() {
     const visible = _cdfTimelineExpanded ? _cdfTimelineEntries : _cdfTimelineEntries.slice(0, 6);
     cdfTimeline.innerHTML = visible.map(line => {
-      const kind = line.startsWith('✗') ? 'error' : line.startsWith('+') ? 'add' : 'skip';
-      const icon = kind === 'error' ? '!' : kind === 'add' ? '+' : '✓';
-      const clean = line.replace(/^[+✓✗]\s*/, '');
+      const kind = line.startsWith('✗') ? 'error' : line.startsWith('+') ? 'add' : line.startsWith('~') ? 'update' : 'skip';
+      const icon = kind === 'error' ? '!' : kind === 'add' ? '+' : kind === 'update' ? '~' : '✓';
+      const clean = line.replace(/^[+~✓✗]\s*/, '');
       const splitAt = clean.indexOf(':');
-      const label = splitAt >= 0 ? clean.slice(0, splitAt) : (kind === 'add' ? 'Added' : kind === 'error' ? 'Error' : 'Skipped');
+      const label = splitAt >= 0 ? clean.slice(0, splitAt) : (kind === 'add' ? 'Added' : kind === 'update' ? 'Updated' : kind === 'error' ? 'Error' : 'Skipped');
       const detail = splitAt >= 0 ? clean.slice(splitAt + 1).trim() : clean;
       return `<div class="timeline-item ${kind}"><span class="timeline-icon">${icon}</span>` +
         `<div class="timeline-copy"><strong>${esc(label)}</strong><span>${esc(detail)}</span></div></div>`;
@@ -1833,11 +1860,12 @@ PAGE = r"""<!DOCTYPE html>
       (_cdfTimelineExpanded ? 'Show quick view' : `Show all ${_cdfTimelineEntries.length} details`);
   }
   function renderCdfTimeline(report, data) {
-    $("cdfReportAdded").textContent = (data.applied || 0).toLocaleString();
+    $("cdfReportAdded").textContent = (data.added || 0).toLocaleString();
+    $("cdfReportUpdated").textContent = (data.updated || 0).toLocaleString();
     $("cdfReportSkipped").textContent = (data.skipped || 0).toLocaleString();
     $("cdfReportErrors").textContent = (data.errors || 0).toLocaleString();
     _cdfTimelineEntries = (report || '').split('\n').map(line => line.trim()).filter(line =>
-      line.startsWith('+') || line.startsWith('✓') || line.startsWith('✗')
+      line.startsWith('+') || line.startsWith('~') || line.startsWith('✓') || line.startsWith('✗')
     );
     _cdfTimelineExpanded = false;
     if (!_cdfTimelineEntries.length) {
@@ -1882,7 +1910,7 @@ PAGE = r"""<!DOCTYPE html>
     cdfDiffCount.textContent = data.items.length.toLocaleString();
     cdfDiffIndicator.classList.add("has-diffs");
     setStatus(cdfAnalyzeStatus, "ok", data.summary);
-    cdfSelHeadText.textContent = "Step 2 — Select fields and required parent blocks";
+    cdfSelHeadText.textContent = "Step 2 — Select additions, value changes, and required parent blocks";
     cdfRenderItems(data.items);
     cdfSelectPanel.classList.add("show");
     cdfBuildStep.classList.remove("hidden");
@@ -1894,7 +1922,7 @@ PAGE = r"""<!DOCTYPE html>
   cdfBuildBtn.onclick = async () => {
     const selectedIds = _cdfItemCheckboxes.filter(cb => cb.checked).map(cb => cb.dataset.item);
     if (!selectedIds.length) {
-      setStatus(cdfBuildStatus, "err", "Select at least one field to include.");
+      setStatus(cdfBuildStatus, "err", "Select at least one change to include.");
       return;
     }
     busy(cdfBuildBtn, "Building…");
@@ -1924,8 +1952,8 @@ PAGE = r"""<!DOCTYPE html>
       ? `; normalized ${normalizedTotal} API-incompatible serializer field${normalizedTotal === 1 ? '' : 's'}`
       : '';
     const msg = errs
-      ? `Built with ${data.applied} addition(s) applied · ${errs} error(s) — see report.`
-      : `Done — ${data.applied} addition(s) applied${parentNote}, ${data.skipped} already present${normalizationNote}. Use Copy to grab the result.`;
+      ? `Built with ${data.applied} change(s) applied · ${errs} error(s) — see report.`
+      : `Done — ${data.added || 0} added and ${data.updated || 0} updated${parentNote}, ${data.skipped} already present${normalizationNote}. Use Copy to grab the result.`;
     setStatus(cdfBuildStatus, errs ? "info" : "ok", msg);
   };
 
