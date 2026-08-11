@@ -52,6 +52,10 @@ To stop it later, double-click **`Stop XML Tool.command`**.
 > [macOS security warning](#macos-security-warning-apple-could-not-verify) below.
 > The quickest fix is to **`git clone`** the repo instead of receiving the files
 > via AirDrop/Slack/email/zip.
+>
+> **Says you do not have appropriate access privileges?** The executable bit was
+> lost during download or copying. Follow the
+> [macOS launcher permission fix](#macos-says-you-do-not-have-appropriate-access-privileges).
 
 ### Windows
 
@@ -267,16 +271,38 @@ Another copy is already running, or something else holds the port. Stop it with
 
 ### macOS says you do not have appropriate access privileges
 
-The executable permission was removed while the files were copied or uploaded.
-From Terminal, run:
+This message is different from the Gatekeeper warning: the executable permission
+was removed while the files were copied, uploaded, or downloaded. Run this once
+in Terminal:
 
 ```bash
 cd "/path/to/salesforce-xml-tool"
-chmod 755 "Open XML Tool.command" "Stop XML Tool.command"
+chmod 755 "Open XML Tool.command" "Stop XML Tool.command" "run.sh"
 ```
 
-For GitHub distributions, commit both launchers with executable mode `100755`
-(`git add --chmod=+x ...`) so clones and release archives preserve it.
+Then double-click **`Open XML Tool.command`** again.
+
+If macOS next shows **“Apple could not verify…”**, and you trust the repository,
+remove the downloaded-folder quarantine flag once:
+
+```bash
+xattr -dr com.apple.quarantine "/path/to/salesforce-xml-tool"
+```
+
+For GitHub distributions, do not upload these scripts only through the GitHub
+web page, which can lose Unix file modes. Commit all three with executable mode
+`100755`:
+
+```bash
+git add --chmod=+x "Open XML Tool.command" "Stop XML Tool.command" "run.sh"
+git commit -m "Preserve executable permissions for launch scripts"
+```
+
+After pushing, verify the Git index shows `100755` for each launcher:
+
+```bash
+git ls-files --stage -- "Open XML Tool.command" "Stop XML Tool.command" "run.sh"
+```
 
 ---
 
