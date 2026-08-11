@@ -11,7 +11,7 @@ It does four things:
 | **Compare** | Side-by-side view of only the unique XML differences (changed / only-left / only-right), using an order-independent structural comparison. Matching XML is ignored even when it appears on different lines. Plain text/Apex still uses a line diff. |
 | **Merge** | Merge a **Base** XML and a **Modified** XML into one. You choose which side is the base; the tool keeps the base intact and layers the other side's changes on top — matching identity keys (e.g. `apexClass`, `field`, `object`, `contextMapping title`) so nothing is duplicated or lost. |
 | **Deduplicate** | Remove duplicate entries from a Permission Set / Profile and output a clean, consistently sorted file. |
-| **Context Definition Fix** | Compare a **Base** Context Definition and a **Modified** one, find every context mapping / node attribute that exists only in the modified, then let you cherry-pick exactly which additions to apply back into the base — and download the patched file. |
+| **Context Definition Fix** | Compare a **Base** Context Definition and a **Modified** one, find missing entries and changed field mappings, then cherry-pick additions or updates into the base and download the patched file. |
 
 Built for Salesforce metadata such as **Permission Sets, Profiles, and Context
 Definitions**, but the compare works on any XML (or text).
@@ -130,7 +130,8 @@ Base so its version and existing metadata remain authoritative.
 
 The tool first explains line-count differences, separating serializer omissions
 from actual metadata additions, removals, and material changes. It then lists
-every selectable addition that is **present in Modified but missing from Base**.
+every selectable addition that is **present in Modified but missing from Base**
+and every existing mapping whose nested field path or XML value changed.
 
 ![Context Definition diagnostics and selectable additions](docs/screenshots/context-analysis.png)
 
@@ -141,10 +142,11 @@ Each card shows:
 - The **full attribute name** so you can immediately see what it is.
 - The **location** — which mapping title, context node, and object the entry lives under.
 - The **SF Field** (or hydration reference, or node role).
+- For value changes, the current Base value and the replacement Modified value.
 - Whether Step 3 must copy a complete required parent block. Parent blocks are
   selectable and are no longer skipped as errors.
 
-**Step 2 — Select additions**
+**Step 2 — Select additions and updates**
 
 4. All differences are selected by default. Deselect any you want to skip.
    - Use **Select all** / **Deselect all** to bulk-toggle.
