@@ -749,24 +749,44 @@ def _cd_get_context_node(versions: Element, title: str) -> Element | None:
     return None
 
 
+def _cd_get_attr_mapping(node_mapping: Element, attr_name: str) -> Element | None:
+    for cam in node_mapping.findall(_ns("contextAttributeMappings")):
+        if _child_text(cam, "contextAttribute") == attr_name:
+            return cam
+    return None
+
+
 def _cd_has_attr_mapping(node_mapping: Element, attr_name: str) -> bool:
-    return any(_child_text(cam, "contextAttribute") == attr_name
-               for cam in node_mapping.findall(_ns("contextAttributeMappings")))
+    return _cd_get_attr_mapping(node_mapping, attr_name) is not None
+
+
+def _cd_get_context_attr(context_node: Element, title: str) -> Element | None:
+    for ca in context_node.findall(_ns("contextAttributes")):
+        if _child_text(ca, "title") == title:
+            return ca
+    return None
 
 
 def _cd_has_context_attr(context_node: Element, title: str) -> bool:
-    return any(_child_text(ca, "title") == title
-               for ca in context_node.findall(_ns("contextAttributes")))
+    return _cd_get_context_attr(context_node, title) is not None
 
 
 def _cd_field_info(cam: Element) -> str:
     """Human-readable field description from a contextAttributeMappings element."""
     hd = cam.find(_ns("contextAttrHydrationDetails"))
     if hd is not None:
-        obj = _child_text(hd, "objectName")
-        field = _child_text(hd, "queryAttribute")
-        if obj and field:
-            return f"{obj}.{field}"
+        parts = []
+        current = hd
+        first_object = _child_text(current, "objectName")
+        if first_object:
+            parts.append(first_object)
+        while current is not None:
+            query = _child_text(current, "queryAttribute")
+            if query:
+                parts.append(query)
+            current = current.find(_ns("contextAttrHydrationDetails"))
+        if parts:
+            return ".".join(parts)
     ctxs = cam.find(_ns("ctxAttrHydrationCtxs"))
     if ctxs is not None:
         cqa = _child_text(ctxs, "contextQueryAttribute")
@@ -1038,9 +1058,8 @@ def _cd_compare_diagnostics(base_text: str, modified_text: str,
 
 def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
     """
-    Scan Modified for additions that do not exist in Base. Missing structural
-    parents are returned as one selectable full-block addition instead of
-    reporting every child as an unpatchable error.
+    Scan Modified for additions and material updates relative to Base. Missing
+    structural parents are returned as one selectable full-block addition.
     """
     if not base_text.strip() or not modified_text.strip():
         return {"ok": False, "log": "Paste both Base and Modified XMLs first."}
@@ -1128,8 +1147,14 @@ def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
                 attr = _child_text(cam, "contextAttribute")
                 if not attr:
                     continue
-                if _cd_has_attr_mapping(base_nm, attr):
-                    continue   # already in base
+                base_cam = _cd_get_attr_mapping(base_nm, attr)
+                change_kind = "add"
+                before_field = ""
+                if base_cam is not None:
+                    if _cd_semantic_signature(base_cam) == _cd_semantic_signature(cam):
+                        continue
+                    change_kind = "update"
+                    before_field = _cd_field_info(base_cam)
                 field_info = _cd_field_info(cam)
                 items.append({
                     "id":           f"cam\x1f{m_title}\x1f{ctx_node}\x1f{obj}\x1f{attr}",
@@ -1139,6 +1164,9 @@ def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
                     "object":       obj,
                     "attrName":     attr,
                     "fieldInfo":    field_info,
+                    "beforeField":  before_field,
+                    "afterField":   field_info,
+                    "changeKind":   change_kind,
                     "group":        _cd_group_key(attr),
                     "path":         f"{m_title} → {ctx_node} / {obj}",
                     "parentPatch":  False,
@@ -1176,14 +1204,21 @@ def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
             ca_title = _child_text(ca, "title")
             if not ca_title:
                 continue
-            if base_cn is not None and _cd_has_context_attr(base_cn, ca_title):
-                continue   # already in base
+            base_ca = _cd_get_context_attr(base_cn, ca_title)
+            change_kind = "add"
+            if base_ca is not None:
+                if _cd_semantic_signature(base_ca) == _cd_semantic_signature(ca):
+                    continue
+                change_kind = "update"
             items.append({
                 "id":        f"ca\x1f{cn_title}\x1f{ca_title}",
                 "type":      "nodeAttr",
                 "nodeName":  cn_title,
                 "attrTitle": ca_title,
                 "fieldInfo": "",
+                "beforeField": "",
+                "afterField": "",
+                "changeKind": change_kind,
                 "group":     _cd_group_key(ca_title),
                 "path":      f"contextNodes[{cn_title}]",
                 "parentPatch": False,
@@ -1192,11 +1227,16 @@ def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
 
     if not items:
         return {"ok": True, "items": [],
-                "summary": "No additions found — Modified has nothing new beyond Base.",
+                "summary": "No selectable additions or value changes found.",
                 "diagnostics": diagnostics}
 
     parent_blocks = sum(1 for item in items if item.get("parentPatch"))
-    summary = f"Found {len(items)} selectable addition(s) in Modified that are absent from Base."
+    updates = sum(1 for item in items if item.get("changeKind") == "update")
+    additions = len(items) - updates
+    summary = (
+        f"Found {additions} selectable addition(s) and {updates} value change(s) "
+        "in Modified."
+    )
     if parent_blocks:
         summary += f" {parent_blocks} will add a complete required parent block."
     return {"ok": True, "items": items,
@@ -1226,7 +1266,7 @@ def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict
 
     selected = set(selected_ids)
     report_lines = ["CONTEXT DEFINITION FIX — APPLY REPORT", "=" * 60, ""]
-    applied = skipped = parent_blocks = 0
+    applied = skipped = parent_blocks = updated = 0
     errs: list[str] = []
 
     # ── complete contextMappings blocks ───────────────────────────────────────
@@ -1340,9 +1380,24 @@ def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict
                     errs.append(f"  ✗ contextNodeMappings[{ctx_node}/{obj}] not in {m_title} — skipped {attr}")
                     skipped += 1
                     continue
-                if _cd_has_attr_mapping(base_nm, attr):
-                    report_lines.append(f"  ✓ already present: {attr}  [{m_title}/{ctx_node}/{obj}]")
-                    skipped += 1
+                base_cam = _cd_get_attr_mapping(base_nm, attr)
+                if base_cam is not None:
+                    if _cd_semantic_signature(base_cam) == _cd_semantic_signature(cam):
+                        report_lines.append(
+                            f"  ✓ already present: {attr}  [{m_title}/{ctx_node}/{obj}]"
+                        )
+                        skipped += 1
+                        continue
+                    before_field = _cd_field_info(base_cam) or "existing XML definition"
+                    after_field = _cd_field_info(cam) or "modified XML definition"
+                    replace_at = list(base_nm).index(base_cam)
+                    base_nm[replace_at] = copy.deepcopy(cam)
+                    report_lines.append(
+                        f"  ~ updated: {attr}  [{m_title}/{ctx_node}/{obj}]  "
+                        f"{before_field} -> {after_field}"
+                    )
+                    applied += 1
+                    updated += 1
                     continue
                 new_cam = copy.deepcopy(cam)
                 children = list(base_nm)
@@ -1365,9 +1420,21 @@ def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict
                 errs.append(f"  ✗ contextNodes[{cn_title}] not found in Base — skipped {ca_title}")
                 skipped += 1
                 continue
-            if _cd_has_context_attr(base_cn, ca_title):
-                report_lines.append(f"  ✓ already present: {ca_title}  [contextNodes/{cn_title}]")
-                skipped += 1
+            base_ca = _cd_get_context_attr(base_cn, ca_title)
+            if base_ca is not None:
+                if _cd_semantic_signature(base_ca) == _cd_semantic_signature(ca):
+                    report_lines.append(
+                        f"  ✓ already present: {ca_title}  [contextNodes/{cn_title}]"
+                    )
+                    skipped += 1
+                    continue
+                replace_at = list(base_cn).index(base_ca)
+                base_cn[replace_at] = copy.deepcopy(ca)
+                report_lines.append(
+                    f"  ~ updated: {ca_title}  [contextNodes/{cn_title}]"
+                )
+                applied += 1
+                updated += 1
                 continue
             new_ca = copy.deepcopy(ca)
             children = list(base_cn)
@@ -1392,8 +1459,12 @@ def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict
             + ", ".join(normalized_root_fields)
         )
 
-    report_lines += ["",
-                     f"Summary: {applied} added · {skipped} skipped · {len(errs)} error(s)"]
+    added = applied - updated
+    report_lines += [
+        "",
+        f"Summary: {added} added · {updated} updated · "
+        f"{skipped} skipped · {len(errs)} error(s)",
+    ]
     if errs:
         report_lines += ["", "Errors:"] + errs
 
@@ -1402,6 +1473,8 @@ def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict
         "result":  serialize_tree(base_root),
         "report":  "\n".join(report_lines),
         "applied": applied,
+        "added": added,
+        "updated": updated,
         "skipped": skipped,
         "errors":  len(errs),
         "parentBlocks": parent_blocks,
