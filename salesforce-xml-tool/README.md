@@ -132,6 +132,9 @@ The tool first explains line-count differences, separating serializer omissions
 from actual metadata additions, removals, and material changes. It then lists
 every selectable addition that is **present in Modified but missing from Base**
 and every existing mapping whose nested field path or XML value changed.
+Patching is non-destructive: an element omitted from Modified is preserved from
+Base rather than interpreted as a deletion. For example, existing `contextTags`
+remain intact unless new tags are added.
 
 ![Context Definition diagnostics and selectable additions](docs/screenshots/context-analysis.png)
 
@@ -143,6 +146,7 @@ Each card shows:
 - The **location** — which mapping title, context node, and object the entry lives under.
 - The **SF Field** (or hydration reference, or node role).
 - For value changes, the current Base value and the replacement Modified value.
+- Any Base-only child metadata that Step 3 will protect and preserve.
 - Whether Step 3 must copy a complete required parent block. Parent blocks are
   selectable and are no longer skipped as errors.
 
