@@ -851,6 +851,99 @@ def _cd_semantic_signature(elem: Element, skip_children: set[str] | None = None)
     return hashlib.sha256(walk(elem).encode()).hexdigest()[:16]
 
 
+def _cd_overlay_update(base_elem: Element, modified_elem: Element) -> tuple[Element, list[str]]:
+    """
+    Overlay fields supplied by Modified without treating omissions as deletions.
+    Repeating contextTags are unioned; other supplied child groups replace the
+    same field in Base so selected value/path changes still take effect.
+    """
+    result = copy.deepcopy(base_elem)
+    result.attrib.update(modified_elem.attrib)
+    if (modified_elem.text or "").strip():
+        result.text = modified_elem.text
+
+    base_groups: OrderedDict[str, list[Element]] = OrderedDict()
+    mod_groups: OrderedDict[str, list[Element]] = OrderedDict()
+    for child in base_elem:
+        base_groups.setdefault(_local(child.tag), []).append(child)
+    for child in modified_elem:
+        mod_groups.setdefault(_local(child.tag), []).append(child)
+
+    preserved: list[str] = []
+    for tag, base_children in base_groups.items():
+        mod_children = mod_groups.get(tag, [])
+        if tag == "localizationDisabled" and all(
+                (child.text or "").strip().lower() == "false" for child in base_children):
+            continue
+        if tag == "contextTags":
+            mod_signatures = {_cd_semantic_signature(child) for child in mod_children}
+            if any(_cd_semantic_signature(child) not in mod_signatures for child in base_children):
+                preserved.append(tag)
+        elif not mod_children:
+            preserved.append(tag)
+
+    def insert_at_modified_position(tag: str, new_children: list[Element]) -> None:
+        result_children = list(result)
+        same_indexes = [
+            index for index, child in enumerate(result_children) if _local(child.tag) == tag
+        ]
+        if same_indexes:
+            insert_at = same_indexes[-1] + 1
+        else:
+            mod_tags = [_local(child.tag) for child in modified_elem]
+            target = mod_tags.index(tag)
+            insert_at = len(result_children)
+            for following_tag in mod_tags[target + 1:]:
+                following = [
+                    index for index, child in enumerate(result_children)
+                    if _local(child.tag) == following_tag
+                ]
+                if following:
+                    insert_at = following[0]
+                    break
+            else:
+                for prior_tag in reversed(mod_tags[:target]):
+                    prior = [
+                        index for index, child in enumerate(result_children)
+                        if _local(child.tag) == prior_tag
+                    ]
+                    if prior:
+                        insert_at = prior[-1] + 1
+                        break
+        for offset, child in enumerate(new_children):
+            result.insert(insert_at + offset, copy.deepcopy(child))
+
+    for tag, mod_children in mod_groups.items():
+        if tag == "contextTags":
+            existing = {
+                _cd_semantic_signature(child)
+                for child in result
+                if _local(child.tag) == "contextTags"
+            }
+            additions = [
+                child for child in mod_children
+                if _cd_semantic_signature(child) not in existing
+            ]
+            if additions:
+                insert_at_modified_position(tag, additions)
+            continue
+
+        result_children = list(result)
+        same_indexes = [
+            index for index, child in enumerate(result_children) if _local(child.tag) == tag
+        ]
+        if same_indexes:
+            insert_at = same_indexes[0]
+            for index in reversed(same_indexes):
+                result.remove(result_children[index])
+            for offset, child in enumerate(mod_children):
+                result.insert(insert_at + offset, copy.deepcopy(child))
+        else:
+            insert_at_modified_position(tag, mod_children)
+
+    return result, sorted(set(preserved))
+
+
 def _cd_diag_indexes(versions: Element) -> dict[str, dict[tuple, Element]]:
     """Build natural-identity indexes used by the bidirectional diagnostics UI."""
     indexes: dict[str, dict[tuple, Element]] = {
@@ -939,6 +1032,20 @@ def _cd_compare_diagnostics(base_text: str, modified_text: str,
             entry = _cd_diag_entry(kind, key, after)
             entry["before"] = _cd_field_info(before) if kind == "attributeMapping" else ""
             entry["after"] = _cd_field_info(after) if kind == "attributeMapping" else ""
+            overlaid, preserved_fields = _cd_overlay_update(before, after)
+            if _cd_semantic_signature(before) == _cd_semantic_signature(overlaid):
+                entry["type"] = "Base-protected omission"
+                entry["detail"] = (
+                    "Modified omits "
+                    + (", ".join(preserved_fields) or "Base-only metadata")
+                    + "; Base value will be preserved and no update will be offered."
+                )
+            elif preserved_fields:
+                existing_detail = entry.get("detail", "")
+                protection = "Base-only " + ", ".join(preserved_fields) + " will be preserved."
+                entry["detail"] = (
+                    f"{existing_detail} · {protection}" if existing_detail else protection
+                )
             changed.append(entry)
 
     def direct_leaf_values(root: Element) -> dict[str, list[str]]:
@@ -1150,12 +1257,16 @@ def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
                 base_cam = _cd_get_attr_mapping(base_nm, attr)
                 change_kind = "add"
                 before_field = ""
+                preserved_base_fields: list[str] = []
                 if base_cam is not None:
-                    if _cd_semantic_signature(base_cam) == _cd_semantic_signature(cam):
+                    overlaid_cam, preserved_base_fields = _cd_overlay_update(base_cam, cam)
+                    if _cd_semantic_signature(base_cam) == _cd_semantic_signature(overlaid_cam):
                         continue
                     change_kind = "update"
                     before_field = _cd_field_info(base_cam)
-                field_info = _cd_field_info(cam)
+                    field_info = _cd_field_info(overlaid_cam)
+                else:
+                    field_info = _cd_field_info(cam)
                 items.append({
                     "id":           f"cam\x1f{m_title}\x1f{ctx_node}\x1f{obj}\x1f{attr}",
                     "type":         "mapping",
@@ -1167,6 +1278,7 @@ def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
                     "beforeField":  before_field,
                     "afterField":   field_info,
                     "changeKind":   change_kind,
+                    "preservedBaseFields": preserved_base_fields,
                     "group":        _cd_group_key(attr),
                     "path":         f"{m_title} → {ctx_node} / {obj}",
                     "parentPatch":  False,
@@ -1206,8 +1318,10 @@ def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
                 continue
             base_ca = _cd_get_context_attr(base_cn, ca_title)
             change_kind = "add"
+            preserved_base_fields: list[str] = []
             if base_ca is not None:
-                if _cd_semantic_signature(base_ca) == _cd_semantic_signature(ca):
+                overlaid_ca, preserved_base_fields = _cd_overlay_update(base_ca, ca)
+                if _cd_semantic_signature(base_ca) == _cd_semantic_signature(overlaid_ca):
                     continue
                 change_kind = "update"
             items.append({
@@ -1219,6 +1333,7 @@ def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
                 "beforeField": "",
                 "afterField": "",
                 "changeKind": change_kind,
+                "preservedBaseFields": preserved_base_fields,
                 "group":     _cd_group_key(ca_title),
                 "path":      f"contextNodes[{cn_title}]",
                 "parentPatch": False,
@@ -1382,19 +1497,25 @@ def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict
                     continue
                 base_cam = _cd_get_attr_mapping(base_nm, attr)
                 if base_cam is not None:
-                    if _cd_semantic_signature(base_cam) == _cd_semantic_signature(cam):
+                    overlaid_cam, preserved_fields = _cd_overlay_update(base_cam, cam)
+                    if _cd_semantic_signature(base_cam) == _cd_semantic_signature(overlaid_cam):
                         report_lines.append(
-                            f"  ✓ already present: {attr}  [{m_title}/{ctx_node}/{obj}]"
+                            f"  ✓ no non-destructive change: {attr}  "
+                            f"[{m_title}/{ctx_node}/{obj}]"
                         )
                         skipped += 1
                         continue
                     before_field = _cd_field_info(base_cam) or "existing XML definition"
-                    after_field = _cd_field_info(cam) or "modified XML definition"
+                    after_field = _cd_field_info(overlaid_cam) or "modified XML definition"
                     replace_at = list(base_nm).index(base_cam)
-                    base_nm[replace_at] = copy.deepcopy(cam)
+                    base_nm[replace_at] = overlaid_cam
+                    preserved_note = (
+                        f"; preserved Base-only: {', '.join(preserved_fields)}"
+                        if preserved_fields else ""
+                    )
                     report_lines.append(
                         f"  ~ updated: {attr}  [{m_title}/{ctx_node}/{obj}]  "
-                        f"{before_field} -> {after_field}"
+                        f"{before_field} -> {after_field}{preserved_note}"
                     )
                     applied += 1
                     updated += 1
@@ -1422,16 +1543,23 @@ def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict
                 continue
             base_ca = _cd_get_context_attr(base_cn, ca_title)
             if base_ca is not None:
-                if _cd_semantic_signature(base_ca) == _cd_semantic_signature(ca):
+                overlaid_ca, preserved_fields = _cd_overlay_update(base_ca, ca)
+                if _cd_semantic_signature(base_ca) == _cd_semantic_signature(overlaid_ca):
                     report_lines.append(
-                        f"  ✓ already present: {ca_title}  [contextNodes/{cn_title}]"
+                        f"  ✓ no non-destructive change: {ca_title}  "
+                        f"[contextNodes/{cn_title}]"
                     )
                     skipped += 1
                     continue
                 replace_at = list(base_cn).index(base_ca)
-                base_cn[replace_at] = copy.deepcopy(ca)
+                base_cn[replace_at] = overlaid_ca
+                preserved_note = (
+                    f"; preserved Base-only: {', '.join(preserved_fields)}"
+                    if preserved_fields else ""
+                )
                 report_lines.append(
                     f"  ~ updated: {ca_title}  [contextNodes/{cn_title}]"
+                    f"{preserved_note}"
                 )
                 applied += 1
                 updated += 1
