@@ -11,52 +11,56 @@ PAGE = r"""<!DOCTYPE html>
 <style>
   :root {
     color-scheme: light;
-    --bg:#f7f8fc; --panel:#ffffff; --gutter:#f0f3fa; --input-bg:#fbfcff;
-    --line:#dce2ef; --text:#172033; --muted:#667085; --gutter-text:#8490a6;
-    --accent:#3b82f6; --accent-strong:#06b6d4; --green:#22c55e; --red:#ef4444;
-    --purple:#8b5cf6; --amber:#f59e0b; --teal:#06b6d4; --on-accent:#ffffff;
-    --radius:18px;
-    --ok-bg:color-mix(in srgb, var(--green) 11%, var(--panel)); --ok-text:#08734f;
+    --font-sans:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    --font-mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+    --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px; --space-6:32px;
+    --bg:#eaf3fb; --header-bg:#ffffff; --panel:#ffffff; --gutter:#f8fbfe; --input-bg:#ffffff;
+    --workflow-bg:#afc0d4; --workflow-line:#d7e0ea; --workflow-text:#1b2a3a;
+    --line:#d7e0ea; --text:#182536; --muted:#667589; --gutter-text:#8492a3;
+    --accent:#2563eb; --accent-strong:#1d4ed8; --green:#16a34a; --red:#dc2626;
+    --berry:var(--accent); --coral:var(--amber); --sage:color-mix(in srgb,var(--green) 11%,var(--panel));
+    --purple:#6d4aff; --amber:#d97706; --teal:#0891b2; --on-accent:#ffffff;
+    --radius:12px;
+    --ok-bg:#ecfdf3; --ok-text:#167044;
     --err-bg:color-mix(in srgb, var(--red) 10%, var(--panel)); --err-text:#b4233f;
-    --info-bg:color-mix(in srgb, var(--accent) 9%, var(--panel)); --info-text:#3f40bd;
+    --info-bg:#eaf2ff; --info-text:#1d4ed8;
     --chg-bg:color-mix(in srgb, var(--purple) 14%, var(--panel));
     --del-bg:color-mix(in srgb, var(--red) 12%, var(--panel));
     --ins-bg:color-mix(in srgb, var(--teal) 13%, var(--panel));
     --chg-line:var(--purple); --del-line:var(--red); --ins-line:var(--teal);
     --teal-bg:color-mix(in srgb, var(--teal) 10%, var(--panel)); --teal-text:#07657c;
-    --shadow:0 16px 44px rgba(29,39,70,.08);
+    --shadow:0 2px 10px rgba(31,56,85,.06);
   }
   html[data-theme="dark"] {
     color-scheme: dark;
-    --bg:#090e1a; --panel:#11182a; --gutter:#171f34; --input-bg:#0c1323;
-    --line:#303b57; --text:#f4f7ff; --muted:#b5bfd3; --gutter-text:#7f8ba5;
-    --accent:#60a5fa; --accent-strong:#22d3ee; --green:#4ade80; --red:#f87171;
+    --bg:#0d1622; --header-bg:#131d2a; --panel:#131d2a; --gutter:#182536; --input-bg:#101923;
+    --workflow-bg:#52677f; --workflow-line:#71849a; --workflow-text:#f3f6fb;
+    --line:#293449; --text:#f3f6fb; --muted:#b7c0d0; --gutter-text:#8995aa;
+    --accent:#60a5fa; --accent-strong:#3b82f6; --green:#4ade80; --red:#f87171;
+    --berry:var(--accent); --coral:var(--amber); --sage:color-mix(in srgb,var(--green) 13%,var(--panel));
     --purple:#a78bfa; --amber:#fbbf24; --teal:#22d3ee;
-    --ok-bg:color-mix(in srgb, var(--green) 13%, var(--panel)); --ok-text:#a7f3d0;
+    --ok-bg:color-mix(in srgb,var(--green) 13%,var(--panel)); --ok-text:#a7f3d0;
     --err-bg:color-mix(in srgb, var(--red) 13%, var(--panel)); --err-text:#fecdd3;
     --info-bg:color-mix(in srgb, var(--accent) 13%, var(--panel)); --info-text:#d9dcff;
     --teal-bg:color-mix(in srgb, var(--teal) 12%, var(--panel)); --teal-text:#a5f3fc;
-    --shadow:0 20px 60px rgba(0,0,0,.30);
+    --shadow:0 1px 2px rgba(0,0,0,.28);
   }
   * { box-sizing: border-box; }
   html,body { max-width:100%; overflow-x:hidden; }
   body {
-    margin:0; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    margin:0; font-family:var(--font-sans);
     min-height:100vh;
-    background:
-      radial-gradient(circle at 8% 0%,color-mix(in srgb,var(--accent) 8%,transparent),transparent 28rem),
-      radial-gradient(circle at 92% 5%,color-mix(in srgb,var(--teal) 7%,transparent),transparent 30rem),
-      var(--bg);
+    background:var(--bg);
     color:var(--text); line-height:1.5;
     transition:background-color .2s ease, color .2s ease;
   }
   button,input,select,textarea { font:inherit; }
   .app-shell { min-height:100vh; display:grid; grid-template-columns:244px minmax(0,1fr); }
-  .sidebar { position:sticky; top:0; height:100vh; display:flex; flex-direction:column; padding:22px 14px 16px;
-    background:color-mix(in srgb,var(--panel) 92%,var(--bg)); border-right:1px solid var(--line); z-index:20; }
+  .sidebar { position:sticky; top:0; height:100vh; display:flex; flex-direction:column; padding:18px 12px 14px;
+    background:var(--panel); border-right:1px solid var(--line); z-index:20; }
   .brand { display:flex; align-items:center; gap:11px; padding:0 8px 26px; color:var(--text); }
-  .brand-mark { width:36px; height:36px; display:grid; place-items:center; border-radius:12px;
-    background:linear-gradient(135deg,var(--accent),var(--accent-strong)); box-shadow:0 8px 22px color-mix(in srgb,var(--accent) 24%,transparent); }
+  .brand-mark { width:36px; height:36px; display:grid; place-items:center; border-radius:10px;
+    background:var(--accent); box-shadow:var(--shadow); }
   .brand-mark svg { width:23px; fill:var(--on-accent); }
   .brand strong,.brand small { display:block; line-height:1.2; }
   .brand strong { font-size:13px; }
@@ -64,23 +68,27 @@ PAGE = r"""<!DOCTYPE html>
   .side-label,.eyebrow { color:var(--muted); font-size:10px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
   .side-label { padding:0 12px 8px; }
   .side-menu { display:grid; min-width:0; gap:5px; }
-  .side-nav,.about-link { width:100%; border:0; display:flex; align-items:center; gap:10px; padding:10px 12px;
-    border-radius:12px; background:transparent; color:var(--muted); text-decoration:none; font-size:13px;
+  .side-nav,.about-link { width:100%; border:0; display:flex; align-items:center; gap:10px; padding:10px 11px;
+    border-radius:9px; background:transparent; color:var(--muted); text-decoration:none; font-size:13px;
     font-weight:650; text-align:left; cursor:pointer; transition:background .2s ease,color .2s ease,transform .2s ease; }
   .side-nav:hover,.about-link:hover { color:var(--text); background:var(--gutter); transform:translateX(2px); }
-  .side-nav.active { color:var(--accent); background:color-mix(in srgb,var(--accent) 11%,var(--panel));
+  .side-nav.active { color:var(--accent); background:color-mix(in srgb,var(--accent) 9%,var(--panel));
     box-shadow:inset 3px 0 0 var(--accent); }
   .nav-icon { width:21px; height:21px; display:grid; place-items:center; flex:0 0 21px; font-size:15px; }
   .nav-icon svg { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.8;
     stroke-linecap:round; stroke-linejoin:round; }
   .sidebar-footer { margin-top:auto; border-top:1px solid var(--line); padding-top:12px; }
   .sidebar .credit { padding:12px 12px 0; margin:0; font-size:10px; line-height:1.5; }
+  .sidebar .credit a { color:var(--text); font-weight:750; text-decoration:none; }
+  .sidebar .credit a:hover { color:var(--accent); }
+  .linkedin-link { display:flex; align-items:center; gap:7px; margin:7px 12px 0; color:var(--accent);
+    text-decoration:none; font-size:11px; font-weight:700; }
+  .linkedin-link svg { width:14px; height:14px; fill:currentColor; }
   .app-main { min-width:0; }
   .wrap { width:100%; max-width:none; margin:0; padding:0 clamp(14px,2.2vw,36px) 64px; }
-  .topbar { min-height:116px; display:flex; align-items:center; justify-content:space-between; gap:20px;
-    padding:22px clamp(14px,2.2vw,36px) 18px; position:relative; overflow:hidden; }
-  .topbar::after { content:""; position:absolute; right:-80px; top:-130px; width:420px; height:260px; pointer-events:none;
-    background:radial-gradient(circle,color-mix(in srgb,var(--teal) 18%,transparent),transparent 68%); }
+  .topbar { min-height:88px; display:flex; align-items:center; justify-content:space-between; gap:20px;
+    padding:16px clamp(14px,2.2vw,36px) 12px; position:relative; }
+  .topbar::after { display:none; }
   .topbar > * { position:relative; z-index:1; }
   h1 { font-size:clamp(25px,2.1vw,32px); letter-spacing:-.035em; margin:2px 0 4px; }
   .sub { color: var(--muted); font-size: 13px; margin: 0 0 6px; }
@@ -90,25 +98,36 @@ PAGE = r"""<!DOCTYPE html>
   .top-actions { display:flex; align-items:center; gap:10px; }
   .local-badge { display:inline-flex; align-items:center; gap:7px; padding:8px 11px; border:1px solid var(--line);
     border-radius:12px; background:color-mix(in srgb,var(--panel) 88%,transparent); color:var(--muted); font-size:11px; font-weight:700; }
+  .theme-toggle { display:inline-flex; align-items:center; gap:8px; min-height:38px; padding:6px 9px !important; }
+  .theme-label { min-width:60px; text-align:left; }
+  .theme-switch { position:relative; width:34px; height:19px; flex:0 0 34px; border-radius:99px;
+    background:var(--line); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--text) 8%,transparent);
+    transition:background .18s ease; }
+  .theme-switch::after { content:""; position:absolute; width:15px; height:15px; left:2px; top:2px;
+    border-radius:50%; background:var(--panel); box-shadow:0 1px 3px rgba(15,23,42,.28);
+    transition:transform .18s ease; }
+  .theme-toggle.is-dark .theme-switch { background:var(--accent); }
+  .theme-toggle.is-dark .theme-switch::after { transform:translateX(15px); }
   .live-dot { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 0 4px color-mix(in srgb,var(--green) 14%,transparent); }
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
     padding:clamp(14px,1.5vw,24px); box-shadow:var(--shadow); }
   .section-head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px;
     padding-bottom:16px; margin-bottom:18px; border-bottom:1px solid var(--line); }
   .section-title { display:flex; align-items:flex-start; gap:11px; min-width:0; }
-  .step-dot { width:27px; height:27px; flex:0 0 27px; display:grid; place-items:center; border-radius:9px;
-    background:linear-gradient(135deg,var(--accent),var(--accent-strong)); color:var(--on-accent);
-    font-size:12px; font-weight:800; box-shadow:0 7px 16px color-mix(in srgb,var(--accent) 22%,transparent); }
+  .step-dot { width:27px; height:27px; flex:0 0 27px; display:grid; place-items:center; border-radius:8px;
+    background:var(--accent); color:var(--on-accent);
+    font-size:12px; font-weight:800; box-shadow:none; }
   .section-title h2 { margin:0; color:var(--text); font-size:15px; letter-spacing:-.01em; }
   .section-title p { margin:3px 0 0; color:var(--muted); font-size:12px; }
 
   /* Operation tabs */
-  .tabs { display:inline-flex; max-width:100%; gap:5px; background:var(--gutter); border:1px solid var(--line);
-    border-radius:14px; padding:5px; margin-bottom:18px; flex-wrap:wrap; }
-  .tab { border: none; background: transparent; color: var(--muted); font-weight: 600; font-size: 14px;
-    padding:9px 18px; border-radius:10px; cursor:pointer; transition:background .2s ease,color .2s ease,transform .2s ease; }
-  .tab:hover { background:color-mix(in srgb,var(--accent) 10%,transparent); color:var(--text); }
-  .tab.active { background:var(--accent); color:var(--on-accent); box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 28%,transparent); }
+  .tabs { display:flex; width:100%; gap:4px; background:transparent; border:0;
+    border-bottom:1px solid var(--line); border-radius:0; padding:0; margin-bottom:16px; flex-wrap:wrap; }
+  .tab { border: none; border-bottom:2px solid transparent; background:transparent; color:var(--muted);
+    font-weight:650; font-size:14px; padding:10px 14px; border-radius:0; margin-bottom:-1px;
+    cursor:pointer; transition:background .16s ease,color .16s ease,border-color .16s ease; }
+  .tab:hover { background:color-mix(in srgb,var(--accent) 6%,transparent); color:var(--text); }
+  .tab.active { background:transparent; color:var(--accent); border-bottom-color:var(--accent); box-shadow:none; }
 
   label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px;
     text-transform: uppercase; letter-spacing: .04em; }
@@ -124,22 +143,21 @@ PAGE = r"""<!DOCTYPE html>
   .grow { flex: 1 1 auto; }
 
   button { font-family:inherit; }
-  .btn-icon { width:15px; height:15px; flex:0 0 15px; fill:none; stroke:currentColor;
+  .btn-icon { width:17px; height:17px; flex:0 0 17px; fill:none; stroke:currentColor;
     stroke-width:2; stroke-linecap:round; stroke-linejoin:round; vertical-align:-3px; }
   button .btn-icon { margin-right:6px; }
-  .tab .btn-icon,.filter-chip .btn-icon { width:13px; height:13px; margin-right:5px; }
-  button.action { min-height:44px; border:none; border-radius:12px; padding:10px 22px; font-size:14px; font-weight:700;
-    cursor:pointer; color:var(--on-accent); box-shadow:0 8px 20px rgba(29,39,70,.16);
+  .tab .btn-icon,.filter-chip .btn-icon { width:15px; height:15px; margin-right:6px; }
+  button.action { min-height:44px; border:none; border-radius:9px; padding:10px 22px; font-size:14px; font-weight:700;
+    cursor:pointer; color:var(--on-accent); box-shadow:0 1px 2px color-mix(in srgb,var(--accent) 22%,transparent);
     transition:transform .14s ease,filter .14s ease,box-shadow .14s ease; }
   button.action:hover:not(:disabled) { transform:translateY(-1px); filter:brightness(1.08) saturate(1.08); }
   button.action:active:not(:disabled) { transform:translateY(1px) scale(.97); filter:brightness(.92) saturate(1.2); }
   button.action:disabled { opacity: .5; cursor: not-allowed; }
-  .b-compare { background:linear-gradient(135deg,var(--accent),var(--accent-strong)); }
-  .b-merge { background:linear-gradient(135deg,var(--green),color-mix(in srgb,var(--green) 78%,var(--text))); }
-  .b-dedup { background:linear-gradient(135deg,var(--purple),color-mix(in srgb,var(--purple) 78%,var(--text))); }
-  .b-cdfix { background:linear-gradient(135deg,var(--teal),color-mix(in srgb,var(--teal) 78%,var(--text))); }
+  .b-compare,.b-cdfix { background:var(--accent); }
+  .b-merge { background:var(--green); }
+  .b-dedup { background:var(--purple); }
   .ghost { background:var(--panel); border:1px solid var(--line); color:var(--text);
-    font-weight:650; border-radius:10px; padding:8px 15px; font-size:13px; cursor:pointer;
+    font-weight:650; border-radius:8px; padding:8px 14px; font-size:13px; cursor:pointer;
     transition:transform .14s ease,background .14s ease,border-color .14s ease,color .14s ease,box-shadow .14s ease; }
   .ghost:hover { background:color-mix(in srgb,var(--accent) 9%,var(--panel)); border-color:var(--accent); color:var(--accent); }
   .ghost:active { transform:scale(.96); background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
@@ -147,47 +165,49 @@ PAGE = r"""<!DOCTYPE html>
 
   /* Editable code pane (paste areas) */
   .panes { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(360px,100%),1fr)); gap:14px; align-items:stretch; }
-  .xpane { min-width:0; border:1px solid var(--line); border-radius:16px;
+  .xpane { min-width:0; border:1px solid var(--line); border-radius:11px;
     overflow:hidden; display:flex; flex-direction:column; background:var(--panel);
     transition:border-color .16s ease,box-shadow .16s ease; }
-  .xpane:focus-within { border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 12%,transparent); }
+  .xpane:focus-within { border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 10%,transparent); }
   .xpane-head { display:flex; align-items:center; justify-content:space-between; gap:8px;
     padding:10px 13px; border-bottom:1px solid var(--line); background:var(--gutter); }
-  .xpane-head .ttl { font-size: 12px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--muted); }
+  .xpane-head .ttl { font-size:12px; font-weight:700; letter-spacing:0; text-transform:none;
+    color:var(--muted); white-space:nowrap; }
   .badge { font-size:10px; font-weight:700; padding:2px 8px; border-radius:99px; color:var(--on-accent); }
   .badge.base { background: var(--green); }
   .badge.out { background: var(--accent); }
+  .badge.modified { background:var(--purple); }
   /* Line-numbered editor body */
-  .xpane-body { display: flex; min-height: 420px; resize: vertical; overflow: hidden; }
-  /* CD Fix panes — hard-capped 300 px; gutter hidden (32k-line files make it useless).
+  .xpane-body { display: flex; min-height: 360px; resize: vertical; overflow: hidden; }
+  /* CD Fix panes — hard-capped 340 px with virtualized line-number gutters.
      !important needed because the base .xpane-body min-height:420px and textarea flex:1
      otherwise override these at runtime when large content is pasted. */
   #view-cdfix .xpane-body {
     min-height: 0   !important;
-    height: 300px   !important;
-    max-height: 300px !important;
+    height: 340px   !important;
+    max-height: 340px !important;
     overflow: hidden !important;
     resize: vertical;
   }
-  /* Gutter re-enabled: height is constrained by the parent's height:300px !important,
+  /* Gutter re-enabled: height is constrained by the parent's height:340px !important,
      so its 32k-line content overflows internally and is clipped — page stays compact. */
   #view-cdfix .ln-gutter { overflow-y: hidden !important; }
   #view-cdfix .xpane textarea {
     flex: none   !important;
-    width: calc(100% - 46px) !important;
-    height: 300px !important;
-    max-height: 300px !important;
+    width: calc(100% - 52px) !important;
+    height: 340px !important;
+    max-height: 340px !important;
     overflow-y: auto !important;
     resize: none !important;
   }
   .ln-gutter {
-    position:relative; flex-shrink:0; width:46px; overflow:hidden;
+    position:relative; display:block; flex-shrink:0; width:52px; overflow:hidden;
     background: var(--gutter); border-right: 1px solid var(--line);
     font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; line-height: 19px;
     padding:0; text-align:right;
     color: var(--gutter-text); user-select: none; white-space: pre;
   }
-  .ln-inner { position:absolute; top:8px; right:8px; white-space:pre; will-change:transform; }
+  .ln-inner { position:absolute; top:10px; right:9px; white-space:pre; will-change:transform; }
   .xpane textarea {
     flex: 1; border: none; border-radius: 0; resize: none; outline: none;
     font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; line-height: 19px;
@@ -203,13 +223,15 @@ PAGE = r"""<!DOCTYPE html>
   .editor-status .valid { margin-left:auto; color:var(--green); }
   .editor-status .invalid { margin-left:auto; color:var(--red); }
   .editor-status .waiting { margin-left:auto; color:var(--muted); }
-  .editor-status .btn-icon { width:12px; height:12px; margin-right:4px; vertical-align:-2px; }
-  .mini { display:flex; justify-content:flex-end; gap:6px; flex-wrap:wrap; }
+  .editor-status .btn-icon { width:14px; height:14px; margin-right:4px; vertical-align:-2px; }
+  .mini { display:flex; justify-content:flex-end; gap:9px; flex-wrap:wrap; }
   .mini .ghost { padding:5px 11px; font-size:12px; }
 
   .status { margin-top:16px; font-size:13px; padding:13px 16px; border-radius:14px; display:none;
     white-space: pre-wrap; font-family: "SF Mono", Menlo, monospace; }
   .status.show { display: block; }
+  .status.ok::before { content:"✓"; width:19px; height:19px; flex:0 0 19px; display:grid; place-items:center;
+    border-radius:50%; background:var(--green); color:var(--on-accent); font-size:12px; font-weight:850; }
   .status.ok { background: var(--ok-bg); border: 1px solid var(--green); color: var(--ok-text); }
   .status.err { background: var(--err-bg); border: 1px solid var(--red); color: var(--err-text); }
   .status.info { background: var(--info-bg); border: 1px solid var(--accent); color: var(--info-text); }
@@ -262,7 +284,7 @@ PAGE = r"""<!DOCTYPE html>
   .pane-title { padding: 8px 12px; font-size: 12px; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); background: var(--gutter); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pane-scroll { overflow: auto; max-height: 620px; }
   table.pane-table { border-collapse: collapse; width: 100%; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
-  .pane-table td { padding: 0 8px; vertical-align: top; white-space: pre; }
+  .pane-table td { padding:3px 12px; vertical-align:top; white-space:pre; }
   .gutter { text-align: right; color: var(--gutter-text); background: var(--gutter); user-select: none; width: 1%; white-space: nowrap; border-right: 1px solid var(--line); position: sticky; left: 0; }
   .code { width: 100%; border-left: 3px solid transparent; }
   .mk { user-select: none; display: inline-block; width: 1ch; margin-right: 7px; color: var(--muted); font-weight: 700; }
@@ -281,13 +303,26 @@ PAGE = r"""<!DOCTYPE html>
     color:var(--on-accent); font-size:12px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
   .cdfix-step-title { font-size: 13px; font-weight: 700; color: var(--text); }
   .cdfix-step-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .cdf-editor-grid { grid-template-columns:minmax(0,1fr) 58px minmax(0,1fr); align-items:center; }
-  .cdf-diff-indicator { display:grid; justify-items:center; align-content:center; gap:2px; color:var(--muted); }
-  .cdf-diff-arrow { width:34px; height:34px; display:grid; place-items:center; border:1px solid var(--line);
-    border-radius:11px; background:var(--panel); color:var(--accent); font-size:18px; box-shadow:var(--shadow); }
-  .cdf-diff-indicator strong { min-width:42px; margin-top:3px; padding:5px 7px; border-radius:9px;
-    background:color-mix(in srgb,var(--accent) 11%,var(--panel)); color:var(--accent); text-align:center; font-size:13px; }
-  .cdf-diff-indicator small { font-size:9px; font-weight:700; }
+  .cdf-editor-grid { grid-template-columns:minmax(0,1fr) 78px minmax(0,1fr); align-items:center; }
+  .cdf-diff-indicator { display:grid; justify-items:stretch; align-content:center; gap:4px; min-height:190px;
+    padding:7px 5px; border:1px solid var(--line); border-radius:9px; background:var(--gutter); color:var(--muted); }
+  .cdf-diff-arrow { width:32px; height:32px; display:grid; place-items:center; border:1px solid var(--line);
+    border-radius:8px; background:var(--panel); color:var(--accent); font-size:17px; box-shadow:none; justify-self:center; }
+  .cdf-diff-arrow svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:2;
+    stroke-linecap:round; stroke-linejoin:round; }
+  .cdf-rail-total { text-align:center; padding-bottom:6px; border-bottom:1px solid var(--line); }
+  .cdf-diff-indicator strong { display:block; color:var(--text); text-align:center; font-size:22px; line-height:1.1; }
+  .cdf-diff-indicator small { display:block; margin-top:3px; font-size:9px; font-weight:750;
+    letter-spacing:.045em; text-transform:uppercase; text-align:center; }
+  .cdf-rail-metric { display:grid; grid-template-columns:14px minmax(0,1fr); column-gap:4px; align-items:center;
+    padding:4px 2px; border-radius:6px; }
+  .cdf-rail-icon { width:14px; height:14px; display:grid; place-items:center; color:var(--accent);
+    font-size:13px; font-weight:850; line-height:1; }
+  .cdf-rail-icon svg { width:13px; height:13px; fill:none; stroke:currentColor; stroke-width:2; }
+  .cdf-rail-metric.added .cdf-rail-icon { color:var(--green); }
+  .cdf-rail-metric.updated .cdf-rail-icon { color:var(--amber); }
+  .cdf-rail-metric b { color:var(--text); font-size:13px; line-height:1; }
+  .cdf-rail-metric span:last-child { grid-column:2; color:var(--muted); font-size:9px; line-height:1.15; }
   .cdf-diff-indicator.has-diffs .cdf-diff-arrow { border-color:var(--accent);
     box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 10%,transparent); }
 
@@ -430,7 +465,7 @@ PAGE = r"""<!DOCTYPE html>
   label.cdfix-card { display:flex; gap:10px; align-items:flex-start; padding:11px 13px;
     border:1px solid var(--line); border-radius:14px; margin-bottom:7px; background:var(--input-bg);
     cursor:pointer; text-transform:none; letter-spacing:normal; transition:border-color .2s,background .2s; }
-  label.cdfix-card:hover { border-color:var(--teal); background:var(--teal-bg); }
+  label.cdfix-card:hover { border-color:var(--workflow-line); background:var(--gutter); }
   label.cdfix-card input[type=checkbox] { margin-top:2px; flex-shrink:0; accent-color:var(--green);
     width: 15px; height: 15px; cursor: pointer; }
   .cdfix-ci { flex: 1; min-width: 0; }                     /* info column — takes remaining width */
@@ -506,6 +541,400 @@ PAGE = r"""<!DOCTYPE html>
   #cdfBuildStep .cdfix-step-head { grid-column:1 / -1; }
   #cdfBuildStep > .panes,#cdfBuildStep > .status { grid-column:1; }
   #cdfBuildStep > .report { grid-column:2; grid-row:2 / span 2; margin-top:14px; }
+
+  /* ── Readability and responsive width system ─────────────────── */
+  body { font-size:15px; line-height:1.58; }
+  .app-shell { grid-template-columns:clamp(172px,11vw,194px) minmax(0,1fr); }
+  .app-main { width:100%; max-width:100%; }
+  .wrap { padding-inline:clamp(14px,1.45vw,28px); }
+  .topbar { padding-inline:clamp(14px,1.45vw,28px); }
+  .topbar { min-height:74px; padding-top:11px; padding-bottom:8px; }
+  .panel { width:100%; padding:clamp(16px,1.25vw,24px); }
+
+  .brand strong { font-size:14px; }
+  .brand small { font-size:12px; }
+  .side-label,.eyebrow { font-size:11px; }
+  .side-nav,.about-link { font-size:14px; }
+  .sidebar .credit { font-size:11.5px; }
+  .sub { font-size:14px; }
+  .credit,.local-badge { font-size:12.5px; }
+
+  .tabs { display:flex; width:100%; }
+  .tab { font-size:14px; }
+  .section-title h2 { font-size:17px; }
+  .section-title p { font-size:13.5px; max-width:90ch; }
+  label { font-size:13px; }
+  .hint { font-size:13px; max-width:75ch; }
+  .controls .field { flex-basis:clamp(280px,30vw,440px); }
+
+  .xpane-head { min-height:52px; padding:10px 14px; }
+  .xpane-head .ttl { font-size:13px; }
+  .badge { font-size:11px; }
+  .mini .ghost { font-size:12.5px; }
+  .ln-gutter,.xpane textarea {
+    font-size:13.5px;
+    line-height:21px;
+  }
+  .ln-gutter { color:var(--gutter-text); border-right-color:color-mix(in srgb,var(--line) 82%,var(--text)); }
+  .ln-inner { top:10px; }
+  .xpane textarea { padding:10px; }
+  .editor-status { font-size:11.5px; }
+  .status { font-size:13.5px; line-height:1.6; }
+  .report h3 { font-size:14px; }
+  .report pre { font-size:13px; line-height:1.6; }
+  .dup-warn-body,.dup-warn-head { font-size:13.5px; }
+  .dup-list { font-size:13px; }
+  .dup-badge { font-size:11px; }
+
+  .summary,.legend,.diff-opts { font-size:13px; }
+  .pane-title { font-size:13px; padding:10px 13px; }
+  table.pane-table { font-size:13px; line-height:1.65; }
+  .pane-table td { padding-inline:10px; }
+
+  .cdfix-step-title { font-size:14.5px; }
+  .cdfix-step-sub { font-size:13px; max-width:90ch; }
+  .cdf-diff-indicator small { font-size:11px; }
+  .diag-head { padding:16px 18px; }
+  .diag-head h3 { font-size:16px; }
+  .diag-head p { font-size:12.5px; }
+  .diag-version { font-size:11.5px; padding:6px 10px; }
+  .diag-metrics { gap:10px; padding:14px 16px 0; }
+  .diag-metrics > div { padding:12px 13px; }
+  .diag-metrics span { font-size:11px; }
+  .diag-metrics strong { font-size:22px; }
+  .diag-explanation { margin:12px 16px; padding:12px 14px; font-size:13px; }
+  .diag-tabs { gap:7px; padding:0 16px 12px; }
+  .diag-tab { padding:8px 11px; font-size:12px; }
+  .diag-empty { font-size:13px; }
+  .diag-row {
+    grid-template-columns:minmax(170px,.75fr) minmax(220px,1.05fr) minmax(280px,1.45fr) 46px;
+    gap:14px; padding:11px 16px;
+  }
+  .diag-kind,.diag-count { font-size:11px; }
+  .diag-name { font-size:12.5px; }
+  .diag-path,.diag-detail { font-size:12px; line-height:1.55; }
+  .diag-count-row { grid-template-columns:minmax(220px,1fr) repeat(3,minmax(82px,110px)); font-size:12px; }
+
+  .cdfix-sel-head { font-size:14px; padding:14px 18px; }
+  .cdfix-sel-body { padding:18px; }
+  .metric-card { min-height:84px; padding:15px 16px; }
+  .metric-card strong { font-size:25px; }
+  .metric-card span { font-size:12px; }
+  label.cdfix-search { width:clamp(280px,30vw,480px); }
+  .cdfix-search input,.filter-chip { font-size:12.5px; }
+  .cdfix-sel-actions .ghost { font-size:12.5px; }
+  .cdfix-legend-item { font-size:12px; }
+  .cdfix-data-layout { grid-template-columns:minmax(0,1.65fr) minmax(350px,.7fr); gap:16px; }
+  #cdfFieldList,.cdfix-detail { max-height:680px; }
+  .cdfix-detail-head h4 { font-size:15px; }
+  .cdfix-detail-head p,.cdfix-detail-empty p { font-size:12.5px; }
+  .cdfix-detail-empty strong { font-size:14px; }
+  .detail-row > span { font-size:11.5px; }
+  .detail-row code,.detail-preview { font-size:12.5px; }
+  .cdfix-group-head { padding:11px 14px; }
+  .cdfix-group-name { font-size:14px; }
+  .cdfix-group-meta { font-size:12px; }
+  .cdfix-group-badge { font-size:11px; }
+  label.cdfix-card { padding:13px 14px; gap:12px; }
+  .cdfix-tbadge,.cdfix-modtag,.cdfix-warntag,.cdfix-parenttag,
+  .cdfix-updatetag,.cdfix-readytag { font-size:11px; }
+  .cdfix-cname { font-size:13.5px; }
+  .cdfix-parent-help { font-size:12.5px; }
+  .cdfix-rlabel,.cdfix-seg,.cdfix-sep,.cdfix-fval,.cdfix-fval-role { font-size:12px; }
+  .report-summary span { font-size:11px; }
+  .report-summary strong { font-size:21px; }
+  .timeline-copy strong { font-size:12.5px; }
+  .timeline-copy span,.raw-report summary { font-size:12px; }
+
+  #view-cdfix > .cdfix-step:first-child { margin-top:0; }
+  #view-cdfix > .cdfix-step:first-child .cdfix-step-head { margin-bottom:7px; }
+  #view-cdfix > .cdfix-step:first-child + .cdfix-step { margin-top:10px !important; }
+  .diag-metric-card { display:flex; align-items:center; gap:11px; }
+  .diag-metric-icon { width:34px; height:34px; flex:0 0 34px; display:grid; place-items:center;
+    border-radius:9px; background:color-mix(in srgb,var(--accent) 9%,var(--panel)); color:var(--accent); }
+  .diag-metric-icon svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.8;
+    stroke-linecap:round; stroke-linejoin:round; }
+  .diag-metric-card:nth-child(2) .diag-metric-icon { color:var(--purple); background:color-mix(in srgb,var(--purple) 9%,var(--panel)); }
+  .diag-metric-card:nth-child(3) .diag-metric-icon { color:var(--teal); background:color-mix(in srgb,var(--teal) 9%,var(--panel)); }
+  .diag-metric-card:nth-child(4) .diag-metric-icon { color:var(--amber); background:color-mix(in srgb,var(--amber) 9%,var(--panel)); }
+
+  .primary-action-row { display:flex; width:100%; margin-top:14px; }
+  .primary-action-row .action {
+    width:100%; min-height:50px; display:flex; align-items:center; justify-content:center;
+  }
+  .primary-action-row .action:hover:not(:disabled) {
+    transform:translateY(-1px); box-shadow:0 7px 18px color-mix(in srgb,var(--accent) 22%,transparent);
+  }
+  .section-head { padding-bottom:14px; margin-bottom:16px; }
+  .controls { margin-bottom:14px; }
+  .status.show { display:flex; align-items:flex-start; border-width:1px; }
+
+  .cdf-diagnostics { border-radius:11px; background:var(--panel); }
+  .diag-metrics > div,.metric-card,.report-summary > div {
+    box-shadow:0 1px 2px rgba(15,23,42,.035);
+  }
+  .diag-tab { border-radius:7px; }
+  .diag-tab.active { box-shadow:none; }
+  .diag-row { transition:background .14s ease; }
+
+  .cdfix-select { border-color:var(--line); border-radius:12px; box-shadow:var(--shadow); }
+  .cdfix-sel-head {
+    background:color-mix(in srgb,var(--accent) 8%,var(--panel));
+    color:var(--text); border-bottom:1px solid var(--line);
+  }
+  .cdfix-group-head { border-radius:9px; }
+  label.cdfix-card { border-radius:9px; }
+  .cdfix-detail { border-radius:10px; }
+  .metric-card { border-radius:10px; }
+
+  .report.show {
+    padding:16px; border:1px solid var(--line); border-radius:11px; background:var(--panel);
+  }
+  .raw-report pre,.report pre { border-radius:9px; }
+  .timeline-item { border-radius:9px; }
+
+  /* ── v3.2 Revenue Cloud final polish ──────────────────────────── */
+  body { font-family:var(--font-sans);
+    font-size:14px; line-height:1.6; letter-spacing:-.003em; }
+  .xpane textarea,.ln-gutter,table.pane-table,.detail-preview,.detail-row code,
+  .report pre,.raw-report pre { font-family:var(--font-mono); }
+  .status { padding:14px 16px; font-family:var(--font-sans); }
+  .pane-table td { padding:3px 14px; }
+  button.action,.ghost,select,input { border-radius:10px; }
+  .panel,.xpane,.cdf-diagnostics,.cdfix-select,.cdfix-detail,.metric-card,
+  label.cdfix-card,.report.show { border-radius:12px; }
+  h1 { font-size:clamp(30px,2.35vw,34px); line-height:1.15; }
+  .side-menu { gap:2px; }
+  .side-menu .side-label { padding:13px 11px 7px; font-size:9.5px; }
+  .side-menu .side-label:first-child { padding-top:0; }
+  .side-menu-divider { height:1px; margin:12px 9px 2px; background:var(--line); }
+  .side-nav { padding:8px 10px; font-size:12px; font-weight:600; }
+  .side-nav .nav-icon { width:19px; height:19px; flex-basis:19px; }
+  .side-nav .nav-icon svg { width:15px; height:15px; }
+  .side-nav[data-mode="cdfix"] { margin-top:1px; color:color-mix(in srgb,var(--accent) 76%,var(--text)); }
+  .side-nav[data-mode="cdfix"] .nav-icon { border-radius:7px;
+    background:color-mix(in srgb,var(--accent) 9%,var(--panel)); }
+  .side-nav[data-mode="cdfix"].active { color:var(--accent); }
+
+  #view-cdfix { background:var(--panel); }
+  #view-cdfix > .cdfix-step { padding:15px; border-radius:12px; }
+  #view-cdfix > .cdfix-step:first-child { background:var(--panel); }
+  #view-cdfix > .cdfix-step:first-child + .cdfix-step {
+    margin-top:22px !important; background:var(--gutter);
+  }
+  .cdfix-step-head { gap:10px; margin-bottom:12px; padding:9px 12px;
+    border:1px solid var(--workflow-line); border-radius:8px; background:var(--workflow-bg); }
+  .cdfix-step-num { width:auto; min-width:64px; height:30px; padding:0 10px; border-radius:8px;
+    font-size:14px; font-weight:800; background:var(--accent); }
+  .cdfix-step-title { font-size:18px; line-height:1.2; font-weight:750; letter-spacing:-.015em; }
+  .cdfix-step-sub { margin-top:2px; font-size:12px; line-height:1.35; }
+  .cdfix-step-head > div { min-width:0; }
+  #view-cdfix .xpane-head { padding:11px 14px; }
+  #view-cdfix .xpane textarea { padding:12px; }
+  #view-cdfix .ln-inner { top:12px; }
+  #view-cdfix .editor-status { min-height:34px; padding:7px 12px; }
+  .cdf-diff-indicator { align-self:center; }
+
+  .cdf-diagnostics { margin-top:22px; border:0; background:var(--gutter); }
+  .diag-metric-card.metric-difference { border-color:color-mix(in srgb,var(--accent) 34%,var(--line));
+    background:color-mix(in srgb,var(--accent) 5%,var(--panel)); }
+  .diag-metric-card.metric-difference strong { color:var(--accent); }
+  .diag-metrics strong { font-size:26px; line-height:1.05; }
+
+  .cdfix-select { margin-top:24px; border:0; box-shadow:none; overflow:visible; background:var(--panel); }
+  .cdfix-sel-head { padding:12px 14px; border:1px solid var(--workflow-line);
+    border-radius:8px; background:var(--workflow-bg); font-size:16px; }
+  .cdfix-sel-body { padding:24px 4px 8px; }
+  .cdfix-metrics { gap:12px; margin-bottom:20px; }
+  .metric-card { display:grid; grid-template-columns:32px minmax(0,1fr); grid-template-rows:auto auto;
+    align-items:center; column-gap:10px; min-height:82px; padding:14px 15px; }
+  .metric-card-icon { grid-row:1 / span 2; width:30px; height:30px; display:grid; place-items:center;
+    border-radius:8px; background:color-mix(in srgb,var(--accent) 9%,var(--panel)); color:var(--accent); }
+  .metric-card-icon svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.9;
+    stroke-linecap:round; stroke-linejoin:round; }
+  .metric-map .metric-card-icon { color:var(--teal); background:color-mix(in srgb,var(--teal) 9%,var(--panel)); }
+  .metric-node .metric-card-icon { color:var(--purple); background:color-mix(in srgb,var(--purple) 9%,var(--panel)); }
+  .metric-error .metric-card-icon { color:var(--amber); background:color-mix(in srgb,var(--amber) 10%,var(--panel)); }
+  .metric-card::before { display:none; }
+  .metric-card strong { grid-column:2; font-size:26px; }
+  .metric-card > div > span,.metric-card > span:not(.metric-card-icon) { font-size:12px; }
+  .cdfix-tbadge { display:inline-flex; align-items:center; gap:4px; }
+  .cdfix-tbadge .btn-icon { width:12px; height:12px; margin:0; }
+  .cdfix-data-toolbar { gap:16px; margin-bottom:16px; padding-bottom:16px; border-bottom:1px solid var(--line); }
+  .cdfix-filters { gap:8px; }
+  .cdfix-sel-actions { margin-bottom:16px; gap:8px; }
+  .cdfix-selection-count { margin-left:auto; display:inline-flex; align-items:center; min-height:34px;
+    padding:6px 10px; border-radius:10px; background:var(--workflow-bg); color:var(--text);
+    font-size:12.5px; font-weight:750; white-space:nowrap; }
+  .cdfix-legend { margin-left:0; }
+  .cdfix-data-layout { gap:24px; }
+  #cdfFieldList { padding-right:7px; }
+  .cdfix-group { margin-bottom:16px; }
+  label.cdfix-card { margin:8px 0; padding:16px 18px; }
+  .cdfix-detail { position:static; border-color:color-mix(in srgb,var(--line) 78%,transparent);
+    transition:border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+  .cdfix-detail.context-flash { border-color:var(--accent);
+    box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 10%,transparent); }
+  .cdfix-detail-head,.cdfix-detail-body { padding:16px; }
+
+  #cdfBuildStep:not(.hidden) { margin-top:24px; padding:18px; border-top:0; border-radius:12px; background:var(--gutter); }
+  #cdfBuildStep .cdfix-step-head { grid-column:1 / -1; margin-bottom:0; }
+  #cdfBuildStep .cdfix-step-sub { max-width:none; white-space:nowrap; }
+  #cdfBuildStep > .build-action-row { grid-column:1 / -1; margin-top:0; }
+  #cdfBuildStep > .panes { grid-column:1; grid-row:3; }
+  #cdfBuildStep > .status { grid-column:1; grid-row:4; }
+  #cdfBuildStep > .report { grid-column:2; grid-row:3 / span 2; margin-top:14px; }
+  #cdfBuildStep .build-action-row .action { min-height:50px; border-radius:10px; font-size:14px; }
+  .report.show { padding:18px; border:0; background:var(--panel); }
+  .report h3 { display:flex; align-items:center; gap:8px; margin-bottom:14px; font-size:16px; }
+  .report h3 .btn-icon { width:17px; height:17px; color:var(--accent); }
+  .report-summary { gap:9px; margin-bottom:14px; }
+  .report-summary > div { position:relative; padding:11px 12px 11px 22px; border:0; }
+  .report-summary > div::before { content:""; position:absolute; left:9px; top:50%; width:8px; height:8px;
+    border-radius:50%; background:var(--green); transform:translateY(-50%); }
+  .report-summary > div:nth-child(2)::before { background:var(--accent); }
+  .report-summary > div:nth-child(3)::before { background:var(--amber); }
+  .report-summary > div:nth-child(4)::before { background:var(--red); }
+  .report-summary > div:nth-child(2) strong { color:var(--accent); }
+  .timeline-item { padding:11px 12px; border-color:color-mix(in srgb,var(--line) 82%,transparent);
+    transition:border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+  .timeline-item.update .timeline-icon { color:var(--accent); background:var(--info-bg); }
+  .timeline-item.is-context-match { border-color:var(--accent);
+    background:color-mix(in srgb,var(--accent) 7%,var(--panel));
+    box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 9%,transparent); }
+  .primary-action-row .action:hover:not(:disabled) {
+    box-shadow:0 1px 3px color-mix(in srgb,var(--accent) 24%,transparent);
+  }
+
+  /* ── v3.2.2 calm engineering color system ─────────────────────── */
+  .topbar { background:var(--header-bg); }
+  .cdfix-step-head { border-left:3px solid var(--accent); }
+  .cdfix-sel-head { border-left:1px solid var(--workflow-line); }
+  .side-nav.active {
+    color:var(--accent); background:var(--workflow-bg);
+    box-shadow:inset 4px 0 0 var(--accent);
+  }
+  .revenue-label { color:var(--muted) !important; }
+  .side-nav[data-mode="cdfix"] { color:var(--muted); }
+  .side-nav[data-mode="cdfix"] .nav-icon { color:var(--muted); background:var(--gutter); }
+  .side-nav[data-mode="cdfix"].active { color:var(--accent); }
+  .tab[data-mode="cdfix"] { color:var(--muted); }
+  .tab[data-mode="cdfix"].active { color:var(--accent); border-bottom-color:var(--accent); }
+  .b-compare,.b-merge,.b-dedup,.b-cdfix { background:var(--accent); }
+  .fab-up { background:var(--accent); }
+  .fab-down { color:var(--accent); border-color:var(--accent); }
+  .badge.modified { background:var(--accent); }
+
+  .status.ok { background:var(--ok-bg); border-color:var(--green); color:var(--ok-text); }
+  .filter-chip[data-cdf-filter="ready"] { background:var(--ok-bg); color:var(--ok-text); }
+  .filter-chip[data-cdf-filter="ready"].active {
+    border-color:var(--green); background:var(--green); color:var(--on-accent);
+  }
+  .cdfix-readytag { background:var(--ok-bg); color:var(--ok-text);
+    border-color:color-mix(in srgb,var(--green) 35%,var(--line)); }
+  .cdfix-warntag { background:var(--amber); color:#3a3335; }
+  .cdfix-parenttag,.filter-chip[data-cdf-filter="errors"] {
+    color:var(--text); background:color-mix(in srgb,var(--amber) 12%,var(--panel));
+    border-color:color-mix(in srgb,var(--amber) 45%,var(--line));
+  }
+  .filter-chip[data-cdf-filter="errors"].active {
+    color:#3a3335; background:var(--amber); border-color:var(--amber);
+  }
+
+  .filter-chip[data-cdf-filter="updates"],
+  .filter-chip[data-cdf-filter="mapping"],
+  .filter-chip[data-cdf-filter="nodeAttr"],
+  .filter-chip[data-cdf-filter="selected"] { color:var(--muted); background:var(--panel); }
+  .filter-chip[data-cdf-filter="updates"].active,
+  .filter-chip[data-cdf-filter="mapping"].active,
+  .filter-chip[data-cdf-filter="nodeAttr"].active,
+  .filter-chip[data-cdf-filter="selected"].active {
+    color:var(--on-accent); background:var(--accent); border-color:var(--accent);
+  }
+  .cdfix-tbadge-m,.cdfix-tbadge-n {
+    color:var(--muted); background:var(--gutter); border-color:var(--line);
+  }
+  .metric-card,.diag-metrics > div,.report-summary > div {
+    background:var(--panel); border-color:var(--line);
+  }
+  .metric-card-icon,.metric-map .metric-card-icon,.metric-node .metric-card-icon,.metric-error .metric-card-icon,
+  .diag-metric-icon,.diag-metric-card:nth-child(2) .diag-metric-icon,
+  .diag-metric-card:nth-child(3) .diag-metric-icon,.diag-metric-card:nth-child(4) .diag-metric-icon {
+    color:var(--muted); background:var(--gutter);
+  }
+  .diag-metric-card.metric-difference .diag-metric-icon { color:var(--accent); background:var(--info-bg); }
+  .pane-table tr:nth-child(even) td.code:not(.del):not(.ins):not(.chg),
+  .diag-row:nth-child(even) { background:color-mix(in srgb,var(--gutter) 62%,var(--panel)); }
+  .diag-row:hover { background:var(--gutter); }
+
+  /* ── v3.3 colour, hierarchy, spacing, and visual polish ───────── */
+  .panel { border-color:var(--line); box-shadow:var(--shadow); }
+  #view-cdfix { background:var(--panel); }
+  #view-cdfix > .cdfix-step,
+  #view-cdfix > .cdfix-step:first-child,
+  #view-cdfix > .cdfix-step:first-child + .cdfix-step,
+  #cdfBuildStep:not(.hidden) { background:var(--panel); }
+  .cdfix-step-head {
+    border:1px solid var(--workflow-line); border-left:1px solid var(--workflow-line);
+    background:var(--workflow-bg); color:var(--workflow-text);
+  }
+  .cdfix-step-title { color:var(--workflow-text); }
+  .cdfix-step-sub { color:color-mix(in srgb,var(--workflow-text) 72%,transparent); font-size:12.5px; }
+  .cdfix-sel-head { background:var(--gutter); border-color:var(--line); }
+
+  .xpane { background:var(--panel); border-color:var(--line); }
+  #view-cdfix .xpane textarea { background:var(--panel); font-size:14px; line-height:20.3px; }
+  #view-cdfix .ln-gutter { font-size:14px; line-height:20.3px; }
+  .badge.base { background:#dff6e8; color:#137a43; }
+  .badge.modified { background:#e7e9ff; color:#5b3cc4; }
+  .badge.out { background:var(--info-bg); color:var(--accent); }
+
+  .primary-action-row .action { min-height:40px; height:40px; }
+  #cdfAnalyzeBtn,#cdfBuildBtn { min-height:40px; height:40px; }
+  #cdfBuildStep > .build-action-row { justify-content:center; }
+  #cdfBuildStep .build-action-row .action { width:50%; max-width:520px; min-width:280px; }
+  button.action:hover:not(:disabled),.primary-action-row .action:hover:not(:disabled) {
+    background:var(--accent-strong); transform:none; filter:none;
+  }
+  .ghost { background:var(--panel); color:#344054; border-color:#cbd5e1; }
+  html[data-theme="dark"] .ghost { color:var(--text); border-color:var(--line); }
+  .btn-icon { width:14px; height:14px; flex-basis:14px; }
+  .tab .btn-icon,.filter-chip .btn-icon { width:14px; height:14px; }
+  .theme-toggle { gap:6px; min-height:36px; }
+
+  .status.ok { padding:11px 14px; background:#ecfdf3; border-color:#86d7a8; color:#167044; }
+  html[data-theme="dark"] .status.ok { background:var(--ok-bg); border-color:var(--green); color:var(--ok-text); }
+  .diag-tab { background:#f8fafc; color:#526174; border-color:#d7e0ea; }
+  .diag-tab.active { background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
+  html[data-theme="dark"] .diag-tab { background:var(--gutter); color:var(--muted); border-color:var(--line); }
+  html[data-theme="dark"] .diag-tab.active { background:var(--accent); color:var(--on-accent); }
+  .diag-row { background:var(--panel); border-color:#e2e8f0; }
+  .diag-row:nth-child(even) { background:var(--panel); }
+  .diag-row:hover { background:#f4f8fc; }
+  html[data-theme="dark"] .diag-row:hover { background:var(--gutter); }
+
+  .cdfix-card:has(input:checked) { background:var(--panel); }
+  .cdfix-card.is-active { border-color:#9bc4f5; background:#eaf4ff;
+    box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 8%,transparent); }
+  html[data-theme="dark"] .cdfix-card.is-active {
+    border-color:var(--accent); background:color-mix(in srgb,var(--accent) 10%,var(--panel));
+  }
+  #cdfBuildStep > .report { border-left:1px solid #d9e2ec; padding-left:18px; }
+  html[data-theme="dark"] #cdfBuildStep > .report { border-left-color:var(--line); }
+
+  button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,
+  [tabindex]:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .side-nav:hover,.about-link:hover,button.action:active:not(:disabled),.ghost:active {
+    transform:none;
+  }
+
+  @media (min-width:1500px) {
+    .xpane-body { min-height:390px; }
+    #view-cdfix .xpane-body,
+    #view-cdfix .xpane textarea { height:400px !important; max-height:400px !important; }
+    .diag-list { max-height:440px; }
+    #cdfFieldList,.cdfix-detail { max-height:760px; }
+  }
   /* ── Fixed floating scroll buttons ────────────────────────────── */
   .fab { position:fixed; z-index:99999; width:48px; height:48px; border-radius:50%;
     border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
@@ -513,9 +942,9 @@ PAGE = r"""<!DOCTYPE html>
     bottom: 26px; }
   .fab:hover { transform:translateY(-2px) scale(1.06); filter:brightness(1.08); }
   .fab:active { transform:scale(.94); }
-  .fab-up   { right:26px; background:var(--teal); color:var(--on-accent); }
-  .fab-down { left:270px; background:var(--panel); color:var(--teal);
-    border: 2px solid var(--teal); }
+  .fab-up   { right:26px; background:var(--accent); color:var(--on-accent); }
+  .fab-down { left:208px; background:var(--panel); color:var(--accent);
+    border:2px solid var(--accent); }
 
   @media (max-width: 1050px) {
     .app-shell { display:block; }
@@ -524,11 +953,13 @@ PAGE = r"""<!DOCTYPE html>
     .brand { padding:0; min-width:max-content; }
     .brand-mark { width:32px; height:32px; border-radius:10px; }
     .brand small,.side-label,.sidebar-footer { display:none; }
+    .side-menu-divider { display:none; }
     .side-menu { display:flex; flex:1; gap:4px; overflow-x:auto; scrollbar-width:none; }
     .side-menu::-webkit-scrollbar { display:none; }
     .side-nav { width:auto; min-width:max-content; padding:8px 10px; }
     .side-nav:hover { transform:none; }
     .side-nav.active { box-shadow:inset 0 -2px 0 var(--accent); }
+    .tabs { display:none; }
     .topbar { min-height:104px; }
     .fab-down { left:14px; }
     .cdfix-data-layout { grid-template-columns:1fr; }
@@ -545,19 +976,29 @@ PAGE = r"""<!DOCTYPE html>
     .wrap { padding:0 10px 72px; }
     .topbar { align-items:stretch; flex-direction:column; gap:8px; }
     .top-actions { justify-content:space-between; flex-wrap:wrap; }
-    .tabs { display:flex; width:100%; border-radius:18px; }
-    .tab { flex:1 1 140px; }
-    .panel { border-radius:18px; }
+    .tabs { display:none; }
+    .panel { border-radius:12px; }
     .cdfix-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .diag-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .diag-row { grid-template-columns:1fr; gap:4px; }
     .diag-count-row { grid-template-columns:minmax(130px,1fr) repeat(3,64px); }
     .cdf-editor-grid { grid-template-columns:1fr; }
-    .cdf-diff-indicator { padding:4px 0; }
-    .cdf-diff-arrow { transform:rotate(90deg); }
+    #view-cdfix .xpane-head { align-items:flex-start; flex-wrap:wrap; }
+    #view-cdfix .xpane-head .ttl { width:100%; white-space:normal; }
+    #view-cdfix .xpane-head .mini { width:100%; justify-content:flex-start; }
+    .cdf-diff-indicator { grid-template-columns:repeat(4,minmax(0,1fr)); min-height:0; padding:8px; }
+    .cdf-diff-arrow { display:none; }
+    .cdf-rail-total { padding:4px; border-bottom:0; border-right:1px solid var(--line); }
+    .cdf-rail-metric { grid-template-columns:1fr; justify-items:center; padding:4px 2px; }
+    .cdf-rail-metric .cdf-rail-dot { display:none; }
+    .cdf-rail-metric span:last-child { grid-column:1; text-align:center; }
     .diff-panes { flex-direction:column; }
     .cdfix-step-head { align-items:flex-start; flex-wrap:wrap; }
     .cdfix-step-head .action { margin-left:34px !important; }
+    #cdfBuildStep .cdfix-step-sub { white-space:normal; }
+    .cdfix-selection-count { width:100%; margin-left:0; justify-content:center; }
+    #cdfBuildStep .build-action-row .action { width:100%; min-width:0; max-width:none; }
+    #cdfBuildStep > .report { border-left:0; border-top:1px solid var(--line); padding-left:0; padding-top:16px; }
     .fab-up { right:14px; }
     .fab-down { left:14px; }
   }
@@ -572,31 +1013,38 @@ PAGE = r"""<!DOCTYPE html>
         </span>
         <span><strong>Salesforce</strong><small>Metadata XML Tool</small></span>
       </div>
-      <div class="side-label">Tools</div>
       <nav class="side-menu">
+        <div class="side-label">Metadata Tools</div>
         <button class="side-nav active" data-mode="compare"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M10 8l-3 4 3 4M14 8l3 4-3 4"/></svg></span><span>Compare</span></button>
         <button class="side-nav" data-mode="merge"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M8 6h10M14 2l4 4-4 4M16 18H6M10 14l-4 4 4 4"/></svg></span><span>Merge</span></button>
         <button class="side-nav" data-mode="dedup"><span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2M11 14h6"/></svg></span><span>Deduplicate</span></button>
+        <div class="side-menu-divider"></div>
+        <div class="side-label revenue-label">Revenue Cloud</div>
         <button class="side-nav" data-mode="cdfix"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 3v6M12 15v6M3 12h6M15 12h6"/><circle cx="12" cy="12" r="3"/><circle cx="12" cy="3" r="1"/><circle cx="12" cy="21" r="1"/><circle cx="3" cy="12" r="1"/><circle cx="21" cy="12" r="1"/></svg></span><span>Context Definition Fix</span></button>
       </nav>
       <div class="sidebar-footer">
         <a class="about-link" href="https://www.linkedin.com/in/mrpancholi/" target="_blank" rel="noopener noreferrer">
           <span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg></span><span>About</span>
         </a>
-        <p class="credit">Made with 💙 by <strong>Mritunjaya Pancholi</strong></p>
+        <p class="credit">Made with 💙 by <a href="https://www.linkedin.com/in/mrpancholi/" target="_blank" rel="noopener noreferrer">Mritunjaya Pancholi</a></p>
+        <a class="linkedin-link" href="https://www.linkedin.com/in/mrpancholi/" target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.4 3.8a2.1 2.1 0 1 1 0 4.2 2.1 2.1 0 0 1 0-4.2ZM3.6 9.5h3.6V21H3.6V9.5Zm5.8 0h3.4v1.6h.1c.5-.9 1.7-2 3.5-2 3.7 0 4.4 2.4 4.4 5.6V21h-3.6v-5.6c0-1.3 0-3.1-1.9-3.1s-2.2 1.5-2.2 3V21H9.4V9.5Z"/></svg>
+          <span>LinkedIn</span>
+        </a>
       </div>
     </aside>
 
     <main class="app-main">
       <header class="topbar">
         <div>
-          <div class="eyebrow">Developer tools</div>
           <h1 id="pageTitle">Compare XML</h1>
           <p class="sub" id="pageSubtitle">Inspect two Salesforce metadata files with structural and line-level differences.</p>
         </div>
         <div class="top-actions">
           <span class="local-badge"><span class="live-dot"></span>Runs locally</span>
-          <button class="ghost theme-toggle" id="themeBtn" title="Toggle day/night" aria-label="Toggle color theme">Night mode</button>
+          <button class="ghost theme-toggle" id="themeBtn" title="Toggle day/night" aria-label="Switch to night mode">
+            <span class="theme-switch" aria-hidden="true"></span>
+          </button>
         </div>
       </header>
 
@@ -623,9 +1071,6 @@ PAGE = r"""<!DOCTYPE html>
           <div class="hint">Leave blank to compare everything. Works for permission sets, context definitions, Apex (line diff only), etc.</div>
         </div>
         <div class="grow"></div>
-        <div class="field" style="flex:0 0 auto;">
-          <button class="action b-compare" id="compareBtn">Compare</button>
-        </div>
       </div>
 
       <div class="panes">
@@ -651,6 +1096,9 @@ PAGE = r"""<!DOCTYPE html>
           </div>
           <div class="xpane-body"><div class="ln-gutter" id="ln-cmpB"></div><textarea id="cmpB" placeholder="Paste the second XML here.&#10;This file will appear on the right side of the comparison." spellcheck="false"></textarea></div>
         </div>
+      </div>
+      <div class="primary-action-row">
+        <button class="action b-compare" id="compareBtn">Compare</button>
       </div>
 
       <div class="status" id="cmpStatus"></div>
@@ -703,7 +1151,6 @@ PAGE = r"""<!DOCTYPE html>
         <div class="grow"></div>
         <div class="field" style="flex:0 0 auto;">
           <button class="ghost" id="swapBtn">Swap panes</button>
-          <button class="action b-merge" id="mergeBtn">Merge</button>
         </div>
       </div>
 
@@ -741,6 +1188,9 @@ PAGE = r"""<!DOCTYPE html>
           </div>
           <div class="xpane-body"><div class="ln-gutter" id="ln-mrgOut"></div><textarea id="mrgOut" placeholder="The merged XML will appear here.&#10;Use Copy or Download when the merge completes." spellcheck="false" readonly></textarea></div>
         </div>
+      </div>
+      <div class="primary-action-row">
+        <button class="action b-merge" id="mergeBtn">Merge</button>
       </div>
 
       <div class="status" id="mrgStatus"></div>
@@ -780,12 +1230,6 @@ PAGE = r"""<!DOCTYPE html>
           <p>Duplicate identity keys are collapsed and the metadata is returned in stable Salesforce order.</p>
         </div></div>
       </div>
-      <div class="controls">
-        <div class="grow"></div>
-        <div class="field" style="flex:0 0 auto;">
-          <button class="action b-dedup" id="dedupBtn">Remove duplicates</button>
-        </div>
-      </div>
       <div class="panes">
         <div class="xpane">
           <div class="xpane-head">
@@ -810,6 +1254,9 @@ PAGE = r"""<!DOCTYPE html>
           <div class="xpane-body"><div class="ln-gutter" id="ln-dedOut"></div><textarea id="dedOut" placeholder="The cleaned and sorted XML will appear here.&#10;Use Copy or Download when processing completes." spellcheck="false" readonly></textarea></div>
         </div>
       </div>
+      <div class="primary-action-row">
+        <button class="action b-dedup" id="dedupBtn">Remove duplicates</button>
+      </div>
       <div class="status" id="dedStatus"></div>
       <div class="report" id="dedReport">
         <h3>Deduplication report</h3>
@@ -823,17 +1270,17 @@ PAGE = r"""<!DOCTYPE html>
       <!-- Step 1: Paste XMLs -->
       <div class="cdfix-step">
         <div class="cdfix-step-head">
-          <span class="cdfix-step-num">1</span>
+          <span class="cdfix-step-num">Step 1</span>
           <div>
-            <div class="cdfix-step-title">Paste your Base and Modified Context Definitions</div>
-            <div class="cdfix-step-sub">Base = the org you are deploying TO (e.g. QA). Modified = the org with your new fields (e.g. dev sandbox).</div>
+            <div class="cdfix-step-title">Input Context Definitions</div>
+            <div class="cdfix-step-sub">Paste the Base and Modified Context Definition XML files.</div>
           </div>
           <button class="ghost" id="cdfClearAll" style="margin-left:auto;">Clear All</button>
         </div>
         <div class="panes cdf-editor-grid">
           <div class="xpane">
             <div class="xpane-head">
-              <span class="ttl">Base Context Definition <span class="badge base">BASE</span></span>
+              <span class="ttl">Base Context Definition <span class="badge base">Base</span></span>
               <div class="mini">
                 <button class="ghost" id="cdfBasePasteBtn" data-paste="cdfBase">Paste</button>
                 <button class="ghost" id="cdfBaseCopyBtn" data-copy="cdfBase">Copy</button>
@@ -843,13 +1290,15 @@ PAGE = r"""<!DOCTYPE html>
             <div class="xpane-body"><div class="ln-gutter" id="ln-cdfBase"></div><textarea id="cdfBase" placeholder="Paste the BASE Context Definition XML here.&#10;Use the target org version—the tool will not delete its existing entries." spellcheck="false"></textarea></div>
           </div>
           <div class="cdf-diff-indicator" id="cdfDiffIndicator" aria-live="polite">
-            <span class="cdf-diff-arrow">↔</span>
-            <strong id="cdfDiffCount">—</strong>
-            <small>changes</small>
+            <span class="cdf-diff-arrow"><svg viewBox="0 0 24 24"><path d="M20 7h-9a5 5 0 0 0-5 5v1M4 17h9a5 5 0 0 0 5-5v-1M16 3l4 4-4 4M8 13l-4 4 4 4"/></svg></span>
+            <div class="cdf-rail-total"><strong id="cdfDiffCount">—</strong><small>Total changes</small></div>
+            <div class="cdf-rail-metric added"><span class="cdf-rail-icon"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span><b id="cdfRailAdded">—</b><span>Added</span></div>
+            <div class="cdf-rail-metric updated"><span class="cdf-rail-icon"><svg viewBox="0 0 24 24"><path d="m4 20 4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z"/></svg></span><b id="cdfRailUpdated">—</b><span>Updated</span></div>
+            <div class="cdf-rail-metric base-only"><span class="cdf-rail-icon"><svg viewBox="0 0 24 24"><path d="M12 3 4 6v5c0 5 3.3 8.2 8 10 4.7-1.8 8-5 8-10V6l-8-3Z"/></svg></span><b id="cdfRailBaseOnly">—</b><span>Base only</span></div>
           </div>
           <div class="xpane">
             <div class="xpane-head">
-              <span class="ttl">Modified Context Definition</span>
+              <span class="ttl">Modified Context Definition <span class="badge modified">Modified</span></span>
               <div class="mini">
                 <button class="ghost" id="cdfModPasteBtn" data-paste="cdfMod">Paste</button>
                 <button class="ghost" id="cdfModCopyBtn" data-copy="cdfMod">Copy</button>
@@ -864,12 +1313,14 @@ PAGE = r"""<!DOCTYPE html>
       <!-- Step 2 trigger -->
       <div class="cdfix-step" style="margin-top:14px;">
         <div class="cdfix-step-head">
-          <span class="cdfix-step-num">2</span>
+          <span class="cdfix-step-num">Step 2</span>
           <div>
-            <div class="cdfix-step-title">Discover what Modified adds beyond Base</div>
-            <div class="cdfix-step-sub">Finds every contextAttributeMapping and contextAttribute present in Modified but absent in Base.</div>
+            <div class="cdfix-step-title">Review Additions and Value Changes</div>
+            <div class="cdfix-step-sub">Analyze Context Mappings, Context Attributes, and Required Parent Blocks while preserving Base.</div>
           </div>
-          <button class="action b-cdfix" id="cdfAnalyzeBtn" style="margin-left:auto;">Analyze Differences</button>
+        </div>
+        <div class="primary-action-row">
+          <button class="action b-cdfix" id="cdfAnalyzeBtn">Analyze Differences</button>
         </div>
         <div class="status" id="cdfAnalyzeStatus"></div>
       </div>
@@ -884,10 +1335,22 @@ PAGE = r"""<!DOCTYPE html>
           <span class="diag-version" id="cdfDiagVersions"></span>
         </div>
         <div class="diag-metrics">
-          <div><span>Base lines</span><strong id="cdfDiagBaseLines">0</strong></div>
-          <div><span>Modified lines</span><strong id="cdfDiagModifiedLines">0</strong></div>
-          <div><span>Line difference</span><strong id="cdfDiagLineDelta">0</strong></div>
-          <div><span>Business items missing</span><strong id="cdfDiagBusinessRemoved">0</strong></div>
+          <div class="diag-metric-card">
+            <span class="diag-metric-icon"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6zM14 3v5h5M9 12h7M9 16h7"/></svg></span>
+            <div><span>Base lines</span><strong id="cdfDiagBaseLines">0</strong></div>
+          </div>
+          <div class="diag-metric-card">
+            <span class="diag-metric-icon"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6zM14 3v5h5M9 12h7M9 16h5"/></svg></span>
+            <div><span>Modified lines</span><strong id="cdfDiagModifiedLines">0</strong></div>
+          </div>
+          <div class="diag-metric-card metric-difference">
+            <span class="diag-metric-icon"><svg viewBox="0 0 24 24"><path d="M5 8h14M15 4l4 4-4 4M19 16H5M9 12l-4 4 4 4"/></svg></span>
+            <div><span>Line difference</span><strong id="cdfDiagLineDelta">0</strong></div>
+          </div>
+          <div class="diag-metric-card">
+            <span class="diag-metric-icon"><svg viewBox="0 0 24 24"><path d="M4 7h16v13H4zM8 7V4h8v3M9 12h6"/></svg></span>
+            <div><span>Business items missing</span><strong id="cdfDiagBusinessRemoved">0</strong></div>
+          </div>
         </div>
         <div class="diag-explanation" id="cdfDiagExplanation"></div>
         <div class="diag-tabs" id="cdfDiagTabs">
@@ -903,24 +1366,23 @@ PAGE = r"""<!DOCTYPE html>
       <div class="cdfix-select" id="cdfSelectPanel">
         <div class="cdfix-sel-head">
           <span id="cdfSelHeadText">Select fields to include</span>
-          <span id="cdfSelCount" style="font-size:12px;opacity:.85;"></span>
         </div>
         <div class="cdfix-sel-body">
           <div class="cdfix-metrics" id="cdfMetrics">
-            <div class="metric-card metric-all"><strong id="cdfMetricAll">0</strong><span>Total changes</span></div>
-            <div class="metric-card metric-map"><strong id="cdfMetricMappings">0</strong><span>Mappings</span></div>
-            <div class="metric-card metric-node"><strong id="cdfMetricNodes">0</strong><span>Node attributes</span></div>
-            <div class="metric-card metric-error"><strong id="cdfMetricErrors">0</strong><span>Parent blocks</span></div>
+            <div class="metric-card metric-all"><span class="metric-card-icon"><svg viewBox="0 0 24 24"><path d="M5 6h14M5 12h14M5 18h9"/></svg></span><strong id="cdfMetricAll">0</strong><span>Total changes</span></div>
+            <div class="metric-card metric-map"><span class="metric-card-icon"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/></svg></span><strong id="cdfMetricMappings">0</strong><span>Context Mappings</span></div>
+            <div class="metric-card metric-node"><span class="metric-card-icon"><svg viewBox="0 0 24 24"><path d="M4 6h11l5 5-9 9-7-7V6Z"/><circle cx="9" cy="11" r="1"/></svg></span><strong id="cdfMetricNodes">0</strong><span>Context Attributes</span></div>
+            <div class="metric-card metric-error"><span class="metric-card-icon"><svg viewBox="0 0 24 24"><path d="m4 7 8-4 8 4-8 4-8-4Zm0 0v10l8 4 8-4V7M12 11v10"/></svg></span><strong id="cdfMetricErrors">0</strong><span>Required Parent Blocks</span></div>
           </div>
           <div class="cdfix-data-toolbar">
-            <label class="cdfix-search"><span>⌕</span><input id="cdfSearch" type="search" placeholder="Search fields, mappings, nodes…" /></label>
+            <label class="cdfix-search"><span>⌕</span><input id="cdfSearch" type="search" placeholder="Search fields, Context Mappings, Context Attributes…" /></label>
             <div class="cdfix-filters" id="cdfFilters">
               <button class="filter-chip active" data-cdf-filter="all">All</button>
               <button class="filter-chip" data-cdf-filter="ready">Ready</button>
-              <button class="filter-chip" data-cdf-filter="errors">Parent blocks</button>
+              <button class="filter-chip" data-cdf-filter="errors">Required Parent Blocks</button>
               <button class="filter-chip" data-cdf-filter="updates">Value changes</button>
-              <button class="filter-chip" data-cdf-filter="mapping">Mappings</button>
-              <button class="filter-chip" data-cdf-filter="nodeAttr">Node attrs</button>
+              <button class="filter-chip" data-cdf-filter="mapping">Context Mappings</button>
+              <button class="filter-chip" data-cdf-filter="nodeAttr">Context Attributes</button>
               <button class="filter-chip" data-cdf-filter="selected">Selected</button>
             </div>
           </div>
@@ -929,14 +1391,15 @@ PAGE = r"""<!DOCTYPE html>
             <button class="ghost" id="cdfSelNone">Deselect all</button>
             <button class="ghost" id="cdfExpandAll">Expand all</button>
             <button class="ghost" id="cdfCollapseAll">Collapse all</button>
+            <span class="cdfix-selection-count" id="cdfSelCount">Total: 0 · Selected: 0</span>
           </div>
           <div class="cdfix-data-layout">
             <div id="cdfFieldList"></div>
-            <aside class="cdfix-detail" id="cdfDetail">
+            <aside class="cdfix-detail" id="cdfDetail" tabindex="-1">
               <div class="cdfix-detail-empty">
                 <span>⌁</span>
-                <strong>Select an addition</strong>
-                <p>Choose a row to inspect its mapping path and XML preview.</p>
+                <strong>Select a Context Definition change</strong>
+                <p>Choose a row to inspect its Revenue Cloud path and XML preview.</p>
               </div>
             </aside>
           </div>
@@ -946,18 +1409,20 @@ PAGE = r"""<!DOCTYPE html>
       <!-- Step 4: Build -->
       <div class="cdfix-step hidden" id="cdfBuildStep">
         <div class="cdfix-step-head">
-          <span class="cdfix-step-num">3</span>
+          <span class="cdfix-step-num">Step 3</span>
           <div>
-            <div class="cdfix-step-title">Build the patched Context Definition</div>
+            <div class="cdfix-step-title">Build Context Definition</div>
             <div class="cdfix-step-sub">Applies selected fields and complete required parent blocks on top of Base. Every structural addition is listed in the report.</div>
           </div>
-          <button class="action b-cdfix" id="cdfBuildBtn" style="margin-left:auto;">Build Context Definition</button>
+        </div>
+        <div class="primary-action-row build-action-row">
+          <button class="action b-cdfix" id="cdfBuildBtn">Build Context Definition</button>
         </div>
 
         <div class="panes" style="margin-top:14px;">
           <div class="xpane">
             <div class="xpane-head">
-              <span class="ttl">Patched result <span class="badge out">OUTPUT</span></span>
+              <span class="ttl">Patched Result <span class="badge out">Output</span></span>
               <div class="mini">
                 <button class="ghost" id="cdfCopyBtn">Copy</button>
                 <button class="ghost" id="cdfDownloadBtn">Download</button>
@@ -970,7 +1435,7 @@ PAGE = r"""<!DOCTYPE html>
 
         <div class="status" id="cdfBuildStatus"></div>
         <div class="report" id="cdfReport">
-          <h3>Apply report</h3>
+          <h3><svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6zM14 3v5h5M9 12h7M9 16h7"/></svg>Apply Report</h3>
           <div class="report-summary" id="cdfReportSummary">
             <div><strong id="cdfReportAdded">0</strong><span>Added</span></div>
             <div><strong id="cdfReportUpdated">0</strong><span>Updated</span></div>
@@ -1005,6 +1470,9 @@ PAGE = r"""<!DOCTYPE html>
     search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
     compare: '<path d="M8 5H4v14h4M16 5h4v14h-4M10 8l-3 4 3 4m4-8 3 4-3 4"/>',
     merge: '<path d="M6 3v6a6 6 0 0 0 6 6h6M6 21v-5a6 6 0 0 1 6-6h6M15 7l3 3-3 3"/>',
+    mapping: '<path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/>',
+    attribute: '<path d="M4 6h11l5 5-9 9-7-7V6Z"/><circle cx="9" cy="11" r="1"/>',
+    parentBlock: '<path d="m4 7 8-4 8 4-8 4-8-4Zm0 0v10l8 4 8-4V7M12 11v10"/>',
     sparkles: '<path d="m12 3 1.2 3.3L16.5 7.5l-3.3 1.2L12 12l-1.2-3.3-3.3-1.2 3.3-1.2L12 3ZM5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14Zm13-2 .8 2.2 2.2.8-2.2.8L18 18l-.8-2.2L15 15l2.2-.8L18 12Z"/>',
     selectAll: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="m8 12 3 3 5-6"/>',
     deselectAll: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12h8"/>',
@@ -1060,7 +1528,7 @@ PAGE = r"""<!DOCTYPE html>
     const pane = ta.closest('.xpane');
     const status = document.createElement('div');
     status.className = 'editor-status';
-    status.innerHTML = '<span class="format">XML</span><span data-lines></span><span data-chars></span><span class="waiting" data-validity>Awaiting XML</span>';
+    status.innerHTML = '<span class="format">XML</span><span data-lines></span><span class="waiting" data-validity>Awaiting XML</span>';
     pane.appendChild(status);
     let validityTimer, validityVersion = 0, totalLines = 1;
     function countLines(text) {
@@ -1069,7 +1537,7 @@ PAGE = r"""<!DOCTYPE html>
       return count;
     }
     function renderVisibleLines() {
-      const lineHeight = 19;
+      const lineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 21;
       const first = Math.max(0, Math.floor(ta.scrollTop / lineHeight));
       const visible = Math.ceil((ta.clientHeight || 420) / lineHeight) + 2;
       const last = Math.min(totalLines, first + visible);
@@ -1095,7 +1563,6 @@ PAGE = r"""<!DOCTYPE html>
       totalLines = ta.value ? countLines(ta.value) : 1;
       renderVisibleLines();
       status.querySelector('[data-lines]').textContent = `${totalLines.toLocaleString()} lines`;
-      status.querySelector('[data-chars]').textContent = `${ta.value.length.toLocaleString()} characters`;
       clearTimeout(validityTimer);
       const version = ++validityVersion;
       const delay = ta.value.length > 200000 ? 900 : 300;
@@ -1118,7 +1585,11 @@ PAGE = r"""<!DOCTYPE html>
   const themeBtn = $("themeBtn");
   function applyThemeLabel() {
     const t = document.documentElement.getAttribute("data-theme") || "light";
-    themeBtn.innerHTML = buttonIcon(t === "light" ? "moon" : "sun") + (t === "light" ? "Night mode" : "Day mode");
+    const dark = t === "dark";
+    themeBtn.classList.toggle("is-dark", dark);
+    themeBtn.setAttribute("aria-label", dark ? "Switch to day mode" : "Switch to night mode");
+    themeBtn.innerHTML = buttonIcon(dark ? "sun" : "moon") +
+      '<span class="theme-switch" aria-hidden="true"></span>';
   }
   themeBtn.onclick = () => {
     const cur = document.documentElement.getAttribute("data-theme") || "light";
@@ -1489,6 +1960,8 @@ PAGE = r"""<!DOCTYPE html>
   const cdfDetail       = $("cdfDetail"),          cdfSearch = $("cdfSearch");
   const cdfTimeline     = $("cdfTimeline"),        cdfTimelineToggle = $("cdfTimelineToggle");
   const cdfDiffCount    = $("cdfDiffCount"),       cdfDiffIndicator = $("cdfDiffIndicator");
+  const cdfRailAdded    = $("cdfRailAdded"),        cdfRailUpdated = $("cdfRailUpdated");
+  const cdfRailBaseOnly = $("cdfRailBaseOnly");
   const cdfDiagnostics  = $("cdfDiagnostics"),     cdfDiagList = $("cdfDiagList");
 
   let _cdfItems = [];   // raw analysis results stored between steps
@@ -1497,6 +1970,7 @@ PAGE = r"""<!DOCTYPE html>
   let _cdfItemCheckboxes = [];
   let _cdfCards = [];
   let _cdfActiveCard = null;
+  let _cdfActiveItem = null;
   let _cdfTimelineEntries = [];
   let _cdfTimelineExpanded = false;
   let _cdfDiagnostics = null;
@@ -1507,7 +1981,7 @@ PAGE = r"""<!DOCTYPE html>
       ta.value = "";
       if (_lnRefresh[ta.id]) _lnRefresh[ta.id]();
     });
-    _cdfItems = []; _cdfById = new Map(); _cdfItemCheckboxes = []; _cdfCards = []; _cdfActiveCard = null;
+    _cdfItems = []; _cdfById = new Map(); _cdfItemCheckboxes = []; _cdfCards = []; _cdfActiveCard = null; _cdfActiveItem = null;
     cdfFieldList.innerHTML = "";
     cdfSelectPanel.classList.remove("show");
     cdfBuildStep.classList.add("hidden");
@@ -1516,6 +1990,7 @@ PAGE = r"""<!DOCTYPE html>
     _cdfDiagnostics = null;
     [cdfAnalyzeStatus,cdfBuildStatus].forEach(el => { el.className = "status"; el.textContent = ""; });
     cdfDiffCount.textContent = "—";
+    [cdfRailAdded,cdfRailUpdated,cdfRailBaseOnly].forEach(el => { el.textContent = "—"; });
     cdfDiffIndicator.classList.remove("has-diffs");
   };
 
@@ -1578,6 +2053,9 @@ PAGE = r"""<!DOCTYPE html>
     $("cdfDiagRemovedCount").textContent = Number(_cdfDiagnostics.removedCount || 0).toLocaleString();
     $("cdfDiagAddedCount").textContent = Number(_cdfDiagnostics.addedCount || 0).toLocaleString();
     $("cdfDiagChangedCount").textContent = Number(_cdfDiagnostics.changedCount || 0).toLocaleString();
+    cdfRailAdded.textContent = Number(_cdfDiagnostics.addedCount || 0).toLocaleString();
+    cdfRailUpdated.textContent = Number(_cdfDiagnostics.changedCount || 0).toLocaleString();
+    cdfRailBaseOnly.textContent = Number(_cdfDiagnostics.removedCount || 0).toLocaleString();
     cdfDiagnostics.classList.add("show");
     cdfRenderDiagnosticList("removed");
   }
@@ -1590,13 +2068,14 @@ PAGE = r"""<!DOCTYPE html>
     const total   = _cdfItems.length;
     let checked = 0;
     for (const cb of _cdfItemCheckboxes) if (cb.checked) checked++;
-    cdfSelCount.textContent = `${checked} / ${total} selected`;
+    cdfSelCount.textContent = `Total: ${total.toLocaleString()} · Selected: ${checked.toLocaleString()}`;
     if (_cdfFilter === 'selected') cdfApplyFilters();
   }
 
   function cdfShowDetail(id) {
     const it = _cdfById.get(id);
     if (!it) return;
+    _cdfActiveItem = it;
     if (_cdfActiveCard) _cdfActiveCard.classList.remove('is-active');
     _cdfActiveCard = _cdfCards.find(card => card.dataset.cardId === id) || null;
     if (_cdfActiveCard) _cdfActiveCard.classList.add('is-active');
@@ -1621,22 +2100,32 @@ PAGE = r"""<!DOCTYPE html>
     const parentNote = isParentBlock
       ? `<div class="cdfix-parent-help"><strong>Full-block patch:</strong> ${esc(it.parentPatchMessage || '')}</div>`
       : '';
+    const preserveNote = isUpdate && (it.preservedBaseFields || []).length
+      ? `<div class="cdfix-parent-help"><strong>Base protected:</strong> Modified omits ${esc(it.preservedBaseFields.join(', '))}; Step 3 will preserve it from Base.</div>`
+      : '';
     const changeDetails = isUpdate
       ? `<div class="detail-row"><span>Current Base value</span><code>${esc(it.beforeField || 'Existing XML definition')}</code></div>` +
         `<div class="detail-row"><span>Modified value</span><code>${esc(it.afterField || 'Modified XML definition')}</code></div>`
       : '';
-    const badgeLabel = isParentBlock ? 'Parent Block' : isMapping ? 'Mapping' : 'Node Attr';
+    const badgeLabel = isParentBlock ? 'Required Parent Block' : isMapping ? 'Context Mapping' : 'Context Attribute';
+    const badgeIcon = isParentBlock ? 'parentBlock' : isMapping ? 'mapping' : 'attribute';
     cdfDetail.innerHTML =
       `<div class="cdfix-detail-head">` +
-        `<span class="cdfix-tbadge ${isMapping ? 'cdfix-tbadge-m' : 'cdfix-tbadge-n'}">${badgeLabel}</span>` +
+        `<span class="cdfix-tbadge ${isMapping ? 'cdfix-tbadge-m' : 'cdfix-tbadge-n'}">${buttonIcon(badgeIcon)}${badgeLabel}</span>` +
         `<h4>${esc(name)}</h4><p>${isParentBlock ? 'Ready — Step 3 will copy the complete required block' : isUpdate ? 'Ready — Step 3 will replace the selected Base definition' : 'Ready to apply'}</p>` +
       `</div><div class="cdfix-detail-body">` +
         `<div class="detail-row"><span>Location</span><code>${esc(location)}</code></div>` +
         (it.fieldInfo ? `<div class="detail-row"><span>Source</span><code>${esc(it.fieldInfo)}</code></div>` : '') +
         changeDetails +
         `<div class="detail-row"><span>XML preview</span><pre class="detail-preview">${esc(preview)}</pre></div>` +
-        parentNote +
+        parentNote + preserveNote +
       `</div>`;
+    cdfDetail.scrollTop = 0;
+    cdfDetail.classList.remove('context-flash');
+    requestAnimationFrame(() => cdfDetail.classList.add('context-flash'));
+    setTimeout(() => cdfDetail.classList.remove('context-flash'), 650);
+    try { cdfDetail.focus({ preventScroll:true }); } catch (e) {}
+    cdfHighlightTimeline(it, cdfReport.classList.contains('show'));
   }
 
   function cdfApplyFilters() {
@@ -1684,8 +2173,8 @@ PAGE = r"""<!DOCTYPE html>
       if (old) old.remove();
       actBar.insertAdjacentHTML('beforeend',
         `<div class="cdfix-legend">` +
-        (nM ? `<span class="cdfix-legend-item"><span class="cdfix-legend-dot" style="background:var(--teal)"></span>${nM} mapping${nM>1?'s':''}</span>` : '') +
-        (nN ? `<span class="cdfix-legend-item"><span class="cdfix-legend-dot" style="background:var(--purple)"></span>${nN} node attr${nN>1?'s':''}</span>` : '') +
+        (nM ? `<span class="cdfix-legend-item"><span class="cdfix-legend-dot" style="background:var(--teal)"></span>${nM} Context Mapping${nM>1?'s':''}</span>` : '') +
+        (nN ? `<span class="cdfix-legend-item"><span class="cdfix-legend-dot" style="background:var(--purple)"></span>${nN} Context Attribute${nN>1?'s':''}</span>` : '') +
         `</div>`);
     }
 
@@ -1694,7 +2183,7 @@ PAGE = r"""<!DOCTYPE html>
       const grpId = 'grp_' + grpKey.replace(/\W/g, '_');
       const mC = grpItems.filter(i => ['mapping','mappingBlock','nodeMappingBlock'].includes(i.type)).length;
       const nC = grpItems.filter(i => ['nodeAttr','contextNodeBlock'].includes(i.type)).length;
-      const meta = [mC && `${mC} mapping${mC>1?'s':''}`, nC && `${nC} node attr${nC>1?'s':''}`].filter(Boolean).join(' · ');
+      const meta = [mC && `${mC} Context Mapping${mC>1?'s':''}`, nC && `${nC} Context Attribute${nC>1?'s':''}`].filter(Boolean).join(' · ');
 
       // ── Group header ────────────────────────────────────────────────────────
       html += `<div class="cdfix-group">` +
@@ -1717,8 +2206,8 @@ PAGE = r"""<!DOCTYPE html>
 
         // Row 1 pieces
         const tbadge = isM
-          ? `<span class="cdfix-tbadge cdfix-tbadge-m">${isParentBlock ? 'Parent Block' : 'Mapping'}</span>`
-          : `<span class="cdfix-tbadge cdfix-tbadge-n">${isParentBlock ? 'Parent Block' : 'Node Attr'}</span>`;
+          ? `<span class="cdfix-tbadge cdfix-tbadge-m">${buttonIcon(isParentBlock ? 'parentBlock' : 'mapping')}${isParentBlock ? 'Required Parent Block' : 'Context Mapping'}</span>`
+          : `<span class="cdfix-tbadge cdfix-tbadge-n">${buttonIcon(isParentBlock ? 'parentBlock' : 'attribute')}${isParentBlock ? 'Required Parent Block' : 'Context Attribute'}</span>`;
         const warn = isParentBlock
           ? `<span class="cdfix-parenttag" title="Step 3 copies this complete required block">Full block patch</span>`
           : isUpdate
@@ -1727,7 +2216,9 @@ PAGE = r"""<!DOCTYPE html>
         const parentHelp = isParentBlock
           ? `<div class="cdfix-parent-help"><strong>Will be applied in Step 3:</strong> ` +
             `${esc(it.parentPatchMessage || 'The complete required block will be copied from Modified into Base.')}</div>`
-          : '';
+          : isUpdate && (it.preservedBaseFields || []).length
+            ? `<div class="cdfix-parent-help"><strong>Base protected:</strong> Preserving ${esc(it.preservedBaseFields.join(', '))} because Modified omits it.</div>`
+            : '';
 
         // Row 2: location breadcrumb
         const segs = isM
@@ -1843,6 +2334,23 @@ PAGE = r"""<!DOCTYPE html>
     };
   });
 
+  function cdfHighlightTimeline(item, shouldScroll) {
+    const rows = [...cdfTimeline.querySelectorAll('.timeline-item')];
+    rows.forEach(row => row.classList.remove('is-context-match'));
+    if (!item || !rows.length) return;
+    const tokens = [item.attrName,item.attrTitle,item.mappingTitle,item.nodeName,item.contextNode,item.object,
+      item.beforeField,item.afterField].filter(value => String(value || '').trim().length > 2)
+      .map(value => String(value).toLowerCase());
+    let match = null, bestScore = 0;
+    rows.forEach(row => {
+      const text = row.textContent.toLowerCase();
+      const score = tokens.reduce((total, token) => total + (text.includes(token) ? 1 : 0), 0);
+      if (score > bestScore) { bestScore = score; match = row; }
+    });
+    if (!match) return;
+    match.classList.add('is-context-match');
+  }
+
   function paintCdfTimeline() {
     const visible = _cdfTimelineExpanded ? _cdfTimelineEntries : _cdfTimelineEntries.slice(0, 6);
     cdfTimeline.innerHTML = visible.map(line => {
@@ -1855,6 +2363,7 @@ PAGE = r"""<!DOCTYPE html>
       return `<div class="timeline-item ${kind}"><span class="timeline-icon">${icon}</span>` +
         `<div class="timeline-copy"><strong>${esc(label)}</strong><span>${esc(detail)}</span></div></div>`;
     }).join('');
+    cdfHighlightTimeline(_cdfActiveItem, false);
     cdfTimelineToggle.classList.toggle('hidden', _cdfTimelineEntries.length <= 6);
     cdfTimelineToggle.innerHTML = buttonIcon(_cdfTimelineExpanded ? 'collapse' : 'expand') +
       (_cdfTimelineExpanded ? 'Show quick view' : `Show all ${_cdfTimelineEntries.length} details`);
@@ -1885,6 +2394,7 @@ PAGE = r"""<!DOCTYPE html>
     }
     busy(cdfAnalyzeBtn, "Analyzing…");
     cdfDiffCount.textContent = "…";
+    [cdfRailAdded,cdfRailUpdated,cdfRailBaseOnly].forEach(el => { el.textContent = "…"; });
     cdfDiffIndicator.classList.remove("has-diffs");
     cdfSelectPanel.classList.remove("show");
     cdfBuildStep.classList.add("hidden");
@@ -1897,6 +2407,7 @@ PAGE = r"""<!DOCTYPE html>
 
     if (!data.ok) {
       cdfDiffCount.textContent = "—";
+      [cdfRailAdded,cdfRailUpdated,cdfRailBaseOnly].forEach(el => { el.textContent = "—"; });
       setStatus(cdfAnalyzeStatus, "err", data.log || "Analysis failed.");
       return;
     }
@@ -1910,7 +2421,7 @@ PAGE = r"""<!DOCTYPE html>
     cdfDiffCount.textContent = data.items.length.toLocaleString();
     cdfDiffIndicator.classList.add("has-diffs");
     setStatus(cdfAnalyzeStatus, "ok", data.summary);
-    cdfSelHeadText.textContent = "Step 2 — Select additions, value changes, and required parent blocks";
+    cdfSelHeadText.textContent = "Review Context Definition additions, value changes, and Required Parent Blocks";
     cdfRenderItems(data.items);
     cdfSelectPanel.classList.add("show");
     cdfBuildStep.classList.remove("hidden");
