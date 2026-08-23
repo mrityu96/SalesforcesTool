@@ -756,6 +756,35 @@ def _cd_get_attr_mapping(node_mapping: Element, attr_name: str) -> Element | Non
     return None
 
 
+def _cd_mapping_destination(cam: Element) -> tuple[tuple[str, str], ...] | None:
+    """Return the object/field hydration path written by an attribute mapping."""
+    current = cam.find(_ns("contextAttrHydrationDetails"))
+    if current is None:
+        return None
+    path: list[tuple[str, str]] = []
+    while current is not None:
+        path.append((
+            _child_text(current, "objectName") or "",
+            _child_text(current, "queryAttribute") or "",
+        ))
+        current = current.find(_ns("contextAttrHydrationDetails"))
+    return tuple(path) if any(obj or field for obj, field in path) else None
+
+
+def _cd_get_attr_mapping_by_destination(
+        node_mapping: Element, target: Element) -> Element | None:
+    """Find a differently named context attribute mapped to target's destination."""
+    destination = _cd_mapping_destination(target)
+    if destination is None:
+        return None
+    target_attr = _child_text(target, "contextAttribute")
+    for cam in node_mapping.findall(_ns("contextAttributeMappings")):
+        if (_child_text(cam, "contextAttribute") != target_attr
+                and _cd_mapping_destination(cam) == destination):
+            return cam
+    return None
+
+
 def _cd_has_attr_mapping(node_mapping: Element, attr_name: str) -> bool:
     return _cd_get_attr_mapping(node_mapping, attr_name) is not None
 
@@ -769,6 +798,28 @@ def _cd_get_context_attr(context_node: Element, title: str) -> Element | None:
 
 def _cd_has_context_attr(context_node: Element, title: str) -> bool:
     return _cd_get_context_attr(context_node, title) is not None
+
+
+def _cd_context_attr_tags(context_attr: Element) -> set[str]:
+    return {
+        _child_text(tag, "title")
+        for tag in context_attr.findall(_ns("contextTags"))
+        if _child_text(tag, "title")
+    }
+
+
+def _cd_context_tag_conflicts(
+        versions: Element, target: Element) -> list[tuple[str, Element, Element]]:
+    """Return global tags already owned by existing context attributes."""
+    target_tags = _cd_context_attr_tags(target)
+    if not target_tags:
+        return []
+    conflicts: list[tuple[str, Element, Element]] = []
+    for node in versions.findall(_ns("contextNodes")):
+        for context_attr in node.findall(_ns("contextAttributes")):
+            for shared_tag in target_tags & _cd_context_attr_tags(context_attr):
+                conflicts.append((shared_tag, node, context_attr))
+    return conflicts
 
 
 def _cd_field_info(cam: Element) -> str:
@@ -824,6 +875,22 @@ def _cd_normalize_serializer_fields(root: Element) -> dict:
         "localizationDefaults": localization_defaults,
         "rootFields": root_fields,
     }
+
+
+def _cd_strip_org_specific_hydration_ids(root: Element) -> list[str]:
+    """Remove source-org record IDs that cannot resolve in another org."""
+    removed: list[str] = []
+    for attr_mapping in root.iter():
+        if _local(attr_mapping.tag) != "contextAttributeMappings":
+            continue
+        for hydration_ctx in list(attr_mapping.findall(_ns("ctxAttrHydrationCtxs"))):
+            value = _child_text(hydration_ctx, "contextQueryAttribute") or ""
+            if (len(value) in {15, 18} and value.isalnum()
+                    and any(char.isalpha() for char in value)
+                    and any(char.isdigit() for char in value)):
+                attr_mapping.remove(hydration_ctx)
+                removed.append(value)
+    return removed
 
 
 def _cd_semantic_signature(elem: Element, skip_children: set[str] | None = None) -> str:
@@ -942,6 +1009,17 @@ def _cd_overlay_update(base_elem: Element, modified_elem: Element) -> tuple[Elem
             insert_at_modified_position(tag, mod_children)
 
     return result, sorted(set(preserved))
+
+
+def _cd_overlay_context_attr_update(
+        base_elem: Element, modified_elem: Element) -> tuple[Element, list[str]]:
+    """Overlay a context attribute without changing its immutable schema."""
+    safe_modified = copy.deepcopy(modified_elem)
+    immutable_fields = {"dataType", "fieldType", "key", "transient"}
+    for child in list(safe_modified):
+        if _local(child.tag) in immutable_fields:
+            safe_modified.remove(child)
+    return _cd_overlay_update(base_elem, safe_modified)
 
 
 def _cd_diag_indexes(versions: Element) -> dict[str, dict[tuple, Element]]:
@@ -1175,6 +1253,7 @@ def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
         mod_root  = _parse(modified_text, "Modified")
     except (ValueError, ET.ParseError) as exc:
         return {"ok": False, "log": str(exc)}
+    _cd_strip_org_specific_hydration_ids(mod_root)
 
     if _local(base_root.tag) != "ContextDefinition" or _local(mod_root.tag) != "ContextDefinition":
         return {"ok": False,
@@ -1255,6 +1334,11 @@ def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
                 if not attr:
                     continue
                 base_cam = _cd_get_attr_mapping(base_nm, attr)
+                replaced_attr = ""
+                if base_cam is None:
+                    base_cam = _cd_get_attr_mapping_by_destination(base_nm, cam)
+                    if base_cam is not None:
+                        replaced_attr = _child_text(base_cam, "contextAttribute") or ""
                 change_kind = "add"
                 before_field = ""
                 preserved_base_fields: list[str] = []
@@ -1265,6 +1349,9 @@ def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
                     change_kind = "update"
                     before_field = _cd_field_info(base_cam)
                     field_info = _cd_field_info(overlaid_cam)
+                    if replaced_attr:
+                        before_field = f"{replaced_attr} → {before_field or 'existing XML definition'}"
+                        field_info = f"{attr} → {field_info or 'modified XML definition'}"
                 else:
                     field_info = _cd_field_info(cam)
                 items.append({
@@ -1278,6 +1365,7 @@ def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
                     "beforeField":  before_field,
                     "afterField":   field_info,
                     "changeKind":   change_kind,
+                    "replacesAttr": replaced_attr,
                     "preservedBaseFields": preserved_base_fields,
                     "group":        _cd_group_key(attr),
                     "path":         f"{m_title} → {ctx_node} / {obj}",
@@ -1317,22 +1405,34 @@ def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
             if not ca_title:
                 continue
             base_ca = _cd_get_context_attr(base_cn, ca_title)
+            tag_conflicts: list[tuple[str, Element, Element]] = []
+            if base_ca is None:
+                tag_conflicts = _cd_context_tag_conflicts(base_ver, ca)
             change_kind = "add"
             preserved_base_fields: list[str] = []
             if base_ca is not None:
-                overlaid_ca, preserved_base_fields = _cd_overlay_update(base_ca, ca)
+                overlaid_ca, preserved_base_fields = _cd_overlay_context_attr_update(base_ca, ca)
                 if _cd_semantic_signature(base_ca) == _cd_semantic_signature(overlaid_ca):
                     continue
                 change_kind = "update"
+            conflict_description = ", ".join(
+                f"{tag} owned by {_child_text(owner_node, 'title')}/"
+                f"{_child_text(owner_attr, 'title')}"
+                for tag, owner_node, owner_attr in tag_conflicts
+            )
             items.append({
                 "id":        f"ca\x1f{cn_title}\x1f{ca_title}",
                 "type":      "nodeAttr",
                 "nodeName":  cn_title,
                 "attrTitle": ca_title,
                 "fieldInfo": "",
-                "beforeField": "",
-                "afterField": "",
+                "beforeField": conflict_description,
+                "afterField": (
+                    f"{cn_title}/{ca_title} without duplicate context tag"
+                    if tag_conflicts else ""
+                ),
                 "changeKind": change_kind,
+                "conflictingTags": [tag for tag, _, _ in tag_conflicts],
                 "preservedBaseFields": preserved_base_fields,
                 "group":     _cd_group_key(ca_title),
                 "path":      f"contextNodes[{cn_title}]",
@@ -1373,6 +1473,7 @@ def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict
         mod_root  = _parse(modified_text, "Modified")
     except (ValueError, ET.ParseError) as exc:
         return {"ok": False, "log": str(exc)}
+    omitted_hydration_ids = _cd_strip_org_specific_hydration_ids(mod_root)
 
     base_ver = _cd_get_versions(base_root)
     mod_ver  = _cd_get_versions(mod_root)
@@ -1496,6 +1597,11 @@ def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict
                     skipped += 1
                     continue
                 base_cam = _cd_get_attr_mapping(base_nm, attr)
+                replaced_attr = ""
+                if base_cam is None:
+                    base_cam = _cd_get_attr_mapping_by_destination(base_nm, cam)
+                    if base_cam is not None:
+                        replaced_attr = _child_text(base_cam, "contextAttribute") or ""
                 if base_cam is not None:
                     overlaid_cam, preserved_fields = _cd_overlay_update(base_cam, cam)
                     if _cd_semantic_signature(base_cam) == _cd_semantic_signature(overlaid_cam):
@@ -1513,10 +1619,17 @@ def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict
                         f"; preserved Base-only: {', '.join(preserved_fields)}"
                         if preserved_fields else ""
                     )
-                    report_lines.append(
-                        f"  ~ updated: {attr}  [{m_title}/{ctx_node}/{obj}]  "
-                        f"{before_field} -> {after_field}{preserved_note}"
-                    )
+                    if replaced_attr:
+                        report_lines.append(
+                            f"  ~ replaced mapping: {replaced_attr} -> {attr}  "
+                            f"[{m_title}/{ctx_node}/{obj}]  "
+                            f"destination: {after_field}{preserved_note}"
+                        )
+                    else:
+                        report_lines.append(
+                            f"  ~ updated: {attr}  [{m_title}/{ctx_node}/{obj}]  "
+                            f"{before_field} -> {after_field}{preserved_note}"
+                        )
                     applied += 1
                     updated += 1
                     continue
@@ -1543,7 +1656,7 @@ def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict
                 continue
             base_ca = _cd_get_context_attr(base_cn, ca_title)
             if base_ca is not None:
-                overlaid_ca, preserved_fields = _cd_overlay_update(base_ca, ca)
+                overlaid_ca, preserved_fields = _cd_overlay_context_attr_update(base_ca, ca)
                 if _cd_semantic_signature(base_ca) == _cd_semantic_signature(overlaid_ca):
                     report_lines.append(
                         f"  ✓ no non-destructive change: {ca_title}  "
@@ -1565,11 +1678,28 @@ def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict
                 updated += 1
                 continue
             new_ca = copy.deepcopy(ca)
+            tag_conflicts = _cd_context_tag_conflicts(base_ver, new_ca)
+            conflicting_tags = {tag for tag, _, _ in tag_conflicts}
+            if conflicting_tags:
+                for context_tag in list(new_ca.findall(_ns("contextTags"))):
+                    if _child_text(context_tag, "title") in conflicting_tags:
+                        new_ca.remove(context_tag)
             children = list(base_cn)
             last_ca = max((i for i, ch in enumerate(children)
                            if _local(ch.tag) == "contextAttributes"), default=-1)
             base_cn.insert(last_ca + 1, new_ca)
-            report_lines.append(f"  + added: {ca_title}  [contextNodes/{cn_title}]")
+            if conflicting_tags:
+                owners = ", ".join(
+                    f"{tag} on {_child_text(owner_node, 'title')}/"
+                    f"{_child_text(owner_attr, 'title')}"
+                    for tag, owner_node, owner_attr in tag_conflicts
+                )
+                report_lines.append(
+                    f"  + added without duplicate tag: {ca_title}  "
+                    f"[contextNodes/{cn_title}]  preserved Base tag owner(s): {owners}"
+                )
+            else:
+                report_lines.append(f"  + added: {ca_title}  [contextNodes/{cn_title}]")
             applied += 1
 
     normalization = _cd_normalize_serializer_fields(base_root)
@@ -1585,6 +1715,11 @@ def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict
         report_lines.append(
             "  ✓ normalized: omitted API-incompatible root field(s): "
             + ", ".join(normalized_root_fields)
+        )
+    if omitted_hydration_ids:
+        report_lines.append(
+            f"  ✓ normalized: omitted {len(omitted_hydration_ids)} "
+            "source-org hydration ID reference(s)"
         )
 
     added = applied - updated
@@ -1608,6 +1743,7 @@ def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict
         "parentBlocks": parent_blocks,
         "normalizedDefaults": normalized_defaults,
         "normalizedRootFields": normalized_root_fields,
+        "omittedHydrationIds": len(omitted_hydration_ids),
     }
 
 
@@ -1617,6 +1753,24 @@ def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict
 
 APP_ID = "xml-tool"
 DEFAULT_PORT = int(os.environ.get("XML_UI_PORT", "8799"))
+STATIC_ASSETS = {
+    "/favicon-96x96.png": ("favicon-96x96.png", "image/png"),
+    "/favicon.svg": ("favicon.svg", "image/svg+xml"),
+    "/favicon.ico": ("favicon.ico", "image/x-icon"),
+    "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
+    "/site.webmanifest": ("site.webmanifest", "application/manifest+json"),
+    "/web-app-manifest-192x192.png": ("web-app-manifest-192x192.png", "image/png"),
+    "/web-app-manifest-512x512.png": ("web-app-manifest-512x512.png", "image/png"),
+}
+
+
+def _static_asset_path(filename: str) -> str:
+    """Resolve packaged browser assets for both supported launch locations."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    local_path = os.path.join(script_dir, filename)
+    if os.path.isfile(local_path):
+        return local_path
+    return os.path.abspath(os.path.join(script_dir, "..", "salesforce-xml-tool", filename))
 
 
 def _build_id() -> str:
@@ -1637,7 +1791,7 @@ class Handler(BaseHTTPRequestHandler):
     def _send(self, code, body, content_type="application/json"):
         if isinstance(body, (dict, list)):
             body = json.dumps(body)
-        data = body.encode("utf-8")
+        data = body if isinstance(body, bytes) else body.encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
@@ -1649,6 +1803,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if self.path == "/" or self.path.startswith("/?"):
                 self._send(200, PAGE, "text/html; charset=utf-8")
+            elif self.path in STATIC_ASSETS:
+                filename, content_type = STATIC_ASSETS[self.path]
+                with open(_static_asset_path(filename), "rb") as asset:
+                    self._send(200, asset.read(), content_type)
             elif self.path == "/api/ping":
                 self._send(200, {"app": APP_ID, "build": BUILD})
             else:
