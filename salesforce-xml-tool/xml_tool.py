@@ -1,1906 +1,2505 @@
 #!/usr/bin/env python3
-"""
-xml_tool.py — A tiny local web UI for Salesforce metadata XML comparison & merge.
-
-The user picks an operation, pastes XML, and clicks a button:
-    • Compare      — paste two XMLs, see a side-by-side diff + structural report
-    • Merge        — paste a Base XML and a Modified XML, choose which is the
-                     base, and get a single merged XML (with a one-click Copy)
-    • Deduplicate  — paste a Permission Set XML and remove duplicate entries
-
-Run it (or just double-click "Open XML Tool.command" on macOS):
-    python3 xml_tool.py
-
-It starts a local server on a stable port (127.0.0.1 only) and opens your
-browser. Only the Python standard library is used — nothing to install.
-"""
-
-from __future__ import annotations
-
-import copy
-import hashlib
-import json
-import os
-import socket
-import sys
-import threading
-import webbrowser
-from collections import Counter, OrderedDict
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from xml.etree.ElementTree import Element, tostring
-import xml.etree.ElementTree as ET
-
-# ───────────────────────────────────────────────────────────────────────
-# Configuration
-# ───────────────────────────────────────────────────────────────────────
-
-NS = "http://soap.sforce.com/2006/04/metadata"
-NS_PREFIX = f"{{{NS}}}"
-ET.register_namespace("", NS)
-
-# Child element(s) whose text values uniquely identify a repeating sibling.
-# Covers both Permission Sets / Profiles and Context Definitions so the merge
-# engine auto-adapts to whatever root it is given.
-IDENTITY_KEYS: dict[str, list[str]] = {
-    # ── Permission Set / Profile ──
-    "applicationVisibilities": ["application"],
-    "categoryGroupVisibilities": ["dataCategoryGroup"],
-    "classAccesses": ["apexClass"],
-    "customMetadataTypeAccesses": ["name"],
-    "customPermissions": ["name"],
-    "customSettingAccesses": ["name"],
-    "externalCredentialPrincipalAccesses": ["externalCredentialPrincipal"],
-    "externalDataSourceAccesses": ["externalDataSource"],
-    "fieldPermissions": ["field"],
-    "flowAccesses": ["flow"],
-    "objectPermissions": ["object"],
-    "pageAccesses": ["apexPage"],
-    "profileActionOverrides": ["actionName"],
-    "recordTypeVisibilities": ["recordType"],
-    "tabSettings": ["tab"],
-    "tabVisibilities": ["tab"],
-    "userPermissions": ["name"],
-    # ── Context Definition ──
-    "contextMappings": ["title"],
-    "contextNodes": ["title"],
-    "contextAttributes": ["title"],
-    "contextAttributeMappings": ["contextAttribute"],
-    "contextNodeMappings": ["contextNode", "object"],
-    "contextMappingIntents": ["mappingIntent"],
-    "contextTags": ["title"],
-    "contextDefinitionReferences": ["referenceContextDefinition"],
-    "ctxAttrHydrationCtxs": ["contextQueryAttribute"],
-    "contextAttrHydrationDetails": ["objectName", "queryAttribute"],
-}
-
-# Singleton containers that are deep-merged (recursed into) when both sides
-# share the same identity. Everything else with an identity is merged by key.
-DEEP_MERGE_TAGS: set[str] = {
-    "ContextDefinition",
-    "contextDefinitionVersions",
-    "contextMappings",
-    "contextNodeMappings",
-    "contextNodes",
-}
-
-# Scalars inside <contextDefinitionVersions> that ALWAYS come from the BASE.
-VERSION_METADATA_TAGS: set[str] = {"versionNumber", "startDate", "isActive"}
-
-# Canonical ordering for Permission Set / Profile sections (matches the
-# behaviour of dedup_permset.py for clean, stable output).
-PERMSET_SECTION_ORDER = [
-    "loginIpRanges", "description", "hasActivationRequired", "label", "license",
-    "applicationVisibilities", "classAccesses", "customMetadataTypeAccesses",
-    "customPermissions", "customSettingAccesses",
-    "externalCredentialPrincipalAccesses", "externalDataSourceAccesses",
-    "fieldPermissions", "flowAccesses", "objectPermissions", "pageAccesses",
-    "profileActionOverrides", "recordTypeVisibilities", "tabSettings",
-    "tabVisibilities", "userPermissions",
-]
-
-# Permission-set section key fields (used by the Deduplicate operation).
-PERMSET_SECTION_KEYS = {
-    "applicationVisibilities": "application",
-    "classAccesses": "apexClass",
-    "customMetadataTypeAccesses": "name",
-    "customPermissions": "name",
-    "customSettingAccesses": "name",
-    "externalCredentialPrincipalAccesses": "externalCredentialPrincipal",
-    "externalDataSourceAccesses": "externalDataSource",
-    "fieldPermissions": "field",
-    "flowAccesses": "flow",
-    "objectPermissions": "object",
-    "pageAccesses": "apexPage",
-    "profileActionOverrides": "actionName",
-    "recordTypeVisibilities": "recordType",
-    "tabSettings": "tab",
-    "tabVisibilities": "tab",
-    "userPermissions": "name",
-}
-
-# ───────────────────────────────────────────────────────────────────────
-# Namespace / identity helpers
-# ───────────────────────────────────────────────────────────────────────
-
-def _local(tag: str) -> str:
-    return tag.split("}", 1)[1] if "}" in tag else tag
-
-
-def _ns(local_name: str) -> str:
-    return f"{NS_PREFIX}{local_name}"
-
-
-def _child_text(elem: Element, local_name: str) -> str:
-    child = elem.find(_ns(local_name))
-    if child is None:
-        child = elem.find(local_name)
-    return (child.text or "").strip() if child is not None else ""
-
-
-def get_identity(elem: Element) -> str | None:
-    fields = IDENTITY_KEYS.get(_local(elem.tag))
-    if not fields:
-        return None
-    parts = [_child_text(elem, f) for f in fields]
-    if all(p == "" for p in parts):
-        return None
-    return "\x1f".join(parts)
-
-
-def _should_deep_merge(elem: Element) -> bool:
-    return _local(elem.tag) in DEEP_MERGE_TAGS
-
-# ───────────────────────────────────────────────────────────────────────
-# Fingerprinting (structural identity, order-independent)
-# ───────────────────────────────────────────────────────────────────────
-
-def _normalize(elem: Element) -> str:
-    parts = [_local(elem.tag)]
-    if elem.attrib:
-        for k in sorted(elem.attrib):
-            parts.append(f'{k}="{elem.attrib[k]}"')
-    text = (elem.text or "").strip()
-    if text:
-        parts.append(f"TEXT:{text}")
-    parts.extend(sorted(_normalize(ch) for ch in elem))
-    tail = (elem.tail or "").strip()
-    if tail:
-        parts.append(f"TAIL:{tail}")
-    return "|".join(parts)
-
-
-def _fingerprint(elem: Element) -> str:
-    return hashlib.sha256(_normalize(elem).encode()).hexdigest()[:16]
-
-# ───────────────────────────────────────────────────────────────────────
-# Core merge engine (adapted from cd_merge.py, generalised to any root)
-# ───────────────────────────────────────────────────────────────────────
-
-def _group_by_tag(elem: Element) -> "OrderedDict[str, list[Element]]":
-    groups: OrderedDict[str, list[Element]] = OrderedDict()
-    for child in elem:
-        groups.setdefault(_local(child.tag), []).append(child)
-    return groups
-
-
-def _id_index(elems: list[Element]) -> "OrderedDict[str, Element]":
-    idx: OrderedDict[str, Element] = OrderedDict()
-    for e in elems:
-        key = get_identity(e)
-        if key is not None:
-            idx[key] = e
-    return idx
-
-
-def deep_merge(base: Element, override: Element, *, _is_version_level: bool = False,
-               report: list | None = None, path: str = "") -> Element:
-    """Recursively merge *override* onto *base*; returns a new element."""
-    merged = Element(base.tag, base.attrib)
-    merged.attrib.update(override.attrib)
-    merged.text = base.text
-    merged.tail = base.tail
-
-    b_groups = _group_by_tag(base)
-    o_groups = _group_by_tag(override)
-
-    tag_order = list(b_groups)
-    for t in o_groups:
-        if t not in tag_order:
-            tag_order.append(t)
-
-    for tag in tag_order:
-        b_list = b_groups.get(tag, [])
-        o_list = o_groups.get(tag, [])
-
-        if _is_version_level and tag in VERSION_METADATA_TAGS:
-            for elem in (b_list or o_list):
-                merged.append(copy.deepcopy(elem))
-            continue
-
-        sample = (b_list + o_list)[0] if (b_list or o_list) else None
-        has_id = sample is not None and get_identity(sample) is not None
-
-        if has_id:
-            for e in _merge_by_id(b_list, o_list, report=report, path=f"{path}/{tag}"):
-                merged.append(e)
-        elif (len(b_list) == 1 and len(o_list) == 1 and _should_deep_merge(b_list[0])):
-            is_ver = _local(b_list[0].tag) == "contextDefinitionVersions"
-            merged.append(deep_merge(b_list[0], o_list[0], _is_version_level=is_ver,
-                                     report=report, path=f"{path}/{tag}"))
-        elif len(b_list) <= 1 and len(o_list) <= 1:
-            src = o_list[0] if o_list else (b_list[0] if b_list else None)
-            if src is not None:
-                merged.append(copy.deepcopy(src))
-                if (report is not None and b_list and o_list
-                        and _fingerprint(b_list[0]) != _fingerprint(o_list[0])):
-                    report.append(("OVERRIDE", f"{path}/{tag}", ""))
-        else:
-            b_fps = {_fingerprint(c) for c in b_list}
-            for c in b_list:
-                merged.append(copy.deepcopy(c))
-            for c in o_list:
-                if _fingerprint(c) not in b_fps:
-                    merged.append(copy.deepcopy(c))
-                    if report is not None:
-                        report.append(("ADD", f"{path}/{tag}", "(no-id fallback)"))
-
-    return merged
-
-
-def _merge_by_id(b_list: list[Element], o_list: list[Element], *,
-                 report: list | None = None, path: str = "") -> list[Element]:
-    b_idx = _id_index(b_list)
-    o_idx = _id_index(o_list)
-    result: list[Element] = []
-    seen: set[str] = set()
-
-    for key, b_elem in b_idx.items():
-        seen.add(key)
-        if key in o_idx:
-            o_elem = o_idx[key]
-            same = _fingerprint(b_elem) == _fingerprint(o_elem)
-            if _should_deep_merge(b_elem):
-                is_ver = _local(b_elem.tag) == "contextDefinitionVersions"
-                result.append(deep_merge(b_elem, o_elem, _is_version_level=is_ver,
-                                         report=report, path=f"{path}[{key}]"))
-                if report is not None and not same:
-                    report.append(("DEEP-MERGE", f"{path}[{key}]", ""))
-            else:
-                result.append(copy.deepcopy(o_elem))
-                if report is not None and not same:
-                    report.append(("OVERRIDE", f"{path}[{key}]", ""))
-        else:
-            result.append(copy.deepcopy(b_elem))
-
-    for key, o_elem in o_idx.items():
-        if key not in seen:
-            result.append(copy.deepcopy(o_elem))
-            if report is not None:
-                report.append(("ADD", f"{path}[{key}]", "new from modified"))
-
-    return result
-
-# ───────────────────────────────────────────────────────────────────────
-# Pretty-print + serialization
-# ───────────────────────────────────────────────────────────────────────
-
-def _indent_tree(root: Element, indent_str: str = "    ") -> None:
-    def _walk(elem: Element, level: int) -> None:
-        child_prefix = "\n" + indent_str * (level + 1)
-        closing_prefix = "\n" + indent_str * level
-        children = list(elem)
-        if children:
-            if not (elem.text and elem.text.strip()):
-                elem.text = child_prefix
-            last = len(children) - 1
-            for i, child in enumerate(children):
-                _walk(child, level + 1)
-                if not (child.tail and child.tail.strip()):
-                    child.tail = child_prefix if i < last else closing_prefix
-        if level and not (elem.tail and elem.tail.strip()):
-            elem.tail = "\n" + indent_str * (level - 1)
-
-    _walk(root, 0)
-    root.tail = None
-
-
-def serialize_tree(root: Element) -> str:
-    _indent_tree(root)
-    raw = tostring(root, encoding="unicode", xml_declaration=False)
-    return '<?xml version="1.0" encoding="UTF-8"?>\n' + raw + "\n"
-
-# ───────────────────────────────────────────────────────────────────────
-# Permission-set normalisation
-# ───────────────────────────────────────────────────────────────────────
-
-def _reorder_permset(root: Element) -> None:
-    """Sort top-level Permission Set / Profile children into a stable order."""
-    def keyfn(el: Element):
-        tag = _local(el.tag)
-        try:
-            si = PERMSET_SECTION_ORDER.index(tag)
-        except ValueError:
-            si = len(PERMSET_SECTION_ORDER)
-        ident = get_identity(el) or _child_text(el, "name") or ""
-        return (si, tag, ident)
-
-    children = sorted(list(root), key=keyfn)
-    for c in list(root):
-        root.remove(c)
-    for c in children:
-        root.append(c)
-
-# ───────────────────────────────────────────────────────────────────────
-# Validation
-# ───────────────────────────────────────────────────────────────────────
-
-def _collect_ids(root: Element, tag_local: str) -> set[str]:
-    ids: set[str] = set()
-    for elem in root.iter():
-        if _local(elem.tag) == tag_local:
-            eid = get_identity(elem)
-            if eid:
-                ids.add(eid)
-    return ids
-
-
-def validate_merge(base_root: Element, override_root: Element,
-                   merged_root: Element) -> list[str]:
-    """Every unique identity present in either input must survive into the merge."""
-    errors: list[str] = []
-    tags = set()
-    for r in (base_root, override_root):
-        for elem in r.iter():
-            t = _local(elem.tag)
-            if t in IDENTITY_KEYS:
-                tags.add(t)
-    for tag_local in sorted(tags):
-        base_ids = _collect_ids(base_root, tag_local)
-        override_ids = _collect_ids(override_root, tag_local)
-        merged_ids = _collect_ids(merged_root, tag_local)
-        missing = (base_ids | override_ids) - merged_ids
-        for m in sorted(missing):
-            src = "BASE" if m in base_ids else "MODIFIED"
-            errors.append(f"MISSING <{tag_local}> '{m.replace(chr(0x1f), ' / ')}' (from {src})")
-    return errors
-
-
-def _find_duplicates(root: Element, label: str) -> list[str]:
-    """Return warnings for every duplicate identity key found in root."""
-    from collections import Counter
-    warnings: list[str] = []
-    counts: Counter = Counter()
-    for child in root:
-        tag = _local(child.tag)
-        if tag not in IDENTITY_KEYS:
-            continue
-        key = get_identity(child)
-        if key is not None:
-            counts[(tag, key)] += 1
-    for (tag, key), count in sorted(counts.items()):
-        if count > 1:
-            display_key = key.replace("\x1f", " / ")
-            warnings.append(
-                f"  [{label}] <{tag}> '{display_key}' appears {count}x — "
-                f"only the last occurrence will be kept in the merged output."
-            )
-    return warnings
-
-# ───────────────────────────────────────────────────────────────────────
-# Operation: MERGE
-# ───────────────────────────────────────────────────────────────────────
-
-def _parse(text: str, label: str) -> Element:
-    if not text or not text.strip():
-        raise ValueError(f"The {label} XML is empty.")
-    return ET.fromstring(text)
-
-
-def merge_xml(base_text: str, override_text: str) -> dict:
-    """Merge two pasted XML strings. Returns {ok, merged, report, warnings, duplicates}."""
-    try:
-        base_root = _parse(base_text, "Base")
-        override_root = _parse(override_text, "Modified")
-    except ValueError as e:
-        return {"ok": False, "log": str(e)}
-    except ET.ParseError as e:
-        return {"ok": False, "log": f"XML parse error: {e}"}
-
-    if _local(base_root.tag) != _local(override_root.tag):
-        return {"ok": False, "log": (
-            f"Root elements differ: Base is <{_local(base_root.tag)}> but "
-            f"Modified is <{_local(override_root.tag)}>. They must be the same "
-            "metadata type to merge.")}
-
-    dup_warnings: list[str] = (
-        _find_duplicates(base_root, "Base") +
-        _find_duplicates(override_root, "Modified")
-    )
-
-    actions: list[tuple] = []
-    root_local = _local(base_root.tag)
-    merged_root = deep_merge(base_root, override_root, report=actions, path=root_local)
-
-    if root_local in ("PermissionSet", "Profile"):
-        _reorder_permset(merged_root)
-
-    errors = validate_merge(base_root, override_root, merged_root)
-    merged_xml = serialize_tree(merged_root)
-    report = _format_merge_report(
-        actions, base_root, override_root, merged_root, errors, dup_warnings)
-
-    return {"ok": True, "merged": merged_xml, "report": report,
-            "warnings": errors, "duplicates": dup_warnings, "rootType": root_local}
-
-
-def _format_merge_report(actions: list[tuple], base_root: Element,
-                         override_root: Element, merged_root: Element,
-                         errors: list[str],
-                         dup_warnings: list[str] | None = None) -> str:
-    lines: list[str] = []
-
-    if dup_warnings:
-        lines.append("!" * 60)
-        lines.append(f"  DUPLICATE ENTRIES DETECTED IN INPUT FILES  ({len(dup_warnings)} total)")
-        lines.append("!" * 60)
-        lines.append("")
-        lines.append("  Your input XML files contain elements with duplicate identity")
-        lines.append("  keys (same apexClass, field, object, etc. listed more than once).")
-        lines.append("  The merge engine keeps only the LAST occurrence of each duplicate.")
-        lines.append("  The merged output has FEWER entries than your inputs as a result.")
-        lines.append("")
-        lines.append("  To fix: run the DEDUPLICATE operation on each input file first,")
-        lines.append("  then re-merge the cleaned files.")
-        lines.append("")
-        for w in dup_warnings:
-            lines.append(w)
-        lines.append("")
-        lines.append("!" * 60)
-        lines.append("")
-
-    tags = set()
-    for r in (base_root, override_root, merged_root):
-        for elem in r.iter():
-            t = _local(elem.tag)
-            if t in IDENTITY_KEYS:
-                tags.add(t)
-
-    if tags:
-        lines.append(f"{'Element Type':<34}{'Base':>7}{'Modified':>10}{'Merged':>8}")
-        lines.append("-" * 59)
-        for tag_local in sorted(tags):
-            b = len(_collect_ids(base_root, tag_local))
-            o = len(_collect_ids(override_root, tag_local))
-            m = len(_collect_ids(merged_root, tag_local))
-            flag = " !" if m < b else ""
-            lines.append(f"{tag_local:<34}{b:>7}{o:>10}{m:>8}{flag}")
-        lines.append("")
-
-    adds = [a for a in actions if a[0] == "ADD"]
-    overrides = [a for a in actions if a[0] == "OVERRIDE"]
-    merges = [a for a in actions if a[0] == "DEEP-MERGE"]
-    lines.append(f"Summary:  {len(adds)} added  |  {len(overrides)} overridden  "
-                 f"|  {len(merges)} deep-merged")
-    lines.append("")
-
-    if adds:
-        lines.append("NEW (added from Modified, not in Base):")
-        for _, p, note in adds:
-            lines.append(f"  + {p}  {note}".rstrip())
-        lines.append("")
-    if overrides:
-        lines.append("OVERRIDDEN (Modified replaced Base):")
-        for _, p, _n in overrides:
-            lines.append(f"  ~ {p}")
-        lines.append("")
-    if merges:
-        lines.append("DEEP-MERGED containers:")
-        for _, p, _n in merges:
-            lines.append(f"  * {p}")
-        lines.append("")
-    if not actions:
-        lines.append("(no differences — Base and Modified are structurally identical)")
-        lines.append("")
-
-    if errors:
-        lines.append("!! WARNING — some elements could not be accounted for:")
-        for e in errors:
-            lines.append(f"  x {e}")
-    else:
-        lines.append("Validation passed — every element from both sides is present.")
-    return "\n".join(lines)
-
-# ───────────────────────────────────────────────────────────────────────
-# Operation: COMPARE
-# ───────────────────────────────────────────────────────────────────────
-
-def _collect_compare_elements(root: Element, tag_filter: str | None) -> list[Element]:
-    if tag_filter:
-        return [e for e in root.iter() if _local(e.tag) == tag_filter]
-    children = list(root)
-    if len(children) == 1 and len(list(children[0])) > 0:
-        return list(children[0])
-    return children
-
-
-def _pretty_snippet(elem: Element, max_lines: int = 12) -> str:
-    raw = tostring(elem, encoding="unicode", short_empty_elements=True)
-    out = []
-    for ln in raw.splitlines():
-        out.append(ln.replace(NS_PREFIX, "").replace(f' xmlns="{NS}"', ""))
-    if len(out) > max_lines:
-        half = max_lines // 2
-        out = out[:half] + [f"      ... ({len(out) - max_lines} more lines) ..."] + out[-half:]
-    return "\n".join(out)
-
-
-def _compare_diff_items(counter: Counter, index: dict[str, Element]) -> list[dict]:
-    """Create one display item per unique structural difference."""
-    items = []
-    for fingerprint, count in counter.items():
-        elem = index[fingerprint]
-        identity = get_identity(elem) or ""
-        items.append({
-            "tag": _local(elem.tag),
-            "identity": identity.replace("\x1f", " / "),
-            "count": count,
-            "snippet": _pretty_snippet(elem, max_lines=80),
-        })
-    return sorted(items, key=lambda item: (
-        item["tag"].lower(), item["identity"].lower(), item["snippet"]
-    ))
-
-
-def compare_xml(a_text: str, b_text: str, tag_filter: str | None = None) -> dict:
-    """Structural comparison of two XML strings. Returns {ok, report, xml}."""
-    if not a_text.strip() or not b_text.strip():
-        return {"ok": False, "log": "Please paste XML in both panes before comparing."}
-    try:
-        root_a = ET.fromstring(a_text)
-        root_b = ET.fromstring(b_text)
-    except ET.ParseError as e:
-        # Not valid XML (e.g. Apex). The UI still renders a line-level diff.
-        return {"ok": True, "xml": False,
-                "report": f"Content is not valid XML ({e}).\n"
-                          "Showing line-by-line differences only."}
-
-    tf = tag_filter.strip() if tag_filter else None
-    elements_a = _collect_compare_elements(root_a, tf)
-    elements_b = _collect_compare_elements(root_b, tf)
-
-    fps_a = Counter(_fingerprint(e) for e in elements_a)
-    fps_b = Counter(_fingerprint(e) for e in elements_b)
-    index_a, index_b = {}, {}
-    for e in elements_a:
-        index_a.setdefault(_fingerprint(e), e)
-    for e in elements_b:
-        index_b.setdefault(_fingerprint(e), e)
-
-    only_a = fps_a - fps_b
-    only_b = fps_b - fps_a
-    common = fps_a & fps_b
-
-    lines = []
-    lines.append("STRUCTURAL COMPARISON (order-independent)")
-    if tf:
-        lines.append(f"Filter: <{tf}> elements only")
-    lines.append(f"  Left elements:   {len(elements_a)}")
-    lines.append(f"  Right elements:  {len(elements_b)}")
-    lines.append(f"  Matched:         {sum(common.values())}")
-    lines.append(f"  Only in Left:    {sum(only_a.values())}")
-    lines.append(f"  Only in Right:   {sum(only_b.values())}")
-    lines.append("")
-
-    if only_a:
-        lines.append("-" * 60)
-        lines.append(f"IN LEFT BUT MISSING FROM RIGHT  [{sum(only_a.values())}]")
-        lines.append("-" * 60)
-        for fp, count in sorted(only_a.items(), key=lambda x: x[1], reverse=True):
-            elem = index_a[fp]
-            lines.append(f"\n  <{_local(elem.tag)}>  (x{count})")
-            lines.append("  " + _pretty_snippet(elem).replace("\n", "\n  "))
-    if only_b:
-        lines.append("")
-        lines.append("-" * 60)
-        lines.append(f"IN RIGHT BUT MISSING FROM LEFT  [{sum(only_b.values())}]")
-        lines.append("-" * 60)
-        for fp, count in sorted(only_b.items(), key=lambda x: x[1], reverse=True):
-            elem = index_b[fp]
-            lines.append(f"\n  <{_local(elem.tag)}>  (x{count})")
-            lines.append("  " + _pretty_snippet(elem).replace("\n", "\n  "))
-    if not only_a and not only_b:
-        lines.append("FILES ARE STRUCTURALLY IDENTICAL (no missing elements).")
-
-    return {
-        "ok": True,
-        "xml": True,
-        "report": "\n".join(lines),
-        "onlyLeft": sum(only_a.values()),
-        "onlyRight": sum(only_b.values()),
-        "matched": sum(common.values()),
-        "uniqueLeft": _compare_diff_items(only_a, index_a),
-        "uniqueRight": _compare_diff_items(only_b, index_b),
+"""HTML/JS front-end for xml-tool.py (kept separate for readability)."""
+
+PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="shortcut icon" href="/favicon.ico" />
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-title" content="XML Tool" />
+<meta name="theme-color" content="#2563EB" />
+<link rel="manifest" href="/site.webmanifest" />
+<title>Salesforce Metadata XML Tool</title>
+<script>(function(){try{var t=localStorage.getItem('xml-theme')||'light';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<style>
+  :root {
+    color-scheme: light;
+    --font-sans:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    --font-mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+    --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px; --space-6:32px;
+    --bg:#eaf3fb; --header-bg:#ffffff; --panel:#ffffff; --gutter:#f8fbfe; --input-bg:#ffffff;
+    --workflow-bg:#afc0d4; --workflow-line:#d7e0ea; --workflow-text:#1b2a3a;
+    --line:#d7e0ea; --text:#182536; --muted:#667589; --gutter-text:#8492a3;
+    --accent:#2563eb; --accent-strong:#1d4ed8; --green:#16a34a; --red:#dc2626;
+    --berry:var(--accent); --coral:var(--amber); --sage:color-mix(in srgb,var(--green) 11%,var(--panel));
+    --purple:#6d4aff; --amber:#d97706; --teal:#0891b2; --on-accent:#ffffff;
+    --radius:12px;
+    --ok-bg:#ecfdf3; --ok-text:#167044;
+    --err-bg:color-mix(in srgb, var(--red) 10%, var(--panel)); --err-text:#b4233f;
+    --info-bg:#eaf2ff; --info-text:#1d4ed8;
+    --chg-bg:color-mix(in srgb, var(--purple) 14%, var(--panel));
+    --del-bg:color-mix(in srgb, var(--red) 12%, var(--panel));
+    --ins-bg:color-mix(in srgb, var(--teal) 13%, var(--panel));
+    --chg-line:var(--purple); --del-line:var(--red); --ins-line:var(--teal);
+    --teal-bg:color-mix(in srgb, var(--teal) 10%, var(--panel)); --teal-text:#07657c;
+    --shadow:0 2px 10px rgba(31,56,85,.06);
+  }
+  html[data-theme="dark"] {
+    color-scheme: dark;
+    --bg:#0d1622; --header-bg:#131d2a; --panel:#131d2a; --gutter:#182536; --input-bg:#101923;
+    --workflow-bg:#52677f; --workflow-line:#71849a; --workflow-text:#f3f6fb;
+    --line:#293449; --text:#f3f6fb; --muted:#b7c0d0; --gutter-text:#8995aa;
+    --accent:#60a5fa; --accent-strong:#3b82f6; --green:#4ade80; --red:#f87171;
+    --berry:var(--accent); --coral:var(--amber); --sage:color-mix(in srgb,var(--green) 13%,var(--panel));
+    --purple:#a78bfa; --amber:#fbbf24; --teal:#22d3ee;
+    --ok-bg:color-mix(in srgb,var(--green) 13%,var(--panel)); --ok-text:#a7f3d0;
+    --err-bg:color-mix(in srgb, var(--red) 13%, var(--panel)); --err-text:#fecdd3;
+    --info-bg:color-mix(in srgb, var(--accent) 13%, var(--panel)); --info-text:#d9dcff;
+    --teal-bg:color-mix(in srgb, var(--teal) 12%, var(--panel)); --teal-text:#a5f3fc;
+    --shadow:0 1px 2px rgba(0,0,0,.28);
+  }
+  * { box-sizing: border-box; }
+  html,body { max-width:100%; overflow-x:hidden; }
+  body {
+    margin:0; font-family:var(--font-sans);
+    min-height:100vh;
+    background:var(--bg);
+    color:var(--text); line-height:1.5;
+    transition:background-color .2s ease, color .2s ease;
+  }
+  button,input,select,textarea { font:inherit; }
+  .app-shell { min-height:100vh; display:grid; grid-template-columns:244px minmax(0,1fr); }
+  .sidebar { position:sticky; top:0; height:100vh; display:flex; flex-direction:column; padding:18px 12px 14px;
+    background:var(--panel); border-right:1px solid var(--line); z-index:20; }
+  .brand { display:flex; align-items:center; gap:11px; padding:0 8px 26px; color:var(--text); }
+  .brand-mark { width:36px; height:36px; display:grid; place-items:center; border-radius:10px;
+    background:var(--accent); box-shadow:var(--shadow); }
+  .brand-mark svg { width:23px; fill:var(--on-accent); }
+  .brand strong,.brand small { display:block; line-height:1.2; }
+  .brand strong { font-size:13px; }
+  .brand small { margin-top:3px; color:var(--muted); font-size:11px; font-weight:600; }
+  .side-label,.eyebrow { color:var(--muted); font-size:10px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+  .side-label { padding:0 12px 8px; }
+  .side-menu { display:grid; min-width:0; gap:5px; }
+  .side-nav,.about-link { width:100%; border:0; display:flex; align-items:center; gap:10px; padding:10px 11px;
+    border-radius:9px; background:transparent; color:var(--muted); text-decoration:none; font-size:13px;
+    font-weight:650; text-align:left; cursor:pointer; transition:background .2s ease,color .2s ease,transform .2s ease; }
+  .side-nav:hover,.about-link:hover { color:var(--text); background:var(--gutter); transform:translateX(2px); }
+  .side-nav.active { color:var(--accent); background:color-mix(in srgb,var(--accent) 9%,var(--panel));
+    box-shadow:inset 3px 0 0 var(--accent); }
+  .nav-icon { width:21px; height:21px; display:grid; place-items:center; flex:0 0 21px; font-size:15px; }
+  .nav-icon svg { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.8;
+    stroke-linecap:round; stroke-linejoin:round; }
+  .sidebar-footer { margin-top:auto; border-top:1px solid var(--line); padding-top:12px; }
+  .sidebar .credit { padding:12px 12px 0; margin:0; font-size:10px; line-height:1.5; }
+  .sidebar .credit a { color:var(--text); font-weight:750; text-decoration:none; }
+  .sidebar .credit a:hover { color:var(--accent); }
+  .linkedin-link { display:flex; align-items:center; gap:7px; margin:7px 12px 0; color:var(--accent);
+    text-decoration:none; font-size:11px; font-weight:700; }
+  .linkedin-link svg { width:14px; height:14px; fill:currentColor; }
+  .app-main { min-width:0; }
+  .wrap { width:100%; max-width:none; margin:0; padding:0 clamp(14px,2.2vw,36px) 64px; }
+  .topbar { min-height:88px; display:flex; align-items:center; justify-content:space-between; gap:20px;
+    padding:16px clamp(14px,2.2vw,36px) 12px; position:relative; }
+  .topbar::after { display:none; }
+  .topbar > * { position:relative; z-index:1; }
+  h1 { font-size:clamp(25px,2.1vw,32px); letter-spacing:-.035em; margin:2px 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 6px; }
+  .credit { color: var(--muted); font-size: 12px; margin: 0 0 20px; }
+  .credit a { color: var(--accent); text-decoration: none; }
+  .credit a:hover { text-decoration: underline; }
+  .top-actions { display:flex; align-items:center; gap:10px; }
+  .local-badge { display:inline-flex; align-items:center; gap:7px; padding:8px 11px; border:1px solid var(--line);
+    border-radius:12px; background:color-mix(in srgb,var(--panel) 88%,transparent); color:var(--muted); font-size:11px; font-weight:700; }
+  .theme-toggle { display:inline-flex; align-items:center; gap:8px; min-height:38px; padding:6px 9px !important; }
+  .theme-label { min-width:60px; text-align:left; }
+  .theme-switch { position:relative; width:34px; height:19px; flex:0 0 34px; border-radius:99px;
+    background:var(--line); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--text) 8%,transparent);
+    transition:background .18s ease; }
+  .theme-switch::after { content:""; position:absolute; width:15px; height:15px; left:2px; top:2px;
+    border-radius:50%; background:var(--panel); box-shadow:0 1px 3px rgba(15,23,42,.28);
+    transition:transform .18s ease; }
+  .theme-toggle.is-dark .theme-switch { background:var(--accent); }
+  .theme-toggle.is-dark .theme-switch::after { transform:translateX(15px); }
+  .live-dot { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 0 4px color-mix(in srgb,var(--green) 14%,transparent); }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:clamp(14px,1.5vw,24px); box-shadow:var(--shadow); }
+  .section-head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px;
+    padding-bottom:16px; margin-bottom:18px; border-bottom:1px solid var(--line); }
+  .section-title { display:flex; align-items:flex-start; gap:11px; min-width:0; }
+  .step-dot { width:27px; height:27px; flex:0 0 27px; display:grid; place-items:center; border-radius:8px;
+    background:var(--accent); color:var(--on-accent);
+    font-size:12px; font-weight:800; box-shadow:none; }
+  .section-title h2 { margin:0; color:var(--text); font-size:15px; letter-spacing:-.01em; }
+  .section-title p { margin:3px 0 0; color:var(--muted); font-size:12px; }
+
+  /* Operation tabs */
+  .tabs { display:flex; width:100%; gap:4px; background:transparent; border:0;
+    border-bottom:1px solid var(--line); border-radius:0; padding:0; margin-bottom:16px; flex-wrap:wrap; }
+  .tab { border: none; border-bottom:2px solid transparent; background:transparent; color:var(--muted);
+    font-weight:650; font-size:14px; padding:10px 14px; border-radius:0; margin-bottom:-1px;
+    cursor:pointer; transition:background .16s ease,color .16s ease,border-color .16s ease; }
+  .tab:hover { background:color-mix(in srgb,var(--accent) 6%,transparent); color:var(--text); }
+  .tab.active { background:transparent; color:var(--accent); border-bottom-color:var(--accent); box-shadow:none; }
+
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: .04em; }
+  select, input, textarea {
+    width: 100%; background: var(--input-bg); color: var(--text); border: 1px solid var(--line);
+    border-radius:14px; padding:10px 13px; font-size:14px; outline:none;
+    transition:border-color .16s ease,box-shadow .16s ease,background .16s ease;
+  }
+  select:focus, input:focus, textarea:focus { border-color:var(--accent); box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 16%,transparent); }
+  .controls { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 16px; }
+  .controls .field { flex:0 1 280px; max-width:100%; }
+  .controls label { margin-bottom: 6px; }
+  .grow { flex: 1 1 auto; }
+
+  button { font-family:inherit; }
+  .btn-icon { width:17px; height:17px; flex:0 0 17px; fill:none; stroke:currentColor;
+    stroke-width:2; stroke-linecap:round; stroke-linejoin:round; vertical-align:-3px; }
+  button .btn-icon { margin-right:6px; }
+  .tab .btn-icon,.filter-chip .btn-icon { width:15px; height:15px; margin-right:6px; }
+  button.action { min-height:44px; border:none; border-radius:9px; padding:10px 22px; font-size:14px; font-weight:700;
+    cursor:pointer; color:var(--on-accent); box-shadow:0 1px 2px color-mix(in srgb,var(--accent) 22%,transparent);
+    transition:transform .14s ease,filter .14s ease,box-shadow .14s ease; }
+  button.action:hover:not(:disabled) { transform:translateY(-1px); filter:brightness(1.08) saturate(1.08); }
+  button.action:active:not(:disabled) { transform:translateY(1px) scale(.97); filter:brightness(.92) saturate(1.2); }
+  button.action:disabled { opacity: .5; cursor: not-allowed; }
+  .b-compare,.b-cdfix { background:var(--accent); }
+  .b-merge { background:var(--green); }
+  .b-dedup { background:var(--purple); }
+  .ghost { background:var(--panel); border:1px solid var(--line); color:var(--text);
+    font-weight:650; border-radius:8px; padding:8px 14px; font-size:13px; cursor:pointer;
+    transition:transform .14s ease,background .14s ease,border-color .14s ease,color .14s ease,box-shadow .14s ease; }
+  .ghost:hover { background:color-mix(in srgb,var(--accent) 9%,var(--panel)); border-color:var(--accent); color:var(--accent); }
+  .ghost:active { transform:scale(.96); background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+  button:focus-visible { outline:3px solid color-mix(in srgb,var(--accent) 35%,transparent); outline-offset:3px; }
+
+  /* Editable code pane (paste areas) */
+  .panes { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(360px,100%),1fr)); gap:14px; align-items:stretch; }
+  .xpane { min-width:0; border:1px solid var(--line); border-radius:11px;
+    overflow:hidden; display:flex; flex-direction:column; background:var(--panel);
+    transition:border-color .16s ease,box-shadow .16s ease; }
+  .xpane:focus-within { border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 10%,transparent); }
+  .xpane-head { display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:10px 13px; border-bottom:1px solid var(--line); background:var(--gutter); }
+  .xpane-head .ttl { font-size:12px; font-weight:700; letter-spacing:0; text-transform:none;
+    color:var(--muted); white-space:nowrap; }
+  .badge { font-size:10px; font-weight:700; padding:2px 8px; border-radius:99px; color:var(--on-accent); }
+  .badge.base { background: var(--green); }
+  .badge.out { background: var(--accent); }
+  .badge.modified { background:var(--purple); }
+  /* Line-numbered editor body */
+  .xpane-body { display: flex; min-height: 360px; resize: vertical; overflow: hidden; }
+  /* CD Fix panes — hard-capped 340 px with virtualized line-number gutters.
+     !important needed because the base .xpane-body min-height:420px and textarea flex:1
+     otherwise override these at runtime when large content is pasted. */
+  #view-cdfix .xpane-body {
+    min-height: 0   !important;
+    height: 340px   !important;
+    max-height: 340px !important;
+    overflow: hidden !important;
+    resize: vertical;
+  }
+  /* Gutter re-enabled: height is constrained by the parent's height:340px !important,
+     so its 32k-line content overflows internally and is clipped — page stays compact. */
+  #view-cdfix .ln-gutter { overflow-y: hidden !important; }
+  #view-cdfix .xpane textarea {
+    flex: none   !important;
+    width: calc(100% - 52px) !important;
+    height: 340px !important;
+    max-height: 340px !important;
+    overflow-y: auto !important;
+    resize: none !important;
+  }
+  .ln-gutter {
+    position:relative; display:block; flex-shrink:0; width:52px; overflow:hidden;
+    background: var(--gutter); border-right: 1px solid var(--line);
+    font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; line-height: 19px;
+    padding:0; text-align:right;
+    color: var(--gutter-text); user-select: none; white-space: pre;
+  }
+  .ln-inner { position:absolute; top:10px; right:9px; white-space:pre; will-change:transform; }
+  .xpane textarea {
+    flex: 1; border: none; border-radius: 0; resize: none; outline: none;
+    font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; line-height: 19px;
+    white-space: pre; tab-size: 2; background: var(--input-bg);
+    padding: 8px; overflow: auto;
+  }
+  .xpane textarea:focus { border: none; }
+  .xpane textarea[readonly] { background: var(--gutter); }
+  .editor-status { min-height:31px; display:flex; align-items:center; gap:10px; padding:6px 11px;
+    border-top:1px solid var(--line); background:var(--gutter); color:var(--muted);
+    font-family:Inter,-apple-system,sans-serif; font-size:10px; font-weight:650; }
+  .editor-status .format { padding:2px 6px; border:1px solid var(--line); border-radius:6px; color:var(--text); }
+  .editor-status .valid { margin-left:auto; color:var(--green); }
+  .editor-status .invalid { margin-left:auto; color:var(--red); }
+  .editor-status .waiting { margin-left:auto; color:var(--muted); }
+  .editor-status .btn-icon { width:14px; height:14px; margin-right:4px; vertical-align:-2px; }
+  .mini { display:flex; justify-content:flex-end; gap:9px; flex-wrap:wrap; }
+  .mini .ghost { padding:5px 11px; font-size:12px; }
+
+  .status { margin-top:16px; font-size:13px; padding:13px 16px; border-radius:14px; display:none;
+    white-space: pre-wrap; font-family: "SF Mono", Menlo, monospace; }
+  .status.show { display: block; }
+  .status.ok::before { content:"✓"; width:19px; height:19px; flex:0 0 19px; display:grid; place-items:center;
+    border-radius:50%; background:var(--green); color:var(--on-accent); font-size:12px; font-weight:850; }
+  .status.ok { background: var(--ok-bg); border: 1px solid var(--green); color: var(--ok-text); }
+  .status.err { background: var(--err-bg); border: 1px solid var(--red); color: var(--err-text); }
+  .status.info { background: var(--info-bg); border: 1px solid var(--accent); color: var(--info-text); }
+  .dup-warn { display:none; margin-top:14px; border-radius:16px; overflow:hidden;
+    border:1px solid var(--amber); }
+  .dup-warn.show { display: block; }
+  .dup-warn-head { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    background:var(--amber); color:var(--on-accent); padding:11px 15px; font-size:13px; font-weight:700; }
+  .dup-warn-head svg { flex-shrink: 0; }
+  .dup-warn-head .ghost { background:transparent; color:var(--on-accent);
+    border-color:color-mix(in srgb,var(--on-accent) 45%,transparent); }
+  .dup-warn-head .ghost:hover { background:color-mix(in srgb,var(--on-accent) 16%,transparent);
+    border-color:var(--on-accent); color:var(--on-accent); }
+  .dup-warn-body { background:color-mix(in srgb,var(--amber) 10%,var(--panel)); color:var(--text);
+    padding:13px 15px; font-size:13px; line-height:1.6; }
+  .dup-list { margin:8px 0 0; padding:9px 12px; background:color-mix(in srgb,var(--amber) 8%,var(--gutter)); border-radius:10px;
+    font-family: "SF Mono", Menlo, monospace; font-size: 12px; max-height: 180px; overflow-y: auto; }
+  .dup-list li { margin: 2px 0; list-style: none; padding-left: 1.2em; text-indent: -1.2em; }
+  .dup-badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px;
+    border-radius: 99px; margin-right: 4px; }
+  .dup-badge.base { background:var(--green); color:var(--on-accent); }
+  .dup-badge.mod  { background:var(--accent); color:var(--on-accent); }
+  .report { margin-top: 16px; display: none; }
+  .report.show { display: block; }
+  .report pre { background: var(--gutter); border: 1px solid var(--line); border-radius: 14px;
+    padding:14px; overflow:auto; max-height:260px; font-family:"JetBrains Mono","SF Mono",Menlo,monospace;
+    font-size: 12.5px; margin: 0; }
+  .report h3 { font-size: 13px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+
+  .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(128,128,128,.35);
+    border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hidden { display: none !important; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* Diff view — two synced panes */
+  .diff { margin-top: 22px; display: none; }
+  .diff.show { display: block; }
+  .diff-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .summary { font-size: 13px; font-weight: 600; }
+  .legend { font-size: 12px; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+  .legend span { display: inline-flex; align-items: center; }
+  .legend i { width:14px; height:14px; border-radius:4px; margin-right:6px; display:inline-flex;
+    align-items:center; justify-content:center; font-size:10px; font-weight:700; color:var(--text); }
+  .lg-chg { background: var(--chg-bg); border: 1px solid var(--chg-line); }
+  .lg-del { background: var(--del-bg); border: 1px solid var(--del-line); }
+  .lg-ins { background: var(--ins-bg); border: 1px solid var(--ins-line); }
+  .diff-panes { display: flex; gap: 12px; align-items: stretch; }
+  .pane { flex:1; min-width:0; border:1px solid var(--line); border-radius:16px; overflow:hidden; display:flex; flex-direction:column; }
+  .pane-title { padding: 8px 12px; font-size: 12px; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); background: var(--gutter); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pane-scroll { overflow: auto; max-height: 620px; }
+  table.pane-table { border-collapse: collapse; width: 100%; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+  .pane-table td { padding:3px 12px; vertical-align:top; white-space:pre; }
+  .gutter { text-align: right; color: var(--gutter-text); background: var(--gutter); user-select: none; width: 1%; white-space: nowrap; border-right: 1px solid var(--line); position: sticky; left: 0; }
+  .code { width: 100%; border-left: 3px solid transparent; }
+  .mk { user-select: none; display: inline-block; width: 1ch; margin-right: 7px; color: var(--muted); font-weight: 700; }
+  .row-chg .code { background: var(--chg-bg); border-left-color: var(--chg-line); }
+  .row-del .code { background: var(--del-bg); border-left-color: var(--del-line); }
+  .row-ins .code { background: var(--ins-bg); border-left-color: var(--ins-line); }
+  .row-filler td { background: repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(128,128,128,.06) 6px, rgba(128,128,128,.06) 12px); }
+  .diff-panes.hide-eq tr.eqrow { display: none; }
+  .diff-opts { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+  .diff-opts input { width: auto; }
+
+  /* ── CD Fix ─────────────────────────────────────────────────────── */
+  .cdfix-step { margin-top: 20px; }
+  .cdfix-step-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .cdfix-step-num { width: 24px; height: 24px; border-radius: 50%; background: var(--teal);
+    color:var(--on-accent); font-size:12px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .cdfix-step-title { font-size: 13px; font-weight: 700; color: var(--text); }
+  .cdfix-step-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .cdf-editor-grid { grid-template-columns:minmax(0,1fr) 78px minmax(0,1fr); align-items:center; }
+  .cdf-diff-indicator { display:grid; justify-items:stretch; align-content:center; gap:4px; min-height:190px;
+    padding:7px 5px; border:1px solid var(--line); border-radius:9px; background:var(--gutter); color:var(--muted); }
+  .cdf-diff-arrow { width:32px; height:32px; display:grid; place-items:center; border:1px solid var(--line);
+    border-radius:8px; background:var(--panel); color:var(--accent); font-size:17px; box-shadow:none; justify-self:center; }
+  .cdf-diff-arrow svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:2;
+    stroke-linecap:round; stroke-linejoin:round; }
+  .cdf-rail-total { text-align:center; padding-bottom:6px; border-bottom:1px solid var(--line); }
+  .cdf-diff-indicator strong { display:block; color:var(--text); text-align:center; font-size:22px; line-height:1.1; }
+  .cdf-diff-indicator small { display:block; margin-top:3px; font-size:9px; font-weight:750;
+    letter-spacing:.045em; text-transform:uppercase; text-align:center; }
+  .cdf-rail-metric { display:grid; grid-template-columns:14px minmax(0,1fr); column-gap:4px; align-items:center;
+    padding:4px 2px; border-radius:6px; }
+  .cdf-rail-icon { width:14px; height:14px; display:grid; place-items:center; color:var(--accent);
+    font-size:13px; font-weight:850; line-height:1; }
+  .cdf-rail-icon svg { width:13px; height:13px; fill:none; stroke:currentColor; stroke-width:2; }
+  .cdf-rail-metric.added .cdf-rail-icon { color:var(--green); }
+  .cdf-rail-metric.updated .cdf-rail-icon { color:var(--amber); }
+  .cdf-rail-metric b { color:var(--text); font-size:13px; line-height:1; }
+  .cdf-rail-metric span:last-child { grid-column:2; color:var(--muted); font-size:9px; line-height:1.15; }
+  .cdf-diff-indicator.has-diffs .cdf-diff-arrow { border-color:var(--accent);
+    box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 10%,transparent); }
+
+  /* ── Bidirectional Context Definition diagnostics ─────────────── */
+  .cdf-diagnostics { display:none; margin-top:16px; border:1px solid var(--line); border-radius:16px;
+    background:var(--input-bg); overflow:hidden; }
+  .cdf-diagnostics.show { display:block; }
+  .diag-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+    padding:14px 16px; border-bottom:1px solid var(--line); background:var(--gutter); }
+  .diag-head h3 { margin:0; color:var(--text); font-size:14px; }
+  .diag-head p { margin:3px 0 0; color:var(--muted); font-size:11px; }
+  .diag-version { flex-shrink:0; padding:5px 8px; border:1px solid var(--line); border-radius:8px;
+    background:var(--panel); color:var(--accent); font-size:10px; font-weight:750; }
+  .diag-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; padding:12px 14px 0; }
+  .diag-metrics > div { padding:10px 11px; border:1px solid var(--line); border-radius:11px; background:var(--panel); }
+  .diag-metrics span,.diag-metrics strong { display:block; }
+  .diag-metrics span { color:var(--muted); font-size:9px; font-weight:750; letter-spacing:.05em; text-transform:uppercase; }
+  .diag-metrics strong { margin-top:3px; color:var(--text); font-size:18px; line-height:1.1; }
+  .diag-explanation { margin:10px 14px; padding:10px 12px; border-left:3px solid var(--accent);
+    border-radius:8px; background:var(--info-bg); color:var(--info-text); font-size:11px; line-height:1.55; }
+  .diag-tabs { display:flex; gap:5px; flex-wrap:wrap; padding:0 14px 10px; }
+  .diag-tab { border:1px solid var(--line); border-radius:9px; padding:7px 9px; background:var(--panel);
+    color:var(--muted); font-size:10px; font-weight:750; cursor:pointer; }
+  .diag-tab span { margin-left:4px; padding:1px 5px; border-radius:99px; background:var(--gutter); color:var(--text); }
+  .diag-tab.active { border-color:var(--accent); background:var(--accent); color:var(--on-accent); }
+  .diag-tab.active span { background:color-mix(in srgb,var(--on-accent) 18%,transparent); color:var(--on-accent); }
+  .diag-list { max-height:360px; overflow:auto; border-top:1px solid var(--line); }
+  .diag-empty { padding:22px; color:var(--muted); text-align:center; font-size:11px; }
+  .diag-row { display:grid; grid-template-columns:minmax(150px,.8fr) minmax(200px,1.2fr) minmax(160px,1fr) auto;
+    gap:10px; align-items:start; padding:9px 14px; border-bottom:1px solid var(--line); }
+  .diag-row:last-child { border-bottom:0; }
+  .diag-row:hover { background:var(--gutter); }
+  .diag-kind { width:max-content; max-width:100%; padding:2px 6px; border-radius:5px;
+    background:var(--gutter); color:var(--muted); font-size:9px; font-weight:750; }
+  .diag-kind.serializer { background:color-mix(in srgb,var(--amber) 11%,var(--panel)); color:var(--amber); }
+  .diag-name { color:var(--text); font-family:"JetBrains Mono","SF Mono",monospace; font-size:10px; font-weight:700; overflow-wrap:anywhere; }
+  .diag-path,.diag-detail { color:var(--muted); font-family:"JetBrains Mono","SF Mono",monospace;
+    font-size:9px; overflow-wrap:anywhere; }
+  .diag-count { min-width:32px; padding:2px 6px; border-radius:99px; background:var(--gutter);
+    color:var(--text); font-size:9px; font-weight:800; text-align:center; }
+  .diag-count-row { display:grid; grid-template-columns:minmax(180px,1fr) repeat(3,90px);
+    gap:8px; padding:8px 14px; border-bottom:1px solid var(--line); font-size:10px; }
+  .diag-count-row.head { position:sticky; top:0; z-index:1; background:var(--gutter); color:var(--muted); font-weight:750; }
+  .diag-count-row code { color:var(--text); }
+  .diag-positive { color:var(--green); }
+  .diag-negative { color:var(--red); }
+
+  /* ── CD Fix selection panel ─────────────────────────────────── */
+  .cdfix-select { display:none; margin-top:20px; border:1px solid var(--teal); border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow); }
+  .cdfix-select.show { display: block; }
+  .cdfix-sel-head { background:var(--teal); color:var(--on-accent); padding:12px 18px; font-size:13px; font-weight:700;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .cdfix-sel-body { padding:16px; background:var(--panel); max-height:none; }
+  .cdfix-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-bottom:14px; }
+  .metric-card { position:relative; overflow:hidden; display:flex; flex-direction:column; gap:2px; min-height:76px;
+    padding:13px 14px; border:1px solid var(--line); border-radius:14px; background:var(--input-bg); }
+  .metric-card::before { content:""; position:absolute; inset:0 auto 0 0; width:3px; background:var(--accent); }
+  .metric-card strong { color:var(--text); font-size:22px; line-height:1.1; letter-spacing:-.03em; }
+  .metric-card span { color:var(--muted); font-size:11px; font-weight:650; }
+  .metric-map::before { background:var(--teal); }
+  .metric-node::before { background:var(--purple); }
+  .metric-error::before { background:var(--amber); }
+  .cdfix-data-toolbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  label.cdfix-search { width:min(330px,100%); margin:0; display:flex; align-items:center; gap:7px; padding:0 10px;
+    border:1px solid var(--line); border-radius:11px; background:var(--input-bg); text-transform:none; letter-spacing:0; }
+  .cdfix-search input { border:0; padding:8px 0; background:transparent; box-shadow:none !important; }
+  .cdfix-filters { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+  .filter-chip { border:1px solid var(--line); border-radius:9px; padding:7px 10px; background:var(--panel);
+    color:var(--muted); font-size:11px; font-weight:700; cursor:pointer; transition:all .2s ease; }
+  .filter-chip[data-cdf-filter="all"] { color:var(--accent); background:color-mix(in srgb,var(--accent) 9%,var(--panel)); }
+  .filter-chip[data-cdf-filter="ready"] { color:var(--ok-text); background:var(--ok-bg); }
+  .filter-chip[data-cdf-filter="errors"] {
+    color:var(--text); background:color-mix(in srgb,var(--amber) 12%,var(--panel));
+  }
+  .filter-chip[data-cdf-filter="updates"] {
+    color:var(--purple); background:color-mix(in srgb,var(--purple) 10%,var(--panel));
+  }
+  .filter-chip[data-cdf-filter="mapping"] { color:var(--teal-text); background:var(--teal-bg); }
+  .filter-chip[data-cdf-filter="nodeAttr"] { color:var(--purple); background:color-mix(in srgb,var(--purple) 10%,var(--panel)); }
+  .filter-chip[data-cdf-filter="selected"] { color:var(--amber); background:color-mix(in srgb,var(--amber) 10%,var(--panel)); }
+  .filter-chip:hover { border-color:var(--accent); color:var(--accent); }
+  .filter-chip.active { border-color:var(--accent); background:var(--accent); color:var(--on-accent);
+    box-shadow:0 5px 14px color-mix(in srgb,var(--accent) 22%,transparent); }
+  .filter-chip[data-cdf-filter="ready"].active { border-color:var(--green); background:var(--green); }
+  .filter-chip[data-cdf-filter="errors"].active {
+    border-color:var(--amber); background:var(--amber); color:var(--text);
+  }
+  .filter-chip[data-cdf-filter="updates"].active { border-color:var(--purple); background:var(--purple); }
+  .filter-chip[data-cdf-filter="mapping"].active { border-color:var(--teal); background:var(--teal); }
+  .filter-chip[data-cdf-filter="nodeAttr"].active { border-color:var(--purple); background:var(--purple); }
+  .filter-chip[data-cdf-filter="selected"].active { border-color:var(--amber); background:var(--amber); color:var(--text); }
+  .cdfix-sel-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
+  .cdfix-sel-actions .ghost { padding: 5px 12px; font-size: 12px; }
+  .cdfix-legend { display: flex; gap: 10px; margin-left: auto; flex-wrap: wrap; }
+  .cdfix-legend-item { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
+  .cdfix-legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+  .cdfix-data-layout { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr); gap:12px; align-items:start; }
+  #cdfFieldList { min-width:0; max-height:620px; overflow:auto; padding-right:3px; }
+  .cdfix-detail { position:sticky; top:12px; min-height:260px; max-height:620px; overflow:auto;
+    border:1px solid var(--line); border-radius:14px; background:var(--input-bg); }
+  .cdfix-detail-empty { min-height:258px; display:grid; place-content:center; justify-items:center; padding:24px;
+    color:var(--muted); text-align:center; }
+  .cdfix-detail-empty > span { width:38px; height:38px; display:grid; place-items:center; margin-bottom:8px;
+    border-radius:12px; background:var(--gutter); color:var(--accent); font-size:21px; }
+  .cdfix-detail-empty strong { color:var(--text); font-size:13px; }
+  .cdfix-detail-empty p { max-width:240px; margin:4px 0 0; font-size:11px; }
+  .cdfix-detail-head { padding:14px; border-bottom:1px solid var(--line); }
+  .cdfix-detail-head h4 { margin:7px 0 3px; font-size:14px; word-break:break-word; }
+  .cdfix-detail-head p { margin:0; color:var(--muted); font-size:11px; }
+  .cdfix-detail-body { padding:14px; }
+  .detail-row { margin-bottom:12px; }
+  .detail-row > span { display:block; margin-bottom:4px; color:var(--muted); font-size:10px; font-weight:800;
+    letter-spacing:.08em; text-transform:uppercase; }
+  .detail-row code,.detail-preview { font-family:"JetBrains Mono","SF Mono",Menlo,monospace; font-size:11px; }
+  .detail-row code { color:var(--text); overflow-wrap:anywhere; }
+  .detail-preview { margin:0; padding:11px; border:1px solid var(--line); border-radius:10px; background:var(--gutter);
+    color:var(--text); white-space:pre-wrap; overflow:auto; line-height:1.55; }
+  .cdfix-card:has(input:checked) { background:color-mix(in srgb,var(--green) 4%,var(--input-bg)); }
+  .cdfix-card.is-active { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 7%,var(--input-bg));
+    box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 12%,transparent); }
+  .cdfix-card[hidden] { display:none; }
+  .cdfix-group.is-filtered-empty { display:none; }
+
+  /* ── Group header ────────────────────────────────────────────── */
+  .cdfix-group { margin-bottom: 14px; }
+  .cdfix-group-head { display:flex; align-items:center; gap:8px; padding:9px 13px;
+    background:var(--teal-bg); border:1px solid color-mix(in srgb,var(--teal) 28%,var(--line)); border-radius:12px;
+    margin-bottom: 6px; cursor: pointer; user-select: none; }
+  .cdfix-group-head:hover { border-color:var(--teal); filter:brightness(1.02); }
+  .cdfix-group-check { accent-color:var(--green); width:15px; height:15px; cursor:pointer; flex-shrink:0; }
+  .cdfix-group-name { font-size: 13px; font-weight: 700; color: var(--teal-text); flex: 1;
+    font-family: "SF Mono", Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .cdfix-group-meta { font-size: 11px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+  .cdfix-group-badge { background:var(--teal); color:var(--on-accent); font-size:10px; font-weight:700;
+    padding: 1px 8px; border-radius: 99px; }
+  .cdfix-toggle-arrow { font-size: 11px; color: var(--muted); flex-shrink: 0; transition: transform .2s; }
+  .cdfix-toggle-arrow.open { transform: rotate(180deg); }
+
+  /* ── Item card — flat 3-row layout ──────────────────────────── */
+  label.cdfix-card { display:flex; gap:10px; align-items:flex-start; padding:11px 13px;
+    border:1px solid var(--line); border-radius:14px; margin-bottom:7px; background:var(--input-bg);
+    cursor:pointer; text-transform:none; letter-spacing:normal; transition:border-color .2s,background .2s; }
+  label.cdfix-card:hover { border-color:var(--workflow-line); background:var(--gutter); }
+  label.cdfix-card input[type=checkbox] { margin-top:2px; flex-shrink:0; accent-color:var(--green);
+    width: 15px; height: 15px; cursor: pointer; }
+  .cdfix-ci { flex: 1; min-width: 0; }                     /* info column — takes remaining width */
+
+  /* Row 1: type badge + attribute name + "Modified only" tag */
+  .cdfix-r1 { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+  .cdfix-tbadge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px;
+    text-transform: uppercase; letter-spacing: .04em; flex-shrink: 0; }
+  .cdfix-tbadge-m { background:var(--teal-bg); color:var(--teal-text); border:1px solid color-mix(in srgb,var(--teal) 32%,var(--line)); }
+  .cdfix-tbadge-n { background:color-mix(in srgb,var(--purple) 11%,var(--panel)); color:var(--purple);
+    border:1px solid color-mix(in srgb,var(--purple) 30%,var(--line)); }
+  .cdfix-cname { font-family: "SF Mono", Menlo, monospace; font-size: 13px; font-weight: 700;
+    color: var(--text); word-break: break-word; }
+  .cdfix-modtag { font-size: 10px; padding: 2px 7px; border-radius: 4px; flex-shrink: 0;
+    background:color-mix(in srgb,var(--accent) 10%,var(--panel)); color:var(--accent);
+    border:1px solid color-mix(in srgb,var(--accent) 28%,var(--line)); font-weight:600; }
+  .cdfix-warntag { font-size: 10px; padding: 2px 7px; border-radius: 4px; flex-shrink: 0;
+    background:var(--red); color:var(--on-accent); }
+  .cdfix-parenttag { font-size:10px; padding:2px 7px; border-radius:4px; flex-shrink:0;
+    background:color-mix(in srgb,var(--amber) 18%,var(--panel)); color:var(--text);
+    border:1px solid color-mix(in srgb,var(--amber) 55%,var(--line)); font-weight:700; }
+  .cdfix-updatetag { font-size:10px; padding:2px 7px; border-radius:4px; flex-shrink:0;
+    background:color-mix(in srgb,var(--purple) 12%,var(--panel)); color:var(--purple);
+    border:1px solid color-mix(in srgb,var(--purple) 35%,var(--line)); font-weight:700; }
+  .cdfix-readytag { font-size:10px; padding:2px 7px; border-radius:4px; flex-shrink:0;
+    background:var(--ok-bg); color:var(--ok-text); border:1px solid color-mix(in srgb,var(--green) 28%,var(--line)); }
+  .cdfix-parent-help { margin-top: 7px; padding: 8px 10px; border-radius: 6px;
+    border:1px solid color-mix(in srgb,var(--amber) 55%,var(--line));
+    background:color-mix(in srgb,var(--amber) 10%,var(--panel)); color:var(--text);
+    font-size: 11px; line-height: 1.5; }
+  .cdfix-parent-help strong { font-weight: 700; }
+
+  /* Row 2: location breadcrumb */
+  .cdfix-r2 { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; margin-bottom: 3px; }
+  .cdfix-rlabel { font-size: 11px; color: var(--muted); flex-shrink: 0; margin-right: 2px; }
+  .cdfix-seg { font-size: 11px; font-family: "SF Mono", Menlo, monospace; color: var(--text);
+    background: var(--gutter); padding: 1px 6px; border-radius: 3px; }
+  .cdfix-sep { font-size: 11px; color: var(--muted); opacity: .55; }
+
+  /* Row 3: field / hydration / role */
+  .cdfix-r3 { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+  .cdfix-fval { font-size: 11px; font-family: "SF Mono", Menlo, monospace;
+    padding: 1px 7px; border-radius: 4px; word-break: break-all; }
+  .cdfix-fval-sf  { background: var(--teal-bg); color: var(--teal-text); }
+  .cdfix-fval-before { background:var(--gutter); color:var(--muted); text-decoration:line-through; }
+  .cdfix-fval-hyd { background:color-mix(in srgb,var(--purple) 10%,var(--panel)); color:var(--purple); }
+  .cdfix-fval-role { color: var(--muted); font-style: italic; font-size: 11px; }
+  .report-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:7px; margin-bottom:10px; }
+  .report-summary > div { padding:9px 10px; border:1px solid var(--line); border-radius:10px; background:var(--input-bg); }
+  .report-summary strong,.report-summary span { display:block; }
+  .report-summary strong { color:var(--text); font-size:18px; line-height:1.1; }
+  .report-summary span { margin-top:2px; color:var(--muted); font-size:9px; font-weight:750; text-transform:uppercase; letter-spacing:.06em; }
+  .report-summary > div:first-child { border-top:2px solid var(--green); }
+  .report-summary > div:nth-child(2) { border-top:2px solid var(--purple); }
+  .report-summary > div:nth-child(3) { border-top:2px solid var(--amber); }
+  .report-summary > div:last-child { border-top:2px solid var(--red); }
+  .apply-timeline { display:grid; gap:8px; margin-bottom:10px; }
+  .timeline-item { display:grid; grid-template-columns:24px minmax(0,1fr); gap:9px; padding:9px 11px;
+    border:1px solid var(--line); border-radius:11px; background:var(--input-bg); }
+  .timeline-icon { width:22px; height:22px; display:grid; place-items:center; border-radius:50%; font-size:11px; font-weight:800; }
+  .timeline-item.add .timeline-icon { color:var(--green); background:var(--ok-bg); }
+  .timeline-item.update .timeline-icon { color:var(--purple); background:color-mix(in srgb,var(--purple) 10%,var(--panel)); }
+  .timeline-item.skip .timeline-icon { color:var(--amber); background:color-mix(in srgb,var(--amber) 12%,var(--panel)); }
+  .timeline-item.error .timeline-icon { color:var(--red); background:var(--err-bg); }
+  .timeline-copy strong { display:block; color:var(--text); font-size:11px; }
+  .timeline-copy span { display:block; margin-top:2px; color:var(--muted); font-family:"JetBrains Mono",monospace; font-size:10px; overflow-wrap:anywhere; }
+  .timeline-toggle { width:100%; margin:2px 0 10px; }
+  .raw-report { border-top:1px solid var(--line); padding-top:9px; }
+  .raw-report summary { color:var(--muted); font-size:11px; font-weight:700; cursor:pointer; }
+  .raw-report pre { margin-top:9px; }
+  #cdfBuildStep:not(.hidden) { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(320px,.9fr);
+    gap:12px; margin-top:20px; padding-top:20px; border-top:1px solid var(--line); }
+  #cdfBuildStep .cdfix-step-head { grid-column:1 / -1; }
+  #cdfBuildStep > .panes,#cdfBuildStep > .status { grid-column:1; }
+  #cdfBuildStep > .report { grid-column:2; grid-row:2 / span 2; margin-top:14px; }
+
+  /* ── Readability and responsive width system ─────────────────── */
+  body { font-size:15px; line-height:1.58; }
+  .app-shell { grid-template-columns:clamp(172px,11vw,194px) minmax(0,1fr); }
+  .app-main { width:100%; max-width:100%; }
+  .wrap { padding-inline:clamp(14px,1.45vw,28px); }
+  .topbar { padding-inline:clamp(14px,1.45vw,28px); }
+  .topbar { min-height:74px; padding-top:11px; padding-bottom:8px; }
+  .panel { width:100%; padding:clamp(16px,1.25vw,24px); }
+
+  .brand strong { font-size:14px; }
+  .brand small { font-size:12px; }
+  .side-label,.eyebrow { font-size:11px; }
+  .side-nav,.about-link { font-size:14px; }
+  .sidebar .credit { font-size:11.5px; }
+  .sub { font-size:14px; }
+  .credit,.local-badge { font-size:12.5px; }
+
+  .tabs { display:flex; width:100%; }
+  .tab { font-size:14px; }
+  .section-title h2 { font-size:17px; }
+  .section-title p { font-size:13.5px; max-width:90ch; }
+  label { font-size:13px; }
+  .hint { font-size:13px; max-width:75ch; }
+  .controls .field { flex-basis:clamp(280px,30vw,440px); }
+
+  .xpane-head { min-height:52px; padding:10px 14px; }
+  .xpane-head .ttl { font-size:13px; }
+  .badge { font-size:11px; }
+  .mini .ghost { font-size:12.5px; }
+  .ln-gutter,.xpane textarea {
+    font-size:13.5px;
+    line-height:21px;
+  }
+  .ln-gutter { color:var(--gutter-text); border-right-color:color-mix(in srgb,var(--line) 82%,var(--text)); }
+  .ln-inner { top:10px; }
+  .xpane textarea { padding:10px; }
+  .editor-status { font-size:11.5px; }
+  .status { font-size:13.5px; line-height:1.6; }
+  .report h3 { font-size:14px; }
+  .report pre { font-size:13px; line-height:1.6; }
+  .dup-warn-body,.dup-warn-head { font-size:13.5px; }
+  .dup-list { font-size:13px; }
+  .dup-badge { font-size:11px; }
+
+  .summary,.legend,.diff-opts { font-size:13px; }
+  .pane-title { font-size:13px; padding:10px 13px; }
+  table.pane-table { font-size:13px; line-height:1.65; }
+  .pane-table td { padding-inline:10px; }
+
+  .cdfix-step-title { font-size:14.5px; }
+  .cdfix-step-sub { font-size:13px; max-width:90ch; }
+  .cdf-diff-indicator small { font-size:11px; }
+  .diag-head { padding:16px 18px; }
+  .diag-head h3 { font-size:16px; }
+  .diag-head p { font-size:12.5px; }
+  .diag-version { font-size:11.5px; padding:6px 10px; }
+  .diag-metrics { gap:10px; padding:14px 16px 0; }
+  .diag-metrics > div { padding:12px 13px; }
+  .diag-metrics span { font-size:11px; }
+  .diag-metrics strong { font-size:22px; }
+  .diag-explanation { margin:12px 16px; padding:12px 14px; font-size:13px; }
+  .diag-tabs { gap:7px; padding:0 16px 12px; }
+  .diag-tab { padding:8px 11px; font-size:12px; }
+  .diag-empty { font-size:13px; }
+  .diag-row {
+    grid-template-columns:minmax(170px,.75fr) minmax(220px,1.05fr) minmax(280px,1.45fr) 46px;
+    gap:14px; padding:11px 16px;
+  }
+  .diag-kind,.diag-count { font-size:11px; }
+  .diag-name { font-size:12.5px; }
+  .diag-path,.diag-detail { font-size:12px; line-height:1.55; }
+  .diag-count-row { grid-template-columns:minmax(220px,1fr) repeat(3,minmax(82px,110px)); font-size:12px; }
+
+  .cdfix-sel-head { font-size:14px; padding:14px 18px; }
+  .cdfix-sel-body { padding:18px; }
+  .metric-card { min-height:84px; padding:15px 16px; }
+  .metric-card strong { font-size:25px; }
+  .metric-card span { font-size:12px; }
+  label.cdfix-search { width:clamp(280px,30vw,480px); }
+  .cdfix-search input,.filter-chip { font-size:12.5px; }
+  .cdfix-sel-actions .ghost { font-size:12.5px; }
+  .cdfix-legend-item { font-size:12px; }
+  .cdfix-data-layout { grid-template-columns:minmax(0,1.65fr) minmax(350px,.7fr); gap:16px; }
+  #cdfFieldList,.cdfix-detail { max-height:680px; }
+  .cdfix-detail-head h4 { font-size:15px; }
+  .cdfix-detail-head p,.cdfix-detail-empty p { font-size:12.5px; }
+  .cdfix-detail-empty strong { font-size:14px; }
+  .detail-row > span { font-size:11.5px; }
+  .detail-row code,.detail-preview { font-size:12.5px; }
+  .cdfix-group-head { padding:11px 14px; }
+  .cdfix-group-name { font-size:14px; }
+  .cdfix-group-meta { font-size:12px; }
+  .cdfix-group-badge { font-size:11px; }
+  label.cdfix-card { padding:13px 14px; gap:12px; }
+  .cdfix-tbadge,.cdfix-modtag,.cdfix-warntag,.cdfix-parenttag,
+  .cdfix-updatetag,.cdfix-readytag { font-size:11px; }
+  .cdfix-cname { font-size:13.5px; }
+  .cdfix-parent-help { font-size:12.5px; }
+  .cdfix-rlabel,.cdfix-seg,.cdfix-sep,.cdfix-fval,.cdfix-fval-role { font-size:12px; }
+  .report-summary span { font-size:11px; }
+  .report-summary strong { font-size:21px; }
+  .timeline-copy strong { font-size:12.5px; }
+  .timeline-copy span,.raw-report summary { font-size:12px; }
+
+  #view-cdfix > .cdfix-step:first-child { margin-top:0; }
+  #view-cdfix > .cdfix-step:first-child .cdfix-step-head { margin-bottom:7px; }
+  #view-cdfix > .cdfix-step:first-child + .cdfix-step { margin-top:10px !important; }
+  .diag-metric-card { display:flex; align-items:center; gap:11px; }
+  .diag-metric-icon { width:34px; height:34px; flex:0 0 34px; display:grid; place-items:center;
+    border-radius:9px; background:color-mix(in srgb,var(--accent) 9%,var(--panel)); color:var(--accent); }
+  .diag-metric-icon svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.8;
+    stroke-linecap:round; stroke-linejoin:round; }
+  .diag-metric-card:nth-child(2) .diag-metric-icon { color:var(--purple); background:color-mix(in srgb,var(--purple) 9%,var(--panel)); }
+  .diag-metric-card:nth-child(3) .diag-metric-icon { color:var(--teal); background:color-mix(in srgb,var(--teal) 9%,var(--panel)); }
+  .diag-metric-card:nth-child(4) .diag-metric-icon { color:var(--amber); background:color-mix(in srgb,var(--amber) 9%,var(--panel)); }
+
+  .primary-action-row { display:flex; width:100%; margin-top:14px; }
+  .primary-action-row .action {
+    width:100%; min-height:50px; display:flex; align-items:center; justify-content:center;
+  }
+  .primary-action-row .action:hover:not(:disabled) {
+    transform:translateY(-1px); box-shadow:0 7px 18px color-mix(in srgb,var(--accent) 22%,transparent);
+  }
+  .section-head { padding-bottom:14px; margin-bottom:16px; }
+  .controls { margin-bottom:14px; }
+  .status.show { display:flex; align-items:flex-start; border-width:1px; }
+
+  .cdf-diagnostics { border-radius:11px; background:var(--panel); }
+  .diag-metrics > div,.metric-card,.report-summary > div {
+    box-shadow:0 1px 2px rgba(15,23,42,.035);
+  }
+  .diag-tab { border-radius:7px; }
+  .diag-tab.active { box-shadow:none; }
+  .diag-row { transition:background .14s ease; }
+
+  .cdfix-select { border-color:var(--line); border-radius:12px; box-shadow:var(--shadow); }
+  .cdfix-sel-head {
+    background:color-mix(in srgb,var(--accent) 8%,var(--panel));
+    color:var(--text); border-bottom:1px solid var(--line);
+  }
+  .cdfix-group-head { border-radius:9px; }
+  label.cdfix-card { border-radius:9px; }
+  .cdfix-detail { border-radius:10px; }
+  .metric-card { border-radius:10px; }
+
+  .report.show {
+    padding:16px; border:1px solid var(--line); border-radius:11px; background:var(--panel);
+  }
+  .raw-report pre,.report pre { border-radius:9px; }
+  .timeline-item { border-radius:9px; }
+
+  /* ── v3.2 Revenue Cloud final polish ──────────────────────────── */
+  body { font-family:var(--font-sans);
+    font-size:14px; line-height:1.6; letter-spacing:-.003em; }
+  .xpane textarea,.ln-gutter,table.pane-table,.detail-preview,.detail-row code,
+  .report pre,.raw-report pre { font-family:var(--font-mono); }
+  .status { padding:14px 16px; font-family:var(--font-sans); }
+  .pane-table td { padding:3px 14px; }
+  button.action,.ghost,select,input { border-radius:10px; }
+  .panel,.xpane,.cdf-diagnostics,.cdfix-select,.cdfix-detail,.metric-card,
+  label.cdfix-card,.report.show { border-radius:12px; }
+  h1 { font-size:clamp(30px,2.35vw,34px); line-height:1.15; }
+  .side-menu { gap:2px; }
+  .side-menu .side-label { padding:13px 11px 7px; font-size:9.5px; }
+  .side-menu .side-label:first-child { padding-top:0; }
+  .side-menu-divider { height:1px; margin:12px 9px 2px; background:var(--line); }
+  .side-nav { padding:8px 10px; font-size:12px; font-weight:600; }
+  .side-nav .nav-icon { width:19px; height:19px; flex-basis:19px; }
+  .side-nav .nav-icon svg { width:15px; height:15px; }
+  .side-nav[data-mode="cdfix"] { margin-top:1px; color:color-mix(in srgb,var(--accent) 76%,var(--text)); }
+  .side-nav[data-mode="cdfix"] .nav-icon { border-radius:7px;
+    background:color-mix(in srgb,var(--accent) 9%,var(--panel)); }
+  .side-nav[data-mode="cdfix"].active { color:var(--accent); }
+
+  #view-cdfix { background:var(--panel); }
+  #view-cdfix > .cdfix-step { padding:15px; border-radius:12px; }
+  #view-cdfix > .cdfix-step:first-child { background:var(--panel); }
+  #view-cdfix > .cdfix-step:first-child + .cdfix-step {
+    margin-top:22px !important; background:var(--gutter);
+  }
+  .cdfix-step-head { gap:10px; margin-bottom:12px; padding:9px 12px;
+    border:1px solid var(--workflow-line); border-radius:8px; background:var(--workflow-bg); }
+  .cdfix-step-num { width:auto; min-width:64px; height:30px; padding:0 10px; border-radius:8px;
+    font-size:14px; font-weight:800; background:var(--accent); }
+  .cdfix-step-title { font-size:18px; line-height:1.2; font-weight:750; letter-spacing:-.015em; }
+  .cdfix-step-sub { margin-top:2px; font-size:12px; line-height:1.35; }
+  .cdfix-step-head > div { min-width:0; }
+  #view-cdfix .xpane-head { padding:11px 14px; }
+  #view-cdfix .xpane textarea { padding:12px; }
+  #view-cdfix .ln-inner { top:12px; }
+  #view-cdfix .editor-status { min-height:34px; padding:7px 12px; }
+  .cdf-diff-indicator { align-self:center; }
+
+  .cdf-diagnostics { margin-top:22px; border:0; background:var(--gutter); }
+  .diag-metric-card.metric-difference { border-color:color-mix(in srgb,var(--accent) 34%,var(--line));
+    background:color-mix(in srgb,var(--accent) 5%,var(--panel)); }
+  .diag-metric-card.metric-difference strong { color:var(--accent); }
+  .diag-metrics strong { font-size:26px; line-height:1.05; }
+
+  .cdfix-select { margin-top:24px; border:0; box-shadow:none; overflow:visible; background:var(--panel); }
+  .cdfix-sel-head { padding:12px 14px; border:1px solid var(--workflow-line);
+    border-radius:8px; background:var(--workflow-bg); font-size:16px; }
+  .cdfix-sel-body { padding:24px 4px 8px; }
+  .cdfix-metrics { gap:12px; margin-bottom:20px; }
+  .metric-card { display:grid; grid-template-columns:32px minmax(0,1fr); grid-template-rows:auto auto;
+    align-items:center; column-gap:10px; min-height:82px; padding:14px 15px; }
+  .metric-card-icon { grid-row:1 / span 2; width:30px; height:30px; display:grid; place-items:center;
+    border-radius:8px; background:color-mix(in srgb,var(--accent) 9%,var(--panel)); color:var(--accent); }
+  .metric-card-icon svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.9;
+    stroke-linecap:round; stroke-linejoin:round; }
+  .metric-map .metric-card-icon { color:var(--teal); background:color-mix(in srgb,var(--teal) 9%,var(--panel)); }
+  .metric-node .metric-card-icon { color:var(--purple); background:color-mix(in srgb,var(--purple) 9%,var(--panel)); }
+  .metric-error .metric-card-icon { color:var(--amber); background:color-mix(in srgb,var(--amber) 10%,var(--panel)); }
+  .metric-card::before { display:none; }
+  .metric-card strong { grid-column:2; font-size:26px; }
+  .metric-card > div > span,.metric-card > span:not(.metric-card-icon) { font-size:12px; }
+  .cdfix-tbadge { display:inline-flex; align-items:center; gap:4px; }
+  .cdfix-tbadge .btn-icon { width:12px; height:12px; margin:0; }
+  .cdfix-data-toolbar { gap:16px; margin-bottom:16px; padding-bottom:16px; border-bottom:1px solid var(--line); }
+  .cdfix-filters { gap:8px; }
+  .cdfix-sel-actions { margin-bottom:16px; gap:8px; }
+  .cdfix-selection-count { margin-left:auto; display:inline-flex; align-items:center; min-height:34px;
+    padding:6px 10px; border-radius:10px; background:var(--workflow-bg); color:var(--text);
+    font-size:12.5px; font-weight:750; white-space:nowrap; }
+  .cdfix-legend { margin-left:0; }
+  .cdfix-data-layout { gap:24px; }
+  #cdfFieldList { padding-right:7px; }
+  .cdfix-group { margin-bottom:16px; }
+  label.cdfix-card { margin:8px 0; padding:16px 18px; }
+  .cdfix-detail { position:static; border-color:color-mix(in srgb,var(--line) 78%,transparent);
+    transition:border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+  .cdfix-detail.context-flash { border-color:var(--accent);
+    box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 10%,transparent); }
+  .cdfix-detail-head,.cdfix-detail-body { padding:16px; }
+
+  #cdfBuildStep:not(.hidden) { margin-top:24px; padding:18px; border-top:0; border-radius:12px; background:var(--gutter); }
+  #cdfBuildStep .cdfix-step-head { grid-column:1 / -1; margin-bottom:0; }
+  #cdfBuildStep .cdfix-step-sub { max-width:none; white-space:nowrap; }
+  #cdfBuildStep > .build-action-row { grid-column:1 / -1; margin-top:0; }
+  #cdfBuildStep > .panes { grid-column:1; grid-row:3; }
+  #cdfBuildStep > .status { grid-column:1; grid-row:4; }
+  #cdfBuildStep > .report { grid-column:2; grid-row:3 / span 2; margin-top:14px; }
+  #cdfBuildStep .build-action-row .action { min-height:50px; border-radius:10px; font-size:14px; }
+  .report.show { padding:18px; border:0; background:var(--panel); }
+  .report h3 { display:flex; align-items:center; gap:8px; margin-bottom:14px; font-size:16px; }
+  .report h3 .btn-icon { width:17px; height:17px; color:var(--accent); }
+  .report-summary { gap:9px; margin-bottom:14px; }
+  .report-summary > div { position:relative; padding:11px 12px 11px 22px; border:0; }
+  .report-summary > div::before { content:""; position:absolute; left:9px; top:50%; width:8px; height:8px;
+    border-radius:50%; background:var(--green); transform:translateY(-50%); }
+  .report-summary > div:nth-child(2)::before { background:var(--accent); }
+  .report-summary > div:nth-child(3)::before { background:var(--amber); }
+  .report-summary > div:nth-child(4)::before { background:var(--red); }
+  .report-summary > div:nth-child(2) strong { color:var(--accent); }
+  .timeline-item { padding:11px 12px; border-color:color-mix(in srgb,var(--line) 82%,transparent);
+    transition:border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+  .timeline-item.update .timeline-icon { color:var(--accent); background:var(--info-bg); }
+  .timeline-item.is-context-match { border-color:var(--accent);
+    background:color-mix(in srgb,var(--accent) 7%,var(--panel));
+    box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 9%,transparent); }
+  .primary-action-row .action:hover:not(:disabled) {
+    box-shadow:0 1px 3px color-mix(in srgb,var(--accent) 24%,transparent);
+  }
+
+  /* ── v3.2.2 calm engineering color system ─────────────────────── */
+  .topbar { background:var(--header-bg); }
+  .cdfix-step-head { border-left:3px solid var(--accent); }
+  .cdfix-sel-head { border-left:1px solid var(--workflow-line); }
+  .side-nav.active {
+    color:var(--accent); background:var(--workflow-bg);
+    box-shadow:inset 4px 0 0 var(--accent);
+  }
+  .revenue-label { color:var(--muted) !important; }
+  .side-nav[data-mode="cdfix"] { color:var(--muted); }
+  .side-nav[data-mode="cdfix"] .nav-icon { color:var(--muted); background:var(--gutter); }
+  .side-nav[data-mode="cdfix"].active { color:var(--accent); }
+  .tab[data-mode="cdfix"] { color:var(--muted); }
+  .tab[data-mode="cdfix"].active { color:var(--accent); border-bottom-color:var(--accent); }
+  .b-compare,.b-merge,.b-dedup,.b-cdfix { background:var(--accent); }
+  .fab-up { background:var(--accent); }
+  .fab-down { color:var(--accent); border-color:var(--accent); }
+  .badge.modified { background:var(--accent); }
+
+  .status.ok { background:var(--ok-bg); border-color:var(--green); color:var(--ok-text); }
+  .filter-chip[data-cdf-filter="ready"] { background:var(--ok-bg); color:var(--ok-text); }
+  .filter-chip[data-cdf-filter="ready"].active {
+    border-color:var(--green); background:var(--green); color:var(--on-accent);
+  }
+  .cdfix-readytag { background:var(--ok-bg); color:var(--ok-text);
+    border-color:color-mix(in srgb,var(--green) 35%,var(--line)); }
+  .cdfix-warntag { background:var(--amber); color:#3a3335; }
+  .cdfix-parenttag,.filter-chip[data-cdf-filter="errors"] {
+    color:var(--text); background:color-mix(in srgb,var(--amber) 12%,var(--panel));
+    border-color:color-mix(in srgb,var(--amber) 45%,var(--line));
+  }
+  .filter-chip[data-cdf-filter="errors"].active {
+    color:#3a3335; background:var(--amber); border-color:var(--amber);
+  }
+
+  .filter-chip[data-cdf-filter="updates"],
+  .filter-chip[data-cdf-filter="mapping"],
+  .filter-chip[data-cdf-filter="nodeAttr"],
+  .filter-chip[data-cdf-filter="selected"] { color:var(--muted); background:var(--panel); }
+  .filter-chip[data-cdf-filter="updates"].active,
+  .filter-chip[data-cdf-filter="mapping"].active,
+  .filter-chip[data-cdf-filter="nodeAttr"].active,
+  .filter-chip[data-cdf-filter="selected"].active {
+    color:var(--on-accent); background:var(--accent); border-color:var(--accent);
+  }
+  .cdfix-tbadge-m,.cdfix-tbadge-n {
+    color:var(--muted); background:var(--gutter); border-color:var(--line);
+  }
+  .metric-card,.diag-metrics > div,.report-summary > div {
+    background:var(--panel); border-color:var(--line);
+  }
+  .metric-card-icon,.metric-map .metric-card-icon,.metric-node .metric-card-icon,.metric-error .metric-card-icon,
+  .diag-metric-icon,.diag-metric-card:nth-child(2) .diag-metric-icon,
+  .diag-metric-card:nth-child(3) .diag-metric-icon,.diag-metric-card:nth-child(4) .diag-metric-icon {
+    color:var(--muted); background:var(--gutter);
+  }
+  .diag-metric-card.metric-difference .diag-metric-icon { color:var(--accent); background:var(--info-bg); }
+  .pane-table tr:nth-child(even) td.code:not(.del):not(.ins):not(.chg),
+  .diag-row:nth-child(even) { background:color-mix(in srgb,var(--gutter) 62%,var(--panel)); }
+  .diag-row:hover { background:var(--gutter); }
+
+  /* ── v3.3 colour, hierarchy, spacing, and visual polish ───────── */
+  .panel { border-color:var(--line); box-shadow:var(--shadow); }
+  #view-cdfix { background:var(--panel); }
+  #view-cdfix > .cdfix-step,
+  #view-cdfix > .cdfix-step:first-child,
+  #view-cdfix > .cdfix-step:first-child + .cdfix-step,
+  #cdfBuildStep:not(.hidden) { background:var(--panel); }
+  .cdfix-step-head {
+    border:1px solid var(--workflow-line); border-left:1px solid var(--workflow-line);
+    background:var(--workflow-bg); color:var(--workflow-text);
+  }
+  .cdfix-step-title { color:var(--workflow-text); }
+  .cdfix-step-sub { color:color-mix(in srgb,var(--workflow-text) 72%,transparent); font-size:12.5px; }
+  .cdfix-sel-head { background:var(--gutter); border-color:var(--line); }
+
+  .xpane { background:var(--panel); border-color:var(--line); }
+  #view-cdfix .xpane textarea { background:var(--panel); font-size:14px; line-height:20.3px; }
+  #view-cdfix .ln-gutter { font-size:14px; line-height:20.3px; }
+  .badge.base { background:#dff6e8; color:#137a43; }
+  .badge.modified { background:#e7e9ff; color:#5b3cc4; }
+  .badge.out { background:var(--info-bg); color:var(--accent); }
+
+  .primary-action-row .action { min-height:40px; height:40px; }
+  #cdfAnalyzeBtn,#cdfBuildBtn { min-height:40px; height:40px; }
+  #cdfBuildStep > .build-action-row { justify-content:center; }
+  #cdfBuildStep .build-action-row .action { width:50%; max-width:520px; min-width:280px; }
+  button.action:hover:not(:disabled),.primary-action-row .action:hover:not(:disabled) {
+    background:var(--accent-strong); transform:none; filter:none;
+  }
+  .ghost { background:var(--panel); color:#344054; border-color:#cbd5e1; }
+  html[data-theme="dark"] .ghost { color:var(--text); border-color:var(--line); }
+  .btn-icon { width:14px; height:14px; flex-basis:14px; }
+  .tab .btn-icon,.filter-chip .btn-icon { width:14px; height:14px; }
+  .theme-toggle { gap:6px; min-height:36px; }
+
+  .status.ok { padding:11px 14px; background:#ecfdf3; border-color:#86d7a8; color:#167044; }
+  html[data-theme="dark"] .status.ok { background:var(--ok-bg); border-color:var(--green); color:var(--ok-text); }
+  .diag-tab { background:#f8fafc; color:#526174; border-color:#d7e0ea; }
+  .diag-tab.active { background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
+  html[data-theme="dark"] .diag-tab { background:var(--gutter); color:var(--muted); border-color:var(--line); }
+  html[data-theme="dark"] .diag-tab.active { background:var(--accent); color:var(--on-accent); }
+  .diag-row { background:var(--panel); border-color:#e2e8f0; }
+  .diag-row:nth-child(even) { background:var(--panel); }
+  .diag-row:hover { background:#f4f8fc; }
+  html[data-theme="dark"] .diag-row:hover { background:var(--gutter); }
+
+  .cdfix-card:has(input:checked) { background:var(--panel); }
+  .cdfix-card.is-active { border-color:#9bc4f5; background:#eaf4ff;
+    box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 8%,transparent); }
+  html[data-theme="dark"] .cdfix-card.is-active {
+    border-color:var(--accent); background:color-mix(in srgb,var(--accent) 10%,var(--panel));
+  }
+  #cdfBuildStep > .report { border-left:1px solid #d9e2ec; padding-left:18px; }
+  html[data-theme="dark"] #cdfBuildStep > .report { border-left-color:var(--line); }
+
+  button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,
+  [tabindex]:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .side-nav:hover,.about-link:hover,button.action:active:not(:disabled),.ghost:active {
+    transform:none;
+  }
+
+  @media (min-width:1500px) {
+    .xpane-body { min-height:390px; }
+    #view-cdfix .xpane-body,
+    #view-cdfix .xpane textarea { height:400px !important; max-height:400px !important; }
+    .diag-list { max-height:440px; }
+    #cdfFieldList,.cdfix-detail { max-height:760px; }
+  }
+  /* ── Fixed floating scroll buttons ────────────────────────────── */
+  .fab { position:fixed; z-index:99999; width:48px; height:48px; border-radius:50%;
+    border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    box-shadow:var(--shadow); transition:transform .15s,box-shadow .15s,filter .15s;
+    bottom: 26px; }
+  .fab:hover { transform:translateY(-2px) scale(1.06); filter:brightness(1.08); }
+  .fab:active { transform:scale(.94); }
+  .fab-up   { right:26px; background:var(--accent); color:var(--on-accent); }
+  .fab-down { left:208px; background:var(--panel); color:var(--accent);
+    border:2px solid var(--accent); }
+
+  @media (max-width: 1050px) {
+    .app-shell { display:block; }
+    .sidebar { position:sticky; height:auto; padding:9px 12px; flex-direction:row; align-items:center;
+      gap:12px; border-right:0; border-bottom:1px solid var(--line); }
+    .brand { padding:0; min-width:max-content; }
+    .brand-mark { width:32px; height:32px; border-radius:10px; }
+    .brand small,.side-label,.sidebar-footer { display:none; }
+    .side-menu-divider { display:none; }
+    .side-menu { display:flex; flex:1; gap:4px; overflow-x:auto; scrollbar-width:none; }
+    .side-menu::-webkit-scrollbar { display:none; }
+    .side-nav { width:auto; min-width:max-content; padding:8px 10px; }
+    .side-nav:hover { transform:none; }
+    .side-nav.active { box-shadow:inset 0 -2px 0 var(--accent); }
+    .tabs { display:none; }
+    .topbar { min-height:104px; }
+    .fab-down { left:14px; }
+    .cdfix-data-layout { grid-template-columns:1fr; }
+    .cdfix-detail { position:static; }
+    #cdfBuildStep:not(.hidden) { grid-template-columns:1fr; }
+    #cdfBuildStep > .panes,#cdfBuildStep > .status,#cdfBuildStep > .report {
+      grid-column:1; grid-row:auto; }
+  }
+  @media (max-width: 760px) {
+    .sidebar { align-items:flex-start; }
+    .brand { padding-top:2px; }
+    .brand > span:last-child { display:none; }
+    .side-nav .nav-icon { display:none; }
+    .wrap { padding:0 10px 72px; }
+    .topbar { align-items:stretch; flex-direction:column; gap:8px; }
+    .top-actions { justify-content:space-between; flex-wrap:wrap; }
+    .tabs { display:none; }
+    .panel { border-radius:12px; }
+    .cdfix-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .diag-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .diag-row { grid-template-columns:1fr; gap:4px; }
+    .diag-count-row { grid-template-columns:minmax(130px,1fr) repeat(3,64px); }
+    .cdf-editor-grid { grid-template-columns:1fr; }
+    #view-cdfix .xpane-head { align-items:flex-start; flex-wrap:wrap; }
+    #view-cdfix .xpane-head .ttl { width:100%; white-space:normal; }
+    #view-cdfix .xpane-head .mini { width:100%; justify-content:flex-start; }
+    .cdf-diff-indicator { grid-template-columns:repeat(4,minmax(0,1fr)); min-height:0; padding:8px; }
+    .cdf-diff-arrow { display:none; }
+    .cdf-rail-total { padding:4px; border-bottom:0; border-right:1px solid var(--line); }
+    .cdf-rail-metric { grid-template-columns:1fr; justify-items:center; padding:4px 2px; }
+    .cdf-rail-metric .cdf-rail-dot { display:none; }
+    .cdf-rail-metric span:last-child { grid-column:1; text-align:center; }
+    .diff-panes { flex-direction:column; }
+    .cdfix-step-head { align-items:flex-start; flex-wrap:wrap; }
+    .cdfix-step-head .action { margin-left:34px !important; }
+    #cdfBuildStep .cdfix-step-sub { white-space:normal; }
+    .cdfix-selection-count { width:100%; margin-left:0; justify-content:center; }
+    #cdfBuildStep .build-action-row .action { width:100%; min-width:0; max-width:none; }
+    #cdfBuildStep > .report { border-left:0; border-top:1px solid var(--line); padding-left:0; padding-top:16px; }
+    .fab-up { right:14px; }
+    .fab-down { left:14px; }
+  }
+</style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M7.2 18.5c-3.1 0-5.7-2.1-5.7-4.8 0-2.1 1.5-3.9 3.7-4.5C5.7 6.5 8 4.5 10.8 4.5c2.2 0 4.1 1.2 5.1 3 3.6-.3 6.6 2 6.6 5.2 0 3.2-2.8 5.8-6.4 5.8H7.2Z"/></svg>
+        </span>
+        <span><strong>Salesforce</strong><small>Metadata XML Tool</small></span>
+      </div>
+      <nav class="side-menu">
+        <div class="side-label">Metadata Tools</div>
+        <button class="side-nav active" data-mode="compare"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M10 8l-3 4 3 4M14 8l3 4-3 4"/></svg></span><span>Compare</span></button>
+        <button class="side-nav" data-mode="merge"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M8 6h10M14 2l4 4-4 4M16 18H6M10 14l-4 4 4 4"/></svg></span><span>Merge</span></button>
+        <button class="side-nav" data-mode="dedup"><span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2M11 14h6"/></svg></span><span>Deduplicate</span></button>
+        <div class="side-menu-divider"></div>
+        <div class="side-label revenue-label">Revenue Cloud</div>
+        <button class="side-nav" data-mode="cdfix"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 3v6M12 15v6M3 12h6M15 12h6"/><circle cx="12" cy="12" r="3"/><circle cx="12" cy="3" r="1"/><circle cx="12" cy="21" r="1"/><circle cx="3" cy="12" r="1"/><circle cx="21" cy="12" r="1"/></svg></span><span>Context Definition Fix</span></button>
+      </nav>
+      <div class="sidebar-footer">
+        <a class="about-link" href="https://www.linkedin.com/in/mrpancholi/" target="_blank" rel="noopener noreferrer">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg></span><span>About</span>
+        </a>
+        <p class="credit">Made with 💙 by <a href="https://www.linkedin.com/in/mrpancholi/" target="_blank" rel="noopener noreferrer">Mritunjaya Pancholi</a></p>
+        <a class="linkedin-link" href="https://www.linkedin.com/in/mrpancholi/" target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.4 3.8a2.1 2.1 0 1 1 0 4.2 2.1 2.1 0 0 1 0-4.2ZM3.6 9.5h3.6V21H3.6V9.5Zm5.8 0h3.4v1.6h.1c.5-.9 1.7-2 3.5-2 3.7 0 4.4 2.4 4.4 5.6V21h-3.6v-5.6c0-1.3 0-3.1-1.9-3.1s-2.2 1.5-2.2 3V21H9.4V9.5Z"/></svg>
+          <span>LinkedIn</span>
+        </a>
+      </div>
+    </aside>
+
+    <main class="app-main">
+      <header class="topbar">
+        <div>
+          <h1 id="pageTitle">Compare XML</h1>
+          <p class="sub" id="pageSubtitle">Inspect two Salesforce metadata files with structural and line-level differences.</p>
+        </div>
+        <div class="top-actions">
+          <span class="local-badge"><span class="live-dot"></span>Runs locally</span>
+          <button class="ghost theme-toggle" id="themeBtn" title="Toggle day/night" aria-label="Switch to night mode">
+            <span class="theme-switch" aria-hidden="true"></span>
+          </button>
+        </div>
+      </header>
+
+      <div class="wrap">
+        <div class="tabs" id="tabs" aria-label="Tool switcher">
+          <button class="tab active" data-mode="compare">Compare</button>
+          <button class="tab" data-mode="merge">Merge</button>
+          <button class="tab" data-mode="dedup">Deduplicate</button>
+          <button class="tab" data-mode="cdfix">Context Definition Fix</button>
+        </div>
+
+    <!-- ============================ COMPARE ============================ -->
+    <div class="panel" id="view-compare">
+      <div class="section-head">
+        <div class="section-title"><span class="step-dot">1</span><div>
+          <h2>Paste XML files to compare</h2>
+          <p>See only unique XML changes. Matching content is ignored even when it appears on different lines or in a different order.</p>
+        </div></div>
+      </div>
+      <div class="controls">
+        <div class="field">
+          <label for="cmpTag">Limit to element (optional)</label>
+          <input id="cmpTag" placeholder="e.g. fieldPermissions, contextMappings" autocomplete="off" spellcheck="false" />
+          <div class="hint">Leave blank to compare everything. Works for permission sets, context definitions, Apex (line diff only), etc.</div>
+        </div>
+        <div class="grow"></div>
+      </div>
+
+      <div class="panes">
+        <div class="xpane">
+          <div class="xpane-head">
+            <span class="ttl">Left XML</span>
+            <div class="mini">
+              <button class="ghost" data-paste="cmpA">Paste</button>
+              <button class="ghost" data-copy="cmpA">Copy</button>
+              <button class="ghost" data-clear="cmpA">Clear</button>
+            </div>
+          </div>
+          <div class="xpane-body"><div class="ln-gutter" id="ln-cmpA"></div><textarea id="cmpA" placeholder="Paste the first XML here.&#10;This file will appear on the left side of the comparison." spellcheck="false"></textarea></div>
+        </div>
+        <div class="xpane">
+          <div class="xpane-head">
+            <span class="ttl">Right XML</span>
+            <div class="mini">
+              <button class="ghost" data-paste="cmpB">Paste</button>
+              <button class="ghost" data-copy="cmpB">Copy</button>
+              <button class="ghost" data-clear="cmpB">Clear</button>
+            </div>
+          </div>
+          <div class="xpane-body"><div class="ln-gutter" id="ln-cmpB"></div><textarea id="cmpB" placeholder="Paste the second XML here.&#10;This file will appear on the right side of the comparison." spellcheck="false"></textarea></div>
+        </div>
+      </div>
+      <div class="primary-action-row">
+        <button class="action b-compare" id="compareBtn">Compare</button>
+      </div>
+
+      <div class="status" id="cmpStatus"></div>
+
+      <div class="report" id="cmpReport">
+        <h3>Structural summary</h3>
+        <pre id="cmpReportBody"></pre>
+      </div>
+
+      <div class="diff" id="diff">
+        <div class="diff-head">
+          <div class="summary" id="diffSummary"></div>
+          <div class="legend">
+            <span><i class="lg-chg">~</i>Changed</span>
+            <span><i class="lg-del">&minus;</i>Only in left</span>
+            <span><i class="lg-ins">+</i>Only in right</span>
+            <label class="diff-opts"><input type="checkbox" id="onlyDiffs" /> Show only differences</label>
+          </div>
+        </div>
+        <div class="diff-panes" id="diffPanes">
+          <div class="pane">
+            <div class="pane-title">Left — unique structural differences</div>
+            <div class="pane-scroll" id="srcScroll"><table class="pane-table" id="srcTable"></table></div>
+          </div>
+          <div class="pane">
+            <div class="pane-title">Right — unique structural differences</div>
+            <div class="pane-scroll" id="tgtScroll"><table class="pane-table" id="tgtTable"></table></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================= MERGE ============================= -->
+    <div class="panel hidden" id="view-merge">
+      <div class="section-head">
+        <div class="section-title"><span class="step-dot">1</span><div>
+          <h2>Choose a base and layer in modifications</h2>
+          <p>The base remains authoritative; matching entries from Modified override it and new entries are added.</p>
+        </div></div>
+      </div>
+      <div class="controls">
+        <div class="field">
+          <label for="baseSelect">Which pane is the base?</label>
+          <select id="baseSelect">
+            <option value="left">Pane 1 (Base XML) is the base</option>
+            <option value="right">Pane 2 (Modified XML) is the base</option>
+          </select>
+          <div class="hint">The base is kept intact; the other side's changes are layered on top.</div>
+        </div>
+        <div class="grow"></div>
+        <div class="field" style="flex:0 0 auto;">
+          <button class="ghost" id="swapBtn">Swap panes</button>
+        </div>
+      </div>
+
+      <div class="panes">
+        <div class="xpane">
+          <div class="xpane-head">
+            <span class="ttl">Pane 1 — Base XML <span class="badge base" id="badge1">BASE</span></span>
+            <div class="mini">
+              <button class="ghost" data-paste="mrgA">Paste</button>
+              <button class="ghost" data-copy="mrgA">Copy</button>
+              <button class="ghost" data-clear="mrgA">Clear</button>
+            </div>
+          </div>
+          <div class="xpane-body"><div class="ln-gutter" id="ln-mrgA"></div><textarea id="mrgA" placeholder="Paste the BASE XML here.&#10;This is the authoritative version the merge will build on." spellcheck="false"></textarea></div>
+        </div>
+        <div class="xpane">
+          <div class="xpane-head">
+            <span class="ttl">Pane 2 — Modified XML <span class="badge base hidden" id="badge2">BASE</span></span>
+            <div class="mini">
+              <button class="ghost" data-paste="mrgB">Paste</button>
+              <button class="ghost" data-copy="mrgB">Copy</button>
+              <button class="ghost" data-clear="mrgB">Clear</button>
+            </div>
+          </div>
+          <div class="xpane-body"><div class="ln-gutter" id="ln-mrgB"></div><textarea id="mrgB" placeholder="Paste the MODIFIED XML here.&#10;Its matching changes and new entries will be layered onto Base." spellcheck="false"></textarea></div>
+        </div>
+        <div class="xpane">
+          <div class="xpane-head">
+            <span class="ttl">Merged result <span class="badge out">OUTPUT</span></span>
+            <div class="mini">
+              <button class="ghost" id="mergeCopyBtn">Copy</button>
+              <button class="ghost" id="mergeDownloadBtn">Download</button>
+              <button class="ghost" data-clear="mrgOut">Clear</button>
+            </div>
+          </div>
+          <div class="xpane-body"><div class="ln-gutter" id="ln-mrgOut"></div><textarea id="mrgOut" placeholder="The merged XML will appear here.&#10;Use Copy or Download when the merge completes." spellcheck="false" readonly></textarea></div>
+        </div>
+      </div>
+      <div class="primary-action-row">
+        <button class="action b-merge" id="mergeBtn">Merge</button>
+      </div>
+
+      <div class="status" id="mrgStatus"></div>
+
+      <!-- Duplicate-entry warning banner — shown when input files have duplicates -->
+      <div class="dup-warn" id="mrgDupWarn">
+        <div class="dup-warn-head">
+          <span>
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" style="vertical-align:-3px;margin-right:6px"><path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/></svg>
+            Duplicate entries detected in input files — some entries were collapsed in the merged output
+          </span>
+          <button class="ghost" id="mrgDupToggle" style="font-size:12px;padding:3px 10px;color:#fff;border-color:rgba(255,255,255,.4);">Show details</button>
+        </div>
+        <div class="dup-warn-body" id="mrgDupBody" style="display:none">
+          <strong>What happened:</strong> Your input files contain elements with the same identity key
+          (e.g. the same <code>field</code>, <code>object</code>, or <code>apexClass</code> listed more than once).
+          The merge engine keeps only the <em>last</em> occurrence of each duplicate, so the merged output
+          has fewer entries than your inputs.
+          <br><br>
+          <strong>How to fix:</strong> Switch to the <strong>Deduplicate</strong> tab, clean each input file,
+          then re-merge the cleaned versions.
+          <ul class="dup-list" id="mrgDupList"></ul>
+        </div>
+      </div>
+
+      <div class="report" id="mrgReport">
+        <h3>Merge report</h3>
+        <pre id="mrgReportBody"></pre>
+      </div>
+    </div>
+
+    <!-- =========================== DEDUPLICATE ========================= -->
+    <div class="panel hidden" id="view-dedup">
+      <div class="section-head">
+        <div class="section-title"><span class="step-dot">1</span><div>
+          <h2>Clean a Permission Set or Profile</h2>
+          <p>Duplicate identity keys are collapsed and the metadata is returned in stable Salesforce order.</p>
+        </div></div>
+      </div>
+      <div class="panes">
+        <div class="xpane">
+          <div class="xpane-head">
+            <span class="ttl">Permission Set XML</span>
+            <div class="mini">
+              <button class="ghost" data-paste="dedIn">Paste</button>
+              <button class="ghost" data-copy="dedIn">Copy</button>
+              <button class="ghost" data-clear="dedIn">Clear</button>
+            </div>
+          </div>
+          <div class="xpane-body"><div class="ln-gutter" id="ln-dedIn"></div><textarea id="dedIn" placeholder="Paste a Permission Set or Profile XML here.&#10;Duplicate identity entries will be detected and collapsed." spellcheck="false"></textarea></div>
+        </div>
+        <div class="xpane">
+          <div class="xpane-head">
+            <span class="ttl">Cleaned result <span class="badge out">OUTPUT</span></span>
+            <div class="mini">
+              <button class="ghost" id="dedupCopyBtn">Copy</button>
+              <button class="ghost" id="dedupDownloadBtn">Download</button>
+              <button class="ghost" data-clear="dedOut">Clear</button>
+            </div>
+          </div>
+          <div class="xpane-body"><div class="ln-gutter" id="ln-dedOut"></div><textarea id="dedOut" placeholder="The cleaned and sorted XML will appear here.&#10;Use Copy or Download when processing completes." spellcheck="false" readonly></textarea></div>
+        </div>
+      </div>
+      <div class="primary-action-row">
+        <button class="action b-dedup" id="dedupBtn">Remove duplicates</button>
+      </div>
+      <div class="status" id="dedStatus"></div>
+      <div class="report" id="dedReport">
+        <h3>Deduplication report</h3>
+        <pre id="dedReportBody"></pre>
+      </div>
+    </div>
+
+    <!-- ====================== CONTEXT DEFINITION FIX ================== -->
+    <div class="panel hidden" id="view-cdfix">
+
+      <!-- Step 1: Paste XMLs -->
+      <div class="cdfix-step">
+        <div class="cdfix-step-head">
+          <span class="cdfix-step-num">Step 1</span>
+          <div>
+            <div class="cdfix-step-title">Input Context Definitions</div>
+            <div class="cdfix-step-sub">Paste the Base and Modified Context Definition XML files.</div>
+          </div>
+          <button class="ghost" id="cdfClearAll" style="margin-left:auto;">Clear All</button>
+        </div>
+        <div class="panes cdf-editor-grid">
+          <div class="xpane">
+            <div class="xpane-head">
+              <span class="ttl">Base Context Definition <span class="badge base">Base</span></span>
+              <div class="mini">
+                <button class="ghost" id="cdfBasePasteBtn" data-paste="cdfBase">Paste</button>
+                <button class="ghost" id="cdfBaseCopyBtn" data-copy="cdfBase">Copy</button>
+                <button class="ghost" data-clear="cdfBase">Clear</button>
+              </div>
+            </div>
+            <div class="xpane-body"><div class="ln-gutter" id="ln-cdfBase"></div><textarea id="cdfBase" placeholder="Paste the BASE Context Definition XML here.&#10;Use the target org version—the tool will not delete its existing entries." spellcheck="false"></textarea></div>
+          </div>
+          <div class="cdf-diff-indicator" id="cdfDiffIndicator" aria-live="polite">
+            <span class="cdf-diff-arrow"><svg viewBox="0 0 24 24"><path d="M20 7h-9a5 5 0 0 0-5 5v1M4 17h9a5 5 0 0 0 5-5v-1M16 3l4 4-4 4M8 13l-4 4 4 4"/></svg></span>
+            <div class="cdf-rail-total"><strong id="cdfDiffCount">—</strong><small>Total changes</small></div>
+            <div class="cdf-rail-metric added"><span class="cdf-rail-icon"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span><b id="cdfRailAdded">—</b><span>Added</span></div>
+            <div class="cdf-rail-metric updated"><span class="cdf-rail-icon"><svg viewBox="0 0 24 24"><path d="m4 20 4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z"/></svg></span><b id="cdfRailUpdated">—</b><span>Updated</span></div>
+            <div class="cdf-rail-metric base-only"><span class="cdf-rail-icon"><svg viewBox="0 0 24 24"><path d="M12 3 4 6v5c0 5 3.3 8.2 8 10 4.7-1.8 8-5 8-10V6l-8-3Z"/></svg></span><b id="cdfRailBaseOnly">—</b><span>Base only</span></div>
+          </div>
+          <div class="xpane">
+            <div class="xpane-head">
+              <span class="ttl">Modified Context Definition <span class="badge modified">Modified</span></span>
+              <div class="mini">
+                <button class="ghost" id="cdfModPasteBtn" data-paste="cdfMod">Paste</button>
+                <button class="ghost" id="cdfModCopyBtn" data-copy="cdfMod">Copy</button>
+                <button class="ghost" data-clear="cdfMod">Clear</button>
+              </div>
+            </div>
+            <div class="xpane-body"><div class="ln-gutter" id="ln-cdfMod"></div><textarea id="cdfMod" placeholder="Paste the MODIFIED Context Definition XML here.&#10;Use the source org version containing the new field mappings." spellcheck="false"></textarea></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2 trigger -->
+      <div class="cdfix-step" style="margin-top:14px;">
+        <div class="cdfix-step-head">
+          <span class="cdfix-step-num">Step 2</span>
+          <div>
+            <div class="cdfix-step-title">Review Additions and Value Changes</div>
+            <div class="cdfix-step-sub">Analyze Context Mappings, Context Attributes, and Required Parent Blocks while preserving Base.</div>
+          </div>
+        </div>
+        <div class="primary-action-row">
+          <button class="action b-cdfix" id="cdfAnalyzeBtn">Analyze Differences</button>
+        </div>
+        <div class="status" id="cdfAnalyzeStatus"></div>
+      </div>
+
+      <!-- Bidirectional diagnostics: explains line count and what changed -->
+      <section class="cdf-diagnostics" id="cdfDiagnostics">
+        <div class="diag-head">
+          <div>
+            <h3>Why are the line counts different?</h3>
+            <p>Separates Salesforce serializer omissions from actual metadata additions, removals, and changes.</p>
+          </div>
+          <span class="diag-version" id="cdfDiagVersions"></span>
+        </div>
+        <div class="diag-metrics">
+          <div class="diag-metric-card">
+            <span class="diag-metric-icon"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6zM14 3v5h5M9 12h7M9 16h7"/></svg></span>
+            <div><span>Base lines</span><strong id="cdfDiagBaseLines">0</strong></div>
+          </div>
+          <div class="diag-metric-card">
+            <span class="diag-metric-icon"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6zM14 3v5h5M9 12h7M9 16h5"/></svg></span>
+            <div><span>Modified lines</span><strong id="cdfDiagModifiedLines">0</strong></div>
+          </div>
+          <div class="diag-metric-card metric-difference">
+            <span class="diag-metric-icon"><svg viewBox="0 0 24 24"><path d="M5 8h14M15 4l4 4-4 4M19 16H5M9 12l-4 4 4 4"/></svg></span>
+            <div><span>Line difference</span><strong id="cdfDiagLineDelta">0</strong></div>
+          </div>
+          <div class="diag-metric-card">
+            <span class="diag-metric-icon"><svg viewBox="0 0 24 24"><path d="M4 7h16v13H4zM8 7V4h8v3M9 12h6"/></svg></span>
+            <div><span>Business items missing</span><strong id="cdfDiagBusinessRemoved">0</strong></div>
+          </div>
+        </div>
+        <div class="diag-explanation" id="cdfDiagExplanation"></div>
+        <div class="diag-tabs" id="cdfDiagTabs">
+          <button class="diag-tab active" data-diag-view="removed">Present only in Base <span id="cdfDiagRemovedCount">0</span></button>
+          <button class="diag-tab" data-diag-view="added">Present only in Modified <span id="cdfDiagAddedCount">0</span></button>
+          <button class="diag-tab" data-diag-view="changed">Materially changed <span id="cdfDiagChangedCount">0</span></button>
+          <button class="diag-tab" data-diag-view="counts">Element counts</button>
+        </div>
+        <div class="diag-list" id="cdfDiagList"></div>
+      </section>
+
+      <!-- Step 3: Selection panel (shown after analyze) -->
+      <div class="cdfix-select" id="cdfSelectPanel">
+        <div class="cdfix-sel-head">
+          <span id="cdfSelHeadText">Select fields to include</span>
+        </div>
+        <div class="cdfix-sel-body">
+          <div class="cdfix-metrics" id="cdfMetrics">
+            <div class="metric-card metric-all"><span class="metric-card-icon"><svg viewBox="0 0 24 24"><path d="M5 6h14M5 12h14M5 18h9"/></svg></span><strong id="cdfMetricAll">0</strong><span>Total changes</span></div>
+            <div class="metric-card metric-map"><span class="metric-card-icon"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/></svg></span><strong id="cdfMetricMappings">0</strong><span>Context Mappings</span></div>
+            <div class="metric-card metric-node"><span class="metric-card-icon"><svg viewBox="0 0 24 24"><path d="M4 6h11l5 5-9 9-7-7V6Z"/><circle cx="9" cy="11" r="1"/></svg></span><strong id="cdfMetricNodes">0</strong><span>Context Attributes</span></div>
+            <div class="metric-card metric-error"><span class="metric-card-icon"><svg viewBox="0 0 24 24"><path d="m4 7 8-4 8 4-8 4-8-4Zm0 0v10l8 4 8-4V7M12 11v10"/></svg></span><strong id="cdfMetricErrors">0</strong><span>Required Parent Blocks</span></div>
+          </div>
+          <div class="cdfix-data-toolbar">
+            <label class="cdfix-search"><span>⌕</span><input id="cdfSearch" type="search" placeholder="Search fields, Context Mappings, Context Attributes…" /></label>
+            <div class="cdfix-filters" id="cdfFilters">
+              <button class="filter-chip active" data-cdf-filter="all">All</button>
+              <button class="filter-chip" data-cdf-filter="ready">Ready</button>
+              <button class="filter-chip" data-cdf-filter="errors">Required Parent Blocks</button>
+              <button class="filter-chip" data-cdf-filter="updates">Value changes</button>
+              <button class="filter-chip" data-cdf-filter="mapping">Context Mappings</button>
+              <button class="filter-chip" data-cdf-filter="nodeAttr">Context Attributes</button>
+              <button class="filter-chip" data-cdf-filter="selected">Selected</button>
+            </div>
+          </div>
+          <div class="cdfix-sel-actions" id="cdfSelActions">
+            <button class="ghost" id="cdfSelAll">Select all</button>
+            <button class="ghost" id="cdfSelNone">Deselect all</button>
+            <button class="ghost" id="cdfExpandAll">Expand all</button>
+            <button class="ghost" id="cdfCollapseAll">Collapse all</button>
+            <span class="cdfix-selection-count" id="cdfSelCount">Total: 0 · Selected: 0</span>
+          </div>
+          <div class="cdfix-data-layout">
+            <div id="cdfFieldList"></div>
+            <aside class="cdfix-detail" id="cdfDetail" tabindex="-1">
+              <div class="cdfix-detail-empty">
+                <span>⌁</span>
+                <strong>Select a Context Definition change</strong>
+                <p>Choose a row to inspect its Revenue Cloud path and XML preview.</p>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4: Build -->
+      <div class="cdfix-step hidden" id="cdfBuildStep">
+        <div class="cdfix-step-head">
+          <span class="cdfix-step-num">Step 3</span>
+          <div>
+            <div class="cdfix-step-title">Build Context Definition</div>
+            <div class="cdfix-step-sub">Applies selected fields and complete required parent blocks on top of Base. Every structural addition is listed in the report.</div>
+          </div>
+        </div>
+        <div class="primary-action-row build-action-row">
+          <button class="action b-cdfix" id="cdfBuildBtn">Build Context Definition</button>
+        </div>
+
+        <div class="panes" style="margin-top:14px;">
+          <div class="xpane">
+            <div class="xpane-head">
+              <span class="ttl">Patched Result <span class="badge out">Output</span></span>
+              <div class="mini">
+                <button class="ghost" id="cdfCopyBtn">Copy</button>
+                <button class="ghost" id="cdfDownloadBtn">Download</button>
+                <button class="ghost" data-clear="cdfOut">Clear</button>
+              </div>
+            </div>
+            <div class="xpane-body"><div class="ln-gutter" id="ln-cdfOut"></div><textarea id="cdfOut" placeholder="The patched Context Definition will appear here.&#10;Review the quick report before copying or downloading it." spellcheck="false" readonly></textarea></div>
+          </div>
+        </div>
+
+        <div class="status" id="cdfBuildStatus"></div>
+        <div class="report" id="cdfReport">
+          <h3><svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6zM14 3v5h5M9 12h7M9 16h7"/></svg>Apply Report</h3>
+          <div class="report-summary" id="cdfReportSummary">
+            <div><strong id="cdfReportAdded">0</strong><span>Added</span></div>
+            <div><strong id="cdfReportUpdated">0</strong><span>Updated</span></div>
+            <div><strong id="cdfReportSkipped">0</strong><span>Skipped</span></div>
+            <div><strong id="cdfReportErrors">0</strong><span>Errors</span></div>
+          </div>
+          <div class="apply-timeline" id="cdfTimeline"></div>
+          <button class="ghost timeline-toggle hidden" id="cdfTimelineToggle">Show all details</button>
+          <details class="raw-report">
+            <summary>View raw report</summary>
+            <pre id="cdfReportBody"></pre>
+          </details>
+        </div>
+
+      </div>
+
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  // ── Consistent Lucide-style button icons ─────────────────────────────────
+  const ICON_PATHS = {
+    copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+    paste: '<path d="M9 5h6M9 3h6v4H9z"/><path d="M9 5H6a2 2 0 0 0-2 2v13h16V7a2 2 0 0 0-2-2h-3"/>',
+    clear: '<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>',
+    trash: '<path d="M4 7h16M9 7V4h6v3m3 0-1 14H7L6 7M10 11v6m4-6v6"/>',
+    download: '<path d="M12 3v12m-5-5 5 5 5-5M5 21h14"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+    compare: '<path d="M8 5H4v14h4M16 5h4v14h-4M10 8l-3 4 3 4m4-8 3 4-3 4"/>',
+    merge: '<path d="M6 3v6a6 6 0 0 0 6 6h6M6 21v-5a6 6 0 0 1 6-6h6M15 7l3 3-3 3"/>',
+    mapping: '<path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/>',
+    attribute: '<path d="M4 6h11l5 5-9 9-7-7V6Z"/><circle cx="9" cy="11" r="1"/>',
+    parentBlock: '<path d="m4 7 8-4 8 4-8 4-8-4Zm0 0v10l8 4 8-4V7M12 11v10"/>',
+    sparkles: '<path d="m12 3 1.2 3.3L16.5 7.5l-3.3 1.2L12 12l-1.2-3.3-3.3-1.2 3.3-1.2L12 3ZM5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14Zm13-2 .8 2.2 2.2.8-2.2.8L18 18l-.8-2.2L15 15l2.2-.8L18 12Z"/>',
+    selectAll: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="m8 12 3 3 5-6"/>',
+    deselectAll: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12h8"/>',
+    expand: '<path d="m7 9 5 5 5-5M7 3l5 5 5-5"/>',
+    collapse: '<path d="m7 15 5-5 5 5M7 21l5-5 5 5"/>',
+    swap: '<path d="M7 7h12l-3-3m3 3-3 3M17 17H5l3 3m-3-3 3-3"/>',
+    build: '<path d="m14.7 6.3 3 3M4 20l4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z"/>',
+    moon: '<path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5Z"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+    check: '<path d="m5 12 4 4L19 6"/>',
+    alert: '<path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 9v4m0 3h.01"/>'
+  };
+  function buttonIcon(name) {
+    return `<svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[name] || ''}</svg>`;
+  }
+  function decorateButton(id, icon) {
+    const btn = $(id);
+    if (btn && !btn.querySelector('.btn-icon')) btn.insertAdjacentHTML('afterbegin', buttonIcon(icon));
+  }
+  function decorateButtons() {
+    document.querySelectorAll('[data-clear]').forEach(btn => {
+      if (!btn.querySelector('.btn-icon')) btn.insertAdjacentHTML('afterbegin', buttonIcon('clear'));
+    });
+    document.querySelectorAll('[data-paste]').forEach(btn => {
+      if (!btn.querySelector('.btn-icon')) btn.insertAdjacentHTML('afterbegin', buttonIcon('paste'));
+    });
+    document.querySelectorAll('[data-copy]').forEach(btn => {
+      if (!btn.querySelector('.btn-icon')) btn.insertAdjacentHTML('afterbegin', buttonIcon('copy'));
+    });
+    [
+      ['compareBtn','compare'],['mergeBtn','merge'],['dedupBtn','sparkles'],['swapBtn','swap'],
+      ['mergeCopyBtn','copy'],['mergeDownloadBtn','download'],['dedupCopyBtn','copy'],['dedupDownloadBtn','download'],
+      ['cdfAnalyzeBtn','search'],['cdfBuildBtn','build'],['cdfCopyBtn','copy'],['cdfDownloadBtn','download'],
+      ['cdfBasePasteBtn','paste'],['cdfModPasteBtn','paste'],['cdfBaseCopyBtn','copy'],['cdfModCopyBtn','copy'],
+      ['cdfSelAll','selectAll'],['cdfSelNone','deselectAll'],['cdfExpandAll','expand'],['cdfCollapseAll','collapse'],
+      ['cdfClearAll','trash']
+    ].forEach(([id,icon]) => decorateButton(id,icon));
+    const tabIcons = {compare:'compare',merge:'merge',dedup:'sparkles',cdfix:'build'};
+    document.querySelectorAll('.tab').forEach(tab => {
+      if (!tab.querySelector('.btn-icon')) tab.insertAdjacentHTML('afterbegin',buttonIcon(tabIcons[tab.dataset.mode]));
+    });
+  }
+  decorateButtons();
+
+  // ── Line-number gutter ─────────────────────────────────────────────────────
+  const _lnRefresh = {};
+  function initLN(taId) {
+    const ta = $(taId);
+    const gut = $('ln-' + taId);
+    const lineInner = document.createElement('span');
+    lineInner.className = 'ln-inner';
+    gut.replaceChildren(lineInner);
+    const pane = ta.closest('.xpane');
+    const status = document.createElement('div');
+    status.className = 'editor-status';
+    status.innerHTML = '<span class="format">XML</span><span data-lines></span><span class="waiting" data-validity>Awaiting XML</span>';
+    pane.appendChild(status);
+    let validityTimer, validityVersion = 0, totalLines = 1;
+    function countLines(text) {
+      let count = 1;
+      for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) count++;
+      return count;
+    }
+    function renderVisibleLines() {
+      const lineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 21;
+      const first = Math.max(0, Math.floor(ta.scrollTop / lineHeight));
+      const visible = Math.ceil((ta.clientHeight || 420) / lineHeight) + 2;
+      const last = Math.min(totalLines, first + visible);
+      let numbers = '';
+      for (let line = first + 1; line <= last; line++) numbers += line + '\n';
+      lineInner.textContent = numbers;
+      lineInner.style.transform = `translateY(${-1 * (ta.scrollTop % lineHeight)}px)`;
+    }
+    function refreshValidity(version) {
+      if (version !== validityVersion) return;
+      const validity = status.querySelector('[data-validity]');
+      if (!ta.value.trim()) {
+        validity.className = 'waiting';
+        validity.textContent = 'Awaiting XML';
+        return;
+      }
+      const parsed = new DOMParser().parseFromString(ta.value, 'application/xml');
+      const invalid = parsed.querySelector('parsererror');
+      validity.className = invalid ? 'invalid' : 'valid';
+      validity.innerHTML = buttonIcon(invalid ? 'alert' : 'check') + (invalid ? 'Invalid XML' : 'Valid XML');
+    }
+    function refresh() {
+      totalLines = ta.value ? countLines(ta.value) : 1;
+      renderVisibleLines();
+      status.querySelector('[data-lines]').textContent = `${totalLines.toLocaleString()} lines`;
+      clearTimeout(validityTimer);
+      const version = ++validityVersion;
+      const delay = ta.value.length > 200000 ? 900 : 300;
+      validityTimer = setTimeout(() => {
+        const run = () => refreshValidity(version);
+        if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 1500 });
+        else run();
+      }, delay);
+    }
+    ta.addEventListener('input', refresh);
+    ta.addEventListener('scroll', renderVisibleLines, { passive: true });
+    if ('ResizeObserver' in window) new ResizeObserver(renderVisibleLines).observe(ta);
+    refresh();
+    _lnRefresh[taId] = refresh;
+  }
+  ['cmpA','cmpB','mrgA','mrgB','mrgOut','dedIn','dedOut','cdfBase','cdfMod','cdfOut'].forEach(initLN);
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // ---- Theme ----
+  const themeBtn = $("themeBtn");
+  function applyThemeLabel() {
+    const t = document.documentElement.getAttribute("data-theme") || "light";
+    const dark = t === "dark";
+    themeBtn.classList.toggle("is-dark", dark);
+    themeBtn.setAttribute("aria-label", dark ? "Switch to day mode" : "Switch to night mode");
+    themeBtn.innerHTML = buttonIcon(dark ? "sun" : "moon") +
+      '<span class="theme-switch" aria-hidden="true"></span>';
+  }
+  themeBtn.onclick = () => {
+    const cur = document.documentElement.getAttribute("data-theme") || "light";
+    const next = cur === "light" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem("xml-theme", next); } catch (e) {}
+    applyThemeLabel();
+  };
+  applyThemeLabel();
+
+  // ---- Tab switching ----
+  const views = { compare: $("view-compare"), merge: $("view-merge"), dedup: $("view-dedup"), cdfix: $("view-cdfix") };
+  const pageMeta = {
+    compare: ["Compare XML", "Inspect two Salesforce metadata files with structural and line-level differences."],
+    merge: ["Merge Metadata", "Layer selected changes onto an authoritative base without losing unrelated metadata."],
+    dedup: ["Deduplicate XML", "Remove repeated Permission Set or Profile entries and produce a clean, stable output."],
+    cdfix: ["Context Definition Fix", "Compare, analyze, and build Salesforce Context Definitions with confidence."]
+  };
+  function switchMode(mode) {
+    if (!views[mode]) return;
+    document.querySelectorAll("[data-mode]").forEach(x => x.classList.toggle("active", x.dataset.mode === mode));
+    Object.entries(views).forEach(([key, view]) => view.classList.toggle("hidden", key !== mode));
+    $("pageTitle").textContent = pageMeta[mode][0];
+    $("pageSubtitle").textContent = pageMeta[mode][1];
+  }
+  document.querySelectorAll(".tab,.side-nav").forEach(t => {
+    t.onclick = () => switchMode(t.dataset.mode);
+  });
+
+  // ---- Helpers ----
+  function setStatus(el, kind, msg) {
+    el.className = "status show " + kind;
+    el.textContent = msg;
+    el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+  function showReport(box, body, text) {
+    body.textContent = text || "";
+    box.classList.toggle("show", !!text);
+  }
+  async function postJSON(url, payload) {
+    let res;
+    try {
+      res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload) });
+    } catch (e) { return { ok: false, log: "Lost connection to the XML Tool. Is its window still open?" }; }
+    const text = await res.text();
+    try { return JSON.parse(text); }
+    catch (e) { return { ok: false, log: "Unexpected server response (HTTP " + res.status + "):\n" + text.slice(0, 500) }; }
+  }
+  function busy(btn, label) { btn.dataset.originalHtml = btn.innerHTML; btn.innerHTML = '<span class="spinner"></span>' + label; btn.disabled = true; }
+  function idle(btn) { btn.innerHTML = btn.dataset.originalHtml || btn.innerHTML; btn.disabled = false; }
+  async function copyFrom(textarea, btn) {
+    if (!textarea.value) return;
+    try { await navigator.clipboard.writeText(textarea.value); }
+    catch (e) {
+      const wasReadonly = textarea.hasAttribute("readonly");
+      if (wasReadonly) textarea.removeAttribute("readonly");
+      textarea.select(); document.execCommand("copy");
+      if (wasReadonly) textarea.setAttribute("readonly","");
+    }
+    const old = btn.innerHTML;
+    btn.innerHTML = buttonIcon("check") + "Copied!";
+    setTimeout(() => btn.innerHTML = old, 1200);
+  }
+  function download(textarea, name) {
+    if (!textarea.value) return;
+    const blob = new Blob([textarea.value], { type: "text/xml" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  document.querySelectorAll("[data-clear]").forEach(b => b.onclick = () => {
+    const id = b.dataset.clear;
+    $(id).value = "";    // works on both editable and readonly textareas when set via JS
+    if (_lnRefresh[id]) _lnRefresh[id]();
+  });
+
+  async function pasteInto(taId) {
+    const ta = $(taId);
+    if (!ta) return;
+    try {
+      const text = await navigator.clipboard.readText();
+      ta.value = text;
+      if (_lnRefresh[taId]) _lnRefresh[taId]();
+    } catch (e) {
+      ta.focus();
+      alert("Clipboard read blocked — click inside the text area and use Ctrl/Cmd+V to paste.");
+    }
+  }
+  document.querySelectorAll('[data-paste]').forEach(btn => {
+    btn.onclick = () => pasteInto(btn.dataset.paste);
+  });
+  document.querySelectorAll('[data-copy]').forEach(btn => {
+    btn.onclick = () => copyFrom($(btn.dataset.copy), btn);
+  });
+
+  // ============================ COMPARE ============================
+  const compareBtn = $("compareBtn"), cmpA = $("cmpA"), cmpB = $("cmpB"), cmpTag = $("cmpTag");
+  const cmpStatus = $("cmpStatus"), cmpReport = $("cmpReport"), cmpReportBody = $("cmpReportBody");
+  const diffBox = $("diff"), diffSummary = $("diffSummary"), onlyDiffs = $("onlyDiffs");
+  const diffPanes = $("diffPanes"), srcTable = $("srcTable"), tgtTable = $("tgtTable");
+  const srcScroll = $("srcScroll"), tgtScroll = $("tgtScroll");
+
+  compareBtn.onclick = async () => {
+    if (!cmpA.value.trim() || !cmpB.value.trim()) { setStatus(cmpStatus, "err", "Paste XML in both panes first."); return; }
+    busy(compareBtn, "Comparing…");
+    diffBox.classList.remove("show"); cmpReport.classList.remove("show");
+    const data = await postJSON("/api/compare", { a: cmpA.value, b: cmpB.value, tag: cmpTag.value });
+    if (data.ok) {
+      if (data.xml === false) renderDiff(cmpA.value, cmpB.value);
+      else renderStructuralDiff(data);
+      showReport(cmpReport, cmpReportBody, data.report);
+      if (data.xml === false) setStatus(cmpStatus, "info", "Not valid XML — showing a line-by-line diff only.");
+      else setStatus(cmpStatus, "ok", `Compared by XML content, ignoring line position. ${data.matched} matched · ${data.onlyLeft} only in left · ${data.onlyRight} only in right.`);
+    } else {
+      setStatus(cmpStatus, "err", data.log || "Compare failed.");
+    }
+    idle(compareBtn);
+  };
+
+  function esc(s) { return (s == null ? "" : String(s)).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+  function diffOps(a, b) {
+    const n = a.length, m = b.length;
+    const dp = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
+    for (let i = n - 1; i >= 0; i--)
+      for (let j = m - 1; j >= 0; j--)
+        dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    const ops = []; let i = 0, j = 0;
+    while (i < n && j < m) {
+      if (a[i] === b[j]) { ops.push({ t: "eq", a: i, b: j }); i++; j++; }
+      else if (dp[i + 1][j] >= dp[i][j + 1]) { ops.push({ t: "del", a: i }); i++; }
+      else { ops.push({ t: "ins", b: j }); j++; }
+    }
+    while (i < n) { ops.push({ t: "del", a: i++ }); }
+    while (j < m) { ops.push({ t: "ins", b: j++ }); }
+    return ops;
+  }
+  function paneRow(rowType, num, codeHtml, marker) {
+    const cls = rowType === "eq" ? "eqrow" : rowType === "chg" ? "row-chg"
+      : rowType === "del" ? "row-del" : rowType === "ins" ? "row-ins" : "row-filler";
+    if (rowType === "filler") return `<tr class="row-filler"><td class="gutter">&nbsp;</td><td class="code">&nbsp;</td></tr>`;
+    return `<tr class="${cls}"><td class="gutter">${num}</td><td class="code"><span class="mk">${marker}</span>${codeHtml}</td></tr>`;
+  }
+  function pairStructuralItems(leftItems, rightItems) {
+    const pairs = [];
+    const unusedRight = new Set(rightItems.map((_, index) => index));
+    for (const left of leftItems) {
+      let match = -1;
+      if (left.identity) {
+        match = rightItems.findIndex((right, index) =>
+          unusedRight.has(index) && right.tag === left.tag && right.identity === left.identity);
+      }
+      if (match < 0 && !left.identity) {
+        match = rightItems.findIndex((right, index) =>
+          unusedRight.has(index) && right.tag === left.tag && !right.identity);
+      }
+      if (match >= 0) {
+        unusedRight.delete(match);
+        pairs.push([left, rightItems[match]]);
+      } else {
+        pairs.push([left, null]);
+      }
+    }
+    for (const index of unusedRight) pairs.push([null, rightItems[index]]);
+    return pairs;
+  }
+  function structuralItemLines(item) {
+    if (!item) return [];
+    const identity = item.identity ? ` — ${item.identity}` : "";
+    const occurrences = item.count > 1 ? ` (x${item.count})` : "";
+    return [`<${item.tag}>${identity}${occurrences}`, ...String(item.snippet || "").split("\n")];
+  }
+  function renderStructuralDiff(data) {
+    const leftItems = data.uniqueLeft || [];
+    const rightItems = data.uniqueRight || [];
+    const pairs = pairStructuralItems(leftItems, rightItems);
+    let left = "", right = "";
+    if (!pairs.length) {
+      const message = "No unique structural differences — matching XML content may appear on different lines.";
+      left = paneRow("eq", "✓", esc(message), " ");
+      right = paneRow("eq", "✓", esc(message), " ");
+    } else {
+      pairs.forEach(([leftItem, rightItem], pairIndex) => {
+        const leftLines = structuralItemLines(leftItem);
+        const rightLines = structuralItemLines(rightItem);
+        const length = Math.max(leftLines.length, rightLines.length);
+        const rowType = leftItem && rightItem ? "chg" : leftItem ? "del" : "ins";
+        const leftMarker = rowType === "chg" ? "~" : "−";
+        const rightMarker = rowType === "chg" ? "~" : "+";
+        for (let index = 0; index < length; index++) {
+          const label = index === 0 ? `Δ${pairIndex + 1}` : "";
+          if (index < leftLines.length)
+            left += paneRow(rowType, label, esc(leftLines[index]), leftMarker);
+          else
+            left += paneRow("filler");
+          if (index < rightLines.length)
+            right += paneRow(rowType, label, esc(rightLines[index]), rightMarker);
+          else
+            right += paneRow("filler");
+        }
+      });
+    }
+    srcTable.innerHTML = "<tbody>" + left + "</tbody>";
+    tgtTable.innerHTML = "<tbody>" + right + "</tbody>";
+    onlyDiffs.checked = false;
+    onlyDiffs.closest(".diff-opts").style.display = "none";
+    diffPanes.classList.remove("hide-eq");
+    diffSummary.textContent = (data.onlyLeft + data.onlyRight === 0)
+      ? `Structurally identical — line position and element order ignored.`
+      : `${data.onlyLeft} unique occurrence${data.onlyLeft === 1 ? "" : "s"} only in left · ` +
+        `${data.onlyRight} unique occurrence${data.onlyRight === 1 ? "" : "s"} only in right`;
+    diffBox.classList.add("show");
+  }
+  function renderDiff(aText, bText) {
+    onlyDiffs.closest(".diff-opts").style.display = "";
+    const a = aText.replace(/\r\n/g, "\n").split("\n");
+    const b = bText.replace(/\r\n/g, "\n").split("\n");
+    const ops = diffOps(a, b);
+    const rows = []; let pendDel = [], pendIns = [];
+    const flush = () => {
+      const k = Math.max(pendDel.length, pendIns.length);
+      for (let x = 0; x < k; x++) {
+        const d = pendDel[x], ins = pendIns[x];
+        if (d != null && ins != null) rows.push({ type: "chg", a: d, b: ins });
+        else if (d != null) rows.push({ type: "del", a: d });
+        else rows.push({ type: "ins", b: ins });
+      }
+      pendDel = []; pendIns = [];
+    };
+    for (const op of ops) {
+      if (op.t === "eq") { flush(); rows.push({ type: "eq", a: op.a, b: op.b }); }
+      else if (op.t === "del") pendDel.push(op.a);
+      else pendIns.push(op.b);
+    }
+    flush();
+    let chg = 0, del = 0, ins = 0, left = "", right = "";
+    for (const r of rows) {
+      if (r.type === "eq") { left += paneRow("eq", r.a + 1, esc(a[r.a]), " "); right += paneRow("eq", r.b + 1, esc(b[r.b]), " "); }
+      else if (r.type === "chg") { chg++; left += paneRow("chg", r.a + 1, esc(a[r.a]), "~"); right += paneRow("chg", r.b + 1, esc(b[r.b]), "~"); }
+      else if (r.type === "del") { del++; left += paneRow("del", r.a + 1, esc(a[r.a]), "\u2212"); right += paneRow("filler"); }
+      else { ins++; left += paneRow("filler"); right += paneRow("ins", r.b + 1, esc(b[r.b]), "+"); }
+    }
+    srcTable.innerHTML = "<tbody>" + left + "</tbody>";
+    tgtTable.innerHTML = "<tbody>" + right + "</tbody>";
+    diffPanes.classList.toggle("hide-eq", onlyDiffs.checked);
+    diffSummary.textContent = (chg + del + ins === 0)
+      ? `Identical — ${a.length} lines match exactly.`
+      : `${chg} changed · ${del} only in left · ${ins} only in right   (left ${a.length} lines, right ${b.length} lines)`;
+    diffBox.classList.add("show");
+  }
+  let syncing = false;
+  function syncScroll(from, to) {
+    from.addEventListener("scroll", () => {
+      if (syncing) { syncing = false; return; }
+      syncing = true; to.scrollTop = from.scrollTop;
+    });
+  }
+  syncScroll(srcScroll, tgtScroll); syncScroll(tgtScroll, srcScroll);
+  onlyDiffs.onchange = () => diffPanes.classList.toggle("hide-eq", onlyDiffs.checked);
+
+  // ============================= MERGE =============================
+  const mergeBtn = $("mergeBtn"), mrgA = $("mrgA"), mrgB = $("mrgB"), mrgOut = $("mrgOut");
+  const baseSelect = $("baseSelect"), badge1 = $("badge1"), badge2 = $("badge2");
+  const mrgStatus = $("mrgStatus"), mrgReport = $("mrgReport"), mrgReportBody = $("mrgReportBody");
+  const mrgDupWarn = $("mrgDupWarn"), mrgDupBody = $("mrgDupBody");
+  const mrgDupList = $("mrgDupList"), mrgDupToggle = $("mrgDupToggle");
+  const swapBtn = $("swapBtn");
+
+  // Toggle duplicate details panel
+  mrgDupToggle.onclick = () => {
+    const open = mrgDupBody.style.display !== 'none';
+    mrgDupBody.style.display = open ? 'none' : 'block';
+    mrgDupToggle.textContent = open ? 'Show details' : 'Hide details';
+  };
+
+  function updateBadges() {
+    const leftIsBase = baseSelect.value === "left";
+    badge1.classList.toggle("hidden", !leftIsBase);
+    badge2.classList.toggle("hidden", leftIsBase);
+  }
+  baseSelect.onchange = updateBadges;
+  updateBadges();
+
+  swapBtn.onclick = () => {
+    const t = mrgA.value; mrgA.value = mrgB.value; mrgB.value = t;
+    _lnRefresh.mrgA(); _lnRefresh.mrgB();
+  };
+
+  mergeBtn.onclick = async () => {
+    if (!mrgA.value.trim() || !mrgB.value.trim()) { setStatus(mrgStatus, "err", "Paste XML in both Base and Modified panes first."); return; }
+    const leftIsBase = baseSelect.value === "left";
+    const base = leftIsBase ? mrgA.value : mrgB.value;
+    const override = leftIsBase ? mrgB.value : mrgA.value;
+    busy(mergeBtn, "Merging…");
+    mrgReport.classList.remove("show");
+    mrgDupWarn.classList.remove("show");
+    const data = await postJSON("/api/merge", { base, override });
+    if (data.ok) {
+      mrgOut.value = data.merged; _lnRefresh.mrgOut();
+      showReport(mrgReport, mrgReportBody, data.report);
+
+      // ── Duplicate warning banner ──
+      const dups = data.duplicates || [];
+      if (dups.length) {
+        // Parse each warning line into labelled list items
+        mrgDupList.innerHTML = dups.map(w => {
+          // Format: "  [Base] <tag> 'key' appears Nx — ..."
+          const badgeHtml = w.includes('[Base]')
+            ? '<span class="dup-badge base">Base</span>'
+            : '<span class="dup-badge mod">Modified</span>';
+          const text = w.replace(/\s*\[(Base|Modified)\]\s*/, '').trim();
+          return `<li>${badgeHtml}${esc(text)}</li>`;
+        }).join('');
+        mrgDupBody.style.display = 'none';
+        mrgDupToggle.textContent = 'Show details';
+        mrgDupWarn.classList.add("show");
+      }
+
+      if (data.warnings && data.warnings.length)
+        setStatus(mrgStatus, "info", `Merged <${data.rootType}> with ${data.warnings.length} validation warning(s) — see report below.`);
+      else if (dups.length)
+        setStatus(mrgStatus, "ok", `Merged <${data.rootType}>. ⚠ ${dups.length} duplicate entry/entries in inputs were collapsed — see warning above.`);
+      else
+        setStatus(mrgStatus, "ok", `Merged <${data.rootType}> successfully. Use Copy to grab the result.`);
+    } else {
+      mrgOut.value = ""; _lnRefresh.mrgOut();
+      setStatus(mrgStatus, "err", data.log || "Merge failed.");
+    }
+    idle(mergeBtn);
+  };
+  $("mergeCopyBtn").onclick = (e) => copyFrom(mrgOut, e.currentTarget);
+  $("mergeDownloadBtn").onclick = () => download(mrgOut, "merged.xml");
+
+  // =========================== DEDUPLICATE =========================
+  const dedupBtn = $("dedupBtn"), dedIn = $("dedIn"), dedOut = $("dedOut");
+  const dedStatus = $("dedStatus"), dedReport = $("dedReport"), dedReportBody = $("dedReportBody");
+  dedupBtn.onclick = async () => {
+    if (!dedIn.value.trim()) { setStatus(dedStatus, "err", "Paste a Permission Set XML first."); return; }
+    busy(dedupBtn, "Cleaning…");
+    dedReport.classList.remove("show");
+    const data = await postJSON("/api/dedup", { content: dedIn.value });
+    if (data.ok) {
+      dedOut.value = data.result; _lnRefresh.dedOut();
+      showReport(dedReport, dedReportBody, data.report);
+      const warnings = data.warnings || [];
+      const message = `Done — ${data.removed} duplicate entr${data.removed === 1 ? "y" : "ies"} removed.` +
+        (data.singletonDuplicates ? ` ${data.singletonDuplicates} came from singleton metadata such as description.` : "") +
+        (warnings.length ? ` ${warnings.length} conflicting value warning${warnings.length === 1 ? "" : "s"} — see report.` : "");
+      setStatus(dedStatus, warnings.length ? "info" : "ok", message);
+    } else {
+      dedOut.value = ""; _lnRefresh.dedOut();
+      setStatus(dedStatus, "err", data.log || "Deduplication failed.");
+    }
+    idle(dedupBtn);
+  };
+  $("dedupCopyBtn").onclick = (e) => copyFrom(dedOut, e.currentTarget);
+  $("dedupDownloadBtn").onclick = () => download(dedOut, "deduplicated.xml");
+
+  // ====================== CONTEXT DEFINITION FIX =========================
+  const cdfBase         = $("cdfBase"),  cdfMod    = $("cdfMod"), cdfOut = $("cdfOut");
+  const cdfAnalyzeBtn   = $("cdfAnalyzeBtn"),  cdfBuildBtn = $("cdfBuildBtn");
+  const cdfAnalyzeStatus = $("cdfAnalyzeStatus"), cdfBuildStatus = $("cdfBuildStatus");
+  const cdfSelectPanel  = $("cdfSelectPanel"),   cdfBuildStep = $("cdfBuildStep");
+  const cdfFieldList    = $("cdfFieldList"),      cdfSelCount  = $("cdfSelCount");
+  const cdfReport       = $("cdfReport"),         cdfReportBody = $("cdfReportBody");
+  const cdfSelHeadText  = $("cdfSelHeadText");
+  const cdfDetail       = $("cdfDetail"),          cdfSearch = $("cdfSearch");
+  const cdfTimeline     = $("cdfTimeline"),        cdfTimelineToggle = $("cdfTimelineToggle");
+  const cdfDiffCount    = $("cdfDiffCount"),       cdfDiffIndicator = $("cdfDiffIndicator");
+  const cdfRailAdded    = $("cdfRailAdded"),        cdfRailUpdated = $("cdfRailUpdated");
+  const cdfRailBaseOnly = $("cdfRailBaseOnly");
+  const cdfDiagnostics  = $("cdfDiagnostics"),     cdfDiagList = $("cdfDiagList");
+
+  let _cdfItems = [];   // raw analysis results stored between steps
+  let _cdfById = new Map();
+  let _cdfFilter = 'all';
+  let _cdfItemCheckboxes = [];
+  let _cdfCards = [];
+  let _cdfActiveCard = null;
+  let _cdfActiveItem = null;
+  let _cdfTimelineEntries = [];
+  let _cdfTimelineExpanded = false;
+  let _cdfDiagnostics = null;
+  let _cdfDiagView = "removed";
+
+  $("cdfClearAll").onclick = () => {
+    [cdfBase,cdfMod,cdfOut].forEach(ta => {
+      ta.value = "";
+      if (_lnRefresh[ta.id]) _lnRefresh[ta.id]();
+    });
+    _cdfItems = []; _cdfById = new Map(); _cdfItemCheckboxes = []; _cdfCards = []; _cdfActiveCard = null; _cdfActiveItem = null;
+    cdfFieldList.innerHTML = "";
+    cdfSelectPanel.classList.remove("show");
+    cdfBuildStep.classList.add("hidden");
+    cdfReport.classList.remove("show");
+    cdfDiagnostics.classList.remove("show");
+    _cdfDiagnostics = null;
+    [cdfAnalyzeStatus,cdfBuildStatus].forEach(el => { el.className = "status"; el.textContent = ""; });
+    cdfDiffCount.textContent = "—";
+    [cdfRailAdded,cdfRailUpdated,cdfRailBaseOnly].forEach(el => { el.textContent = "—"; });
+    cdfDiffIndicator.classList.remove("has-diffs");
+  };
+
+  function cdfRenderDiagnosticList(view) {
+    _cdfDiagView = view;
+    document.querySelectorAll('[data-diag-view]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.diagView === view);
+    });
+    if (!_cdfDiagnostics) {
+      cdfDiagList.innerHTML = "";
+      return;
+    }
+    if (view === "counts") {
+      const rows = _cdfDiagnostics.counts || [];
+      cdfDiagList.innerHTML =
+        `<div class="diag-count-row head"><span>Element</span><span>Base</span><span>Modified</span><span>Δ</span></div>` +
+        rows.map(row => {
+          const cls = row.delta > 0 ? "diag-positive" : row.delta < 0 ? "diag-negative" : "";
+          const delta = row.delta > 0 ? `+${row.delta}` : String(row.delta);
+          return `<div class="diag-count-row"><code>${esc(row.tag)}</code>` +
+            `<span>${Number(row.base).toLocaleString()}</span>` +
+            `<span>${Number(row.modified).toLocaleString()}</span>` +
+            `<strong class="${cls}">${delta}</strong></div>`;
+        }).join('');
+      return;
+    }
+    const rows = _cdfDiagnostics[view] || [];
+    if (!rows.length) {
+      const label = view === "removed" ? "Base-only metadata" : view === "added" ? "Modified-only metadata" : "material changes";
+      cdfDiagList.innerHTML = `<div class="diag-empty">No ${label} found.</div>`;
+      return;
+    }
+    cdfDiagList.innerHTML = rows.map(row => {
+      const serializer = String(row.type || "").startsWith("Serializer/");
+      return `<div class="diag-row">` +
+        `<span class="diag-kind ${serializer ? 'serializer' : ''}">${esc(row.type)}</span>` +
+        `<span class="diag-name">${esc(row.name)}</span>` +
+        `<span><span class="diag-path">${esc(row.path)}</span>` +
+          (row.detail ? `<br><span class="diag-detail">${esc(row.detail)}</span>` : '') +
+        `</span><span class="diag-count">${Number(row.count || 1).toLocaleString()}</span></div>`;
+    }).join('');
+  }
+
+  function cdfRenderDiagnostics(diagnostics) {
+    _cdfDiagnostics = diagnostics || null;
+    if (!_cdfDiagnostics) {
+      cdfDiagnostics.classList.remove("show");
+      return;
+    }
+    $("cdfDiagBaseLines").textContent = Number(_cdfDiagnostics.baseLines || 0).toLocaleString();
+    $("cdfDiagModifiedLines").textContent = Number(_cdfDiagnostics.modifiedLines || 0).toLocaleString();
+    const delta = Number(_cdfDiagnostics.lineDelta || 0);
+    const deltaEl = $("cdfDiagLineDelta");
+    deltaEl.textContent = delta > 0 ? `+${delta.toLocaleString()}` : delta.toLocaleString();
+    deltaEl.className = delta > 0 ? "diag-positive" : delta < 0 ? "diag-negative" : "";
+    $("cdfDiagBusinessRemoved").textContent = Number(_cdfDiagnostics.businessRemovedCount || 0).toLocaleString();
+    $("cdfDiagVersions").textContent =
+      `Version ${_cdfDiagnostics.baseVersion || "?"} → ${_cdfDiagnostics.modifiedVersion || "?"}`;
+    $("cdfDiagExplanation").textContent = _cdfDiagnostics.summary || "";
+    $("cdfDiagRemovedCount").textContent = Number(_cdfDiagnostics.removedCount || 0).toLocaleString();
+    $("cdfDiagAddedCount").textContent = Number(_cdfDiagnostics.addedCount || 0).toLocaleString();
+    $("cdfDiagChangedCount").textContent = Number(_cdfDiagnostics.changedCount || 0).toLocaleString();
+    cdfRailAdded.textContent = Number(_cdfDiagnostics.addedCount || 0).toLocaleString();
+    cdfRailUpdated.textContent = Number(_cdfDiagnostics.changedCount || 0).toLocaleString();
+    cdfRailBaseOnly.textContent = Number(_cdfDiagnostics.removedCount || 0).toLocaleString();
+    cdfDiagnostics.classList.add("show");
+    cdfRenderDiagnosticList("removed");
+  }
+  document.querySelectorAll('[data-diag-view]').forEach(btn => {
+    btn.onclick = () => cdfRenderDiagnosticList(btn.dataset.diagView);
+  });
+
+  // ── helpers ─────────────────────────────────────────────────────────────
+  function cdfUpdateSelCount() {
+    const total   = _cdfItems.length;
+    let checked = 0;
+    for (const cb of _cdfItemCheckboxes) if (cb.checked) checked++;
+    cdfSelCount.textContent = `Total: ${total.toLocaleString()} · Selected: ${checked.toLocaleString()}`;
+    if (_cdfFilter === 'selected') cdfApplyFilters();
+  }
+
+  function cdfShowDetail(id) {
+    const it = _cdfById.get(id);
+    if (!it) return;
+    _cdfActiveItem = it;
+    if (_cdfActiveCard) _cdfActiveCard.classList.remove('is-active');
+    _cdfActiveCard = _cdfCards.find(card => card.dataset.cardId === id) || null;
+    if (_cdfActiveCard) _cdfActiveCard.classList.add('is-active');
+    const isParentBlock = !!it.parentPatch;
+    const isUpdate = it.changeKind === 'update';
+    const isMapping = ['mapping','mappingBlock','nodeMappingBlock'].includes(it.type);
+    const name = it.attrName || it.attrTitle || it.mappingTitle || it.nodeName || '';
+    const location = it.type === 'mappingBlock'
+      ? `contextMappings › ${it.mappingTitle}`
+      : it.type === 'nodeMappingBlock' || it.type === 'mapping'
+        ? `${it.mappingTitle} › ${it.contextNode} › ${it.object}`
+        : `contextNodes › ${it.nodeName}`;
+    const preview = it.type === 'mappingBlock'
+      ? `<contextMappings>\n    <!-- complete mapping and all children -->\n    <title>${it.mappingTitle}</title>\n</contextMappings>`
+      : it.type === 'nodeMappingBlock'
+        ? `<contextNodeMappings>\n    <!-- complete block and all children -->\n    <contextNode>${it.contextNode}</contextNode>\n    <object>${it.object}</object>\n</contextNodeMappings>`
+        : it.type === 'contextNodeBlock'
+          ? `<contextNodes>\n    <!-- complete node and all children -->\n    <title>${it.nodeName}</title>\n</contextNodes>`
+          : isMapping
+            ? `<contextAttributeMappings>\n    <contextAttribute>${name}</contextAttribute>\n    ${it.fieldInfo ? `<!-- ${it.fieldInfo} -->\n    ` : ''}...\n</contextAttributeMappings>`
+            : `<contextAttributes>\n    <title>${name}</title>\n    ...\n</contextAttributes>`;
+    const parentNote = isParentBlock
+      ? `<div class="cdfix-parent-help"><strong>Full-block patch:</strong> ${esc(it.parentPatchMessage || '')}</div>`
+      : '';
+    const preserveNote = isUpdate && (it.preservedBaseFields || []).length
+      ? `<div class="cdfix-parent-help"><strong>Base protected:</strong> Modified omits ${esc(it.preservedBaseFields.join(', '))}; Step 3 will preserve it from Base.</div>`
+      : '';
+    const changeDetails = isUpdate
+      ? `<div class="detail-row"><span>Current Base value</span><code>${esc(it.beforeField || 'Existing XML definition')}</code></div>` +
+        `<div class="detail-row"><span>Modified value</span><code>${esc(it.afterField || 'Modified XML definition')}</code></div>`
+      : '';
+    const badgeLabel = isParentBlock ? 'Required Parent Block' : isMapping ? 'Context Mapping' : 'Context Attribute';
+    const badgeIcon = isParentBlock ? 'parentBlock' : isMapping ? 'mapping' : 'attribute';
+    cdfDetail.innerHTML =
+      `<div class="cdfix-detail-head">` +
+        `<span class="cdfix-tbadge ${isMapping ? 'cdfix-tbadge-m' : 'cdfix-tbadge-n'}">${buttonIcon(badgeIcon)}${badgeLabel}</span>` +
+        `<h4>${esc(name)}</h4><p>${isParentBlock ? 'Ready — Step 3 will copy the complete required block' : isUpdate ? 'Ready — Step 3 will replace the selected Base definition' : 'Ready to apply'}</p>` +
+      `</div><div class="cdfix-detail-body">` +
+        `<div class="detail-row"><span>Location</span><code>${esc(location)}</code></div>` +
+        (it.fieldInfo ? `<div class="detail-row"><span>Source</span><code>${esc(it.fieldInfo)}</code></div>` : '') +
+        changeDetails +
+        `<div class="detail-row"><span>XML preview</span><pre class="detail-preview">${esc(preview)}</pre></div>` +
+        parentNote + preserveNote +
+      `</div>`;
+    cdfDetail.scrollTop = 0;
+    cdfDetail.classList.remove('context-flash');
+    requestAnimationFrame(() => cdfDetail.classList.add('context-flash'));
+    setTimeout(() => cdfDetail.classList.remove('context-flash'), 650);
+    try { cdfDetail.focus({ preventScroll:true }); } catch (e) {}
+    cdfHighlightTimeline(it, cdfReport.classList.contains('show'));
+  }
+
+  function cdfApplyFilters() {
+    const query = (cdfSearch.value || '').trim().toLowerCase();
+    _cdfCards.forEach(card => {
+      const cb = card.querySelector('input[data-item]');
+      const it = cb ? _cdfById.get(cb.dataset.item) : null;
+      if (!it) return;
+      const haystack = [it.attrName, it.attrTitle, it.mappingTitle, it.contextNode,
+        it.object, it.nodeName, it.fieldInfo, it.beforeField, it.afterField, it.group].filter(Boolean).join(' ').toLowerCase();
+      const filterMatch =
+        _cdfFilter === 'all' ||
+        (_cdfFilter === 'ready' && !it.parentPatch) ||
+        (_cdfFilter === 'errors' && it.parentPatch) ||
+        (_cdfFilter === 'updates' && it.changeKind === 'update') ||
+        (_cdfFilter === 'mapping' && ['mapping','mappingBlock','nodeMappingBlock'].includes(it.type)) ||
+        (_cdfFilter === 'nodeAttr' && ['nodeAttr','contextNodeBlock'].includes(it.type)) ||
+        (_cdfFilter === 'selected' && cb.checked);
+      card.hidden = !filterMatch || (query && !haystack.includes(query));
+    });
+    document.querySelectorAll('#cdfFieldList .cdfix-group').forEach(group => {
+      const cards = [...group.querySelectorAll('.cdfix-card')];
+      group.classList.toggle('is-filtered-empty', !cards.some(card => !card.hidden));
+    });
+  }
+
+  function cdfRenderItems(items) {
+    _cdfItems = items;
+    _cdfById = new Map(items.map(it => [it.id, it]));
+    $("cdfMetricAll").textContent = items.length;
+    $("cdfMetricMappings").textContent = items.filter(it => ['mapping','mappingBlock','nodeMappingBlock'].includes(it.type)).length;
+    $("cdfMetricNodes").textContent = items.filter(it => ['nodeAttr','contextNodeBlock'].includes(it.type)).length;
+    $("cdfMetricErrors").textContent = items.filter(it => it.parentPatch).length;
+
+    // Build groups
+    const groups = {};
+    for (const it of items) (groups[it.group] = groups[it.group] || []).push(it);
+
+    // Legend
+    const nM = items.filter(i => ['mapping','mappingBlock','nodeMappingBlock'].includes(i.type)).length;
+    const nN = items.filter(i => ['nodeAttr','contextNodeBlock'].includes(i.type)).length;
+    const actBar = $('cdfSelActions');
+    if (actBar) {
+      const old = actBar.querySelector('.cdfix-legend');
+      if (old) old.remove();
+      actBar.insertAdjacentHTML('beforeend',
+        `<div class="cdfix-legend">` +
+        (nM ? `<span class="cdfix-legend-item"><span class="cdfix-legend-dot" style="background:var(--teal)"></span>${nM} Context Mapping${nM>1?'s':''}</span>` : '') +
+        (nN ? `<span class="cdfix-legend-item"><span class="cdfix-legend-dot" style="background:var(--purple)"></span>${nN} Context Attribute${nN>1?'s':''}</span>` : '') +
+        `</div>`);
     }
 
-# ───────────────────────────────────────────────────────────────────────
-# Operation: DEDUPLICATE (permission sets)
-# ───────────────────────────────────────────────────────────────────────
+    let html = '';
+    for (const [grpKey, grpItems] of Object.entries(groups)) {
+      const grpId = 'grp_' + grpKey.replace(/\W/g, '_');
+      const mC = grpItems.filter(i => ['mapping','mappingBlock','nodeMappingBlock'].includes(i.type)).length;
+      const nC = grpItems.filter(i => ['nodeAttr','contextNodeBlock'].includes(i.type)).length;
+      const meta = [mC && `${mC} Context Mapping${mC>1?'s':''}`, nC && `${nC} Context Attribute${nC>1?'s':''}`].filter(Boolean).join(' · ');
 
-def dedup_permset_text(text: str) -> dict:
-    """Remove duplicate entries from a Permission Set / Profile XML string."""
-    if not text or not text.strip():
-        return {"ok": False, "log": "Please paste a Permission Set XML first."}
-    try:
-        root = ET.fromstring(text)
-    except ET.ParseError as e:
-        return {"ok": False, "log": f"XML parse error: {e}"}
+      // ── Group header ────────────────────────────────────────────────────────
+      html += `<div class="cdfix-group">` +
+        `<div class="cdfix-group-head" onclick="cdfToggleGroup('${grpId}')">` +
+          `<input type="checkbox" class="cdfix-group-check" id="${grpId}_hdr"` +
+          ` onclick="event.stopPropagation();cdfGroupHeaderClick('${grpId}')" checked />` +
+          `<span class="cdfix-group-name" title="${esc(grpKey)}">${esc(grpKey)}</span>` +
+          `<span class="cdfix-group-meta">${esc(meta)}&nbsp;<span class="cdfix-group-badge">${grpItems.length}</span></span>` +
+          `<span class="cdfix-toggle-arrow open" id="${grpId}_arrow">▼</span>` +
+        `</div>` +
+        `<div id="${grpId}">`;
 
-    singles: "OrderedDict[str, Element]" = OrderedDict()
-    sections: "OrderedDict[str, OrderedDict[str, Element]]" = OrderedDict()
-    stats: dict[str, dict] = {}
-    singleton_stats: "OrderedDict[str, dict]" = OrderedDict()
-    warnings: list[str] = []
+      // ── Item cards ──────────────────────────────────────────────────────────
+      for (const it of grpItems) {
+        const sid  = it.id.replace(/\W/g, '_');
+        const isParentBlock = !!it.parentPatch;
+        const isUpdate = it.changeKind === 'update';
+        const isM  = ['mapping','mappingBlock','nodeMappingBlock'].includes(it.type);
+        const name = esc(it.attrName || it.attrTitle || it.mappingTitle || it.nodeName || '');
 
-    for child in root:
-        tag = _local(child.tag)
-        if tag in PERMSET_SECTION_KEYS:
-            if tag not in sections:
-                sections[tag] = OrderedDict()
-                stats[tag] = {"total": 0, "dupes": 0}
-            stats[tag]["total"] += 1
-            key_val = _child_text(child, PERMSET_SECTION_KEYS[tag])
-            if key_val and key_val in sections[tag]:
-                stats[tag]["dupes"] += 1
-            else:
-                sections[tag][key_val or f"__unknown_{stats[tag]['total']}"] = child
-        else:
-            if tag not in singleton_stats:
-                singleton_stats[tag] = {"total": 0, "dupes": 0, "conflicts": 0}
-            singleton_stats[tag]["total"] += 1
-            if tag in singles:
-                singleton_stats[tag]["dupes"] += 1
-                if _normalize(singles[tag]) != _normalize(child):
-                    singleton_stats[tag]["conflicts"] += 1
-            else:
-                # Singleton metadata is authoritative at its first occurrence.
-                # Later copies are removed, with conflicting values reported.
-                singles[tag] = child
+        // Row 1 pieces
+        const tbadge = isM
+          ? `<span class="cdfix-tbadge cdfix-tbadge-m">${buttonIcon(isParentBlock ? 'parentBlock' : 'mapping')}${isParentBlock ? 'Required Parent Block' : 'Context Mapping'}</span>`
+          : `<span class="cdfix-tbadge cdfix-tbadge-n">${buttonIcon(isParentBlock ? 'parentBlock' : 'attribute')}${isParentBlock ? 'Required Parent Block' : 'Context Attribute'}</span>`;
+        const warn = isParentBlock
+          ? `<span class="cdfix-parenttag" title="Step 3 copies this complete required block">Full block patch</span>`
+          : isUpdate
+            ? `<span class="cdfix-updatetag" title="Step 3 replaces the existing Base definition">Value change</span>`
+          : `<span class="cdfix-readytag">Ready</span>`;
+        const parentHelp = isParentBlock
+          ? `<div class="cdfix-parent-help"><strong>Will be applied in Step 3:</strong> ` +
+            `${esc(it.parentPatchMessage || 'The complete required block will be copied from Modified into Base.')}</div>`
+          : isUpdate && (it.preservedBaseFields || []).length
+            ? `<div class="cdfix-parent-help"><strong>Base protected:</strong> Preserving ${esc(it.preservedBaseFields.join(', '))} because Modified omits it.</div>`
+            : '';
 
-    new_root = Element(root.tag, root.attrib)
-    items: list[tuple] = []
-    for tag, elem in singles.items():
-        items.append((tag, "", elem))
-    for tag, entries in sections.items():
-        for key_val, elem in entries.items():
-            items.append((tag, key_val, elem))
+        // Row 2: location breadcrumb
+        const segs = isM
+          ? [it.mappingTitle, it.contextNode, it.object].filter(Boolean)
+          : ['contextNodes', it.nodeName];
+        const bc = segs.map((s, i) =>
+          `<span class="cdfix-seg">${esc(s)}</span>` +
+          (i < segs.length-1 ? `<span class="cdfix-sep">›</span>` : '')
+        ).join('');
 
-    def sort_key(it):
-        try:
-            si = PERMSET_SECTION_ORDER.index(it[0])
-        except ValueError:
-            si = len(PERMSET_SECTION_ORDER)
-        return (si, it[0], it[1])
+        // Row 3: field / hydration / role
+        let r3 = '';
+        if (isUpdate) {
+          r3 = `<div class="cdfix-r3"><span class="cdfix-rlabel">Change</span>` +
+            `<span class="cdfix-fval cdfix-fval-before">${esc(it.beforeField || 'Existing XML')}</span>` +
+            `<span class="cdfix-sep">→</span>` +
+            `<span class="cdfix-fval cdfix-fval-sf">${esc(it.afterField || 'Modified XML')}</span></div>`;
+        } else if (isM && it.fieldInfo) {
+          if (it.fieldInfo.startsWith('hydration ref:')) {
+            const ref = esc(it.fieldInfo.replace('hydration ref:','').trim());
+            r3 = `<div class="cdfix-r3"><span class="cdfix-rlabel">Hydration</span><span class="cdfix-fval cdfix-fval-hyd">${ref}</span></div>`;
+          } else {
+            r3 = `<div class="cdfix-r3"><span class="cdfix-rlabel">SF Field</span><span class="cdfix-fval cdfix-fval-sf">${esc(it.fieldInfo)}</span></div>`;
+          }
+        } else if (!isM && !isParentBlock) {
+          r3 = `<div class="cdfix-r3"><span class="cdfix-fval-role">Declares this context attribute on the node</span></div>`;
+        }
 
-    items.sort(key=sort_key)
-    for _tag, _k, elem in items:
-        new_root.append(copy.deepcopy(elem))
+        html +=
+          `<label class="cdfix-card" data-card-id="${esc(it.id)}" for="ci_${sid}">` +
+            `<input type="checkbox" id="ci_${sid}" data-item="${esc(it.id)}" checked` +
+            ` onchange="cdfUpdateGroupHeader('${grpId}');cdfUpdateSelCount()" />` +
+            `<div class="cdfix-ci">` +
+              `<div class="cdfix-r1">${tbadge}<span class="cdfix-cname">${name}</span>${warn}<span class="cdfix-modtag">${isUpdate ? 'Modified value' : 'Modified only'}</span></div>` +
+              `<div class="cdfix-r2"><span class="cdfix-rlabel">Location</span>${bc}</div>` +
+              r3 +
+              parentHelp +
+            `</div>` +
+          `</label>`;
+      }
+      html += `</div></div>`;
+    }
+    cdfFieldList.innerHTML = html;
+    _cdfCards = [...cdfFieldList.querySelectorAll('.cdfix-card')];
+    _cdfItemCheckboxes = [...cdfFieldList.querySelectorAll('input[data-item]')];
+    _cdfActiveCard = null;
+    cdfApplyFilters();
+    cdfUpdateSelCount();
+    if (items.length) cdfShowDetail(items[0].id);
+  }
+  cdfFieldList.addEventListener('click', event => {
+    const card = event.target.closest('.cdfix-card');
+    if (card && cdfFieldList.contains(card)) cdfShowDetail(card.dataset.cardId);
+  });
 
-    section_dupes = sum(s["dupes"] for s in stats.values())
-    singleton_dupes = sum(s["dupes"] for s in singleton_stats.values())
-    total_dupes = section_dupes + singleton_dupes
-    report_lines = ["DEDUPLICATION REPORT", "-" * 40]
-    for tag in PERMSET_SECTION_ORDER:
-        if tag in stats:
-            s = stats[tag]
-            unique = s["total"] - s["dupes"]
-            report_lines.append(
-                f"  {tag}: {s['total']} -> {unique} unique "
-                f"({s['dupes']} duplicates removed)")
-    duplicated_singletons = [
-        (tag, values) for tag, values in singleton_stats.items() if values["dupes"]
-    ]
-    if duplicated_singletons:
-        report_lines += ["", "SINGLETON ELEMENTS:"]
-        for tag, values in duplicated_singletons:
-            report_lines.append(
-                f"  {tag}: {values['total']} -> 1 "
-                f"({values['dupes']} duplicate{'s' if values['dupes'] != 1 else ''} removed)"
-            )
-            if values["conflicts"]:
-                warning = (
-                    f"<{tag}> had {values['conflicts']} conflicting duplicate value(s); "
-                    "the first occurrence was kept."
-                )
-                warnings.append(warning)
-                report_lines.append(f"    ! {warning}")
-    report_lines.append("")
-    report_lines.append(f"TOTAL duplicates removed: {total_dupes}")
+  window.cdfToggleGroup = function(grpId) {
+    const el  = $(grpId);
+    const arr = $(grpId + '_arrow');
+    if (!el) return;
+    const hidden = el.style.display === 'none';
+    el.style.display = hidden ? '' : 'none';
+    if (arr) arr.classList.toggle('open', hidden);
+  };
+  function cdfSetAllGroups(expanded) {
+    document.querySelectorAll('#cdfFieldList .cdfix-group').forEach(group => {
+      const body = group.querySelector('.cdfix-group-head + div');
+      const arrow = group.querySelector('.cdfix-toggle-arrow');
+      if (body) body.style.display = expanded ? '' : 'none';
+      if (arrow) arrow.classList.toggle('open', expanded);
+    });
+  }
+  window.cdfGroupHeaderClick = function(grpId) {
+    const hdr = $(grpId + '_hdr');
+    if (!hdr) return;
+    const checked = hdr.checked;
+    document.querySelectorAll(`#${grpId} input[data-item]`).forEach(cb => {
+      cb.checked = checked;
+    });
+    cdfUpdateSelCount();
+  };
+  window.cdfUpdateGroupHeader = function(grpId) {
+    const hdr   = $(grpId + '_hdr');
+    const boxes = [...document.querySelectorAll(`#${grpId} input[data-item]`)];
+    if (!hdr || !boxes.length) return;
+    const all  = boxes.every(b => b.checked);
+    const none = boxes.every(b => !b.checked);
+    hdr.indeterminate = !all && !none;
+    hdr.checked = all;
+  };
 
-    return {"ok": True, "result": serialize_tree(new_root),
-            "report": "\n".join(report_lines), "removed": total_dupes,
-            "singletonDuplicates": singleton_dupes, "warnings": warnings}
+  $("cdfSelAll").onclick = () => {
+    _cdfItemCheckboxes.forEach(cb => { cb.checked = true; });
+    document.querySelectorAll('#cdfFieldList .cdfix-group-check').forEach(cb => { cb.checked = true; cb.indeterminate = false; });
+    cdfUpdateSelCount();
+  };
+  $("cdfSelNone").onclick = () => {
+    _cdfItemCheckboxes.forEach(cb => { cb.checked = false; });
+    document.querySelectorAll('#cdfFieldList .cdfix-group-check').forEach(cb => { cb.checked = false; cb.indeterminate = false; });
+    cdfUpdateSelCount();
+  };
+  $("cdfExpandAll").onclick = () => cdfSetAllGroups(true);
+  $("cdfCollapseAll").onclick = () => cdfSetAllGroups(false);
+  let cdfSearchFrame;
+  cdfSearch.oninput = () => {
+    cancelAnimationFrame(cdfSearchFrame);
+    cdfSearchFrame = requestAnimationFrame(cdfApplyFilters);
+  };
+  document.querySelectorAll('[data-cdf-filter]').forEach(btn => {
+    btn.onclick = () => {
+      _cdfFilter = btn.dataset.cdfFilter;
+      document.querySelectorAll('[data-cdf-filter]').forEach(b => b.classList.toggle('active', b === btn));
+      cdfApplyFilters();
+    };
+  });
 
-# ───────────────────────────────────────────────────────────────────────
-# Operation: CONTEXT DEFINITION FIX
-# ───────────────────────────────────────────────────────────────────────
+  function cdfHighlightTimeline(item, shouldScroll) {
+    const rows = [...cdfTimeline.querySelectorAll('.timeline-item')];
+    rows.forEach(row => row.classList.remove('is-context-match'));
+    if (!item || !rows.length) return;
+    const tokens = [item.attrName,item.attrTitle,item.mappingTitle,item.nodeName,item.contextNode,item.object,
+      item.beforeField,item.afterField].filter(value => String(value || '').trim().length > 2)
+      .map(value => String(value).toLowerCase());
+    let match = null, bestScore = 0;
+    rows.forEach(row => {
+      const text = row.textContent.toLowerCase();
+      const score = tokens.reduce((total, token) => total + (text.includes(token) ? 1 : 0), 0);
+      if (score > bestScore) { bestScore = score; match = row; }
+    });
+    if (!match) return;
+    match.classList.add('is-context-match');
+  }
 
-def _cd_get_versions(root: Element) -> Element | None:
-    return root.find(_ns("contextDefinitionVersions"))
+  function paintCdfTimeline() {
+    const visible = _cdfTimelineExpanded ? _cdfTimelineEntries : _cdfTimelineEntries.slice(0, 6);
+    cdfTimeline.innerHTML = visible.map(line => {
+      const kind = line.startsWith('✗') ? 'error' : line.startsWith('+') ? 'add' : line.startsWith('~') ? 'update' : 'skip';
+      const icon = kind === 'error' ? '!' : kind === 'add' ? '+' : kind === 'update' ? '~' : '✓';
+      const clean = line.replace(/^[+~✓✗]\s*/, '');
+      const splitAt = clean.indexOf(':');
+      const label = splitAt >= 0 ? clean.slice(0, splitAt) : (kind === 'add' ? 'Added' : kind === 'update' ? 'Updated' : kind === 'error' ? 'Error' : 'Skipped');
+      const detail = splitAt >= 0 ? clean.slice(splitAt + 1).trim() : clean;
+      return `<div class="timeline-item ${kind}"><span class="timeline-icon">${icon}</span>` +
+        `<div class="timeline-copy"><strong>${esc(label)}</strong><span>${esc(detail)}</span></div></div>`;
+    }).join('');
+    cdfHighlightTimeline(_cdfActiveItem, false);
+    cdfTimelineToggle.classList.toggle('hidden', _cdfTimelineEntries.length <= 6);
+    cdfTimelineToggle.innerHTML = buttonIcon(_cdfTimelineExpanded ? 'collapse' : 'expand') +
+      (_cdfTimelineExpanded ? 'Show quick view' : `Show all ${_cdfTimelineEntries.length} details`);
+  }
+  function renderCdfTimeline(report, data) {
+    $("cdfReportAdded").textContent = (data.added || 0).toLocaleString();
+    $("cdfReportUpdated").textContent = (data.updated || 0).toLocaleString();
+    $("cdfReportSkipped").textContent = (data.skipped || 0).toLocaleString();
+    $("cdfReportErrors").textContent = (data.errors || 0).toLocaleString();
+    _cdfTimelineEntries = (report || '').split('\n').map(line => line.trim()).filter(line =>
+      line.startsWith('+') || line.startsWith('~') || line.startsWith('✓') || line.startsWith('✗')
+    );
+    _cdfTimelineExpanded = false;
+    if (!_cdfTimelineEntries.length) {
+      cdfTimeline.innerHTML = '<div class="cdfix-detail-empty" style="min-height:100px"><p>No item-level changes were reported.</p></div>';
+      cdfTimelineToggle.classList.add('hidden');
+      return;
+    }
+    paintCdfTimeline();
+  }
+  cdfTimelineToggle.onclick = () => { _cdfTimelineExpanded = !_cdfTimelineExpanded; paintCdfTimeline(); };
 
+  // ── Step 2: Analyze ──────────────────────────────────────────────────────
+  cdfAnalyzeBtn.onclick = async () => {
+    if (!cdfBase.value.trim() || !cdfMod.value.trim()) {
+      setStatus(cdfAnalyzeStatus, "err", "Paste both Base and Modified XMLs first.");
+      return;
+    }
+    busy(cdfAnalyzeBtn, "Analyzing…");
+    cdfDiffCount.textContent = "…";
+    [cdfRailAdded,cdfRailUpdated,cdfRailBaseOnly].forEach(el => { el.textContent = "…"; });
+    cdfDiffIndicator.classList.remove("has-diffs");
+    cdfSelectPanel.classList.remove("show");
+    cdfBuildStep.classList.add("hidden");
+    cdfReport.classList.remove("show");
+    cdfDiagnostics.classList.remove("show");
+    _cdfDiagnostics = null;
 
-def _cd_get_mapping(versions: Element, title: str) -> Element | None:
-    for cm in versions.findall(_ns("contextMappings")):
-        if _child_text(cm, "title") == title:
-            return cm
-    return None
+    const data = await postJSON("/api/cdfix/analyze", { base: cdfBase.value, modified: cdfMod.value });
+    idle(cdfAnalyzeBtn);
 
-
-def _cd_get_node_mapping(mapping: Element, ctx_node: str, obj: str) -> Element | None:
-    for nm in mapping.findall(_ns("contextNodeMappings")):
-        if _child_text(nm, "contextNode") == ctx_node and _child_text(nm, "object") == obj:
-            return nm
-    return None
-
-
-def _cd_get_context_node(versions: Element, title: str) -> Element | None:
-    for cn in versions.findall(_ns("contextNodes")):
-        if _child_text(cn, "title") == title:
-            return cn
-    return None
-
-
-def _cd_get_attr_mapping(node_mapping: Element, attr_name: str) -> Element | None:
-    for cam in node_mapping.findall(_ns("contextAttributeMappings")):
-        if _child_text(cam, "contextAttribute") == attr_name:
-            return cam
-    return None
-
-
-def _cd_mapping_destination(cam: Element) -> tuple[tuple[str, str], ...] | None:
-    """Return the object/field hydration path written by an attribute mapping."""
-    current = cam.find(_ns("contextAttrHydrationDetails"))
-    if current is None:
-        return None
-    path: list[tuple[str, str]] = []
-    while current is not None:
-        path.append((
-            _child_text(current, "objectName") or "",
-            _child_text(current, "queryAttribute") or "",
-        ))
-        current = current.find(_ns("contextAttrHydrationDetails"))
-    return tuple(path) if any(obj or field for obj, field in path) else None
-
-
-def _cd_get_attr_mapping_by_destination(
-        node_mapping: Element, target: Element) -> Element | None:
-    """Find a differently named context attribute mapped to target's destination."""
-    destination = _cd_mapping_destination(target)
-    if destination is None:
-        return None
-    target_attr = _child_text(target, "contextAttribute")
-    for cam in node_mapping.findall(_ns("contextAttributeMappings")):
-        if (_child_text(cam, "contextAttribute") != target_attr
-                and _cd_mapping_destination(cam) == destination):
-            return cam
-    return None
-
-
-def _cd_has_attr_mapping(node_mapping: Element, attr_name: str) -> bool:
-    return _cd_get_attr_mapping(node_mapping, attr_name) is not None
-
-
-def _cd_get_context_attr(context_node: Element, title: str) -> Element | None:
-    for ca in context_node.findall(_ns("contextAttributes")):
-        if _child_text(ca, "title") == title:
-            return ca
-    return None
-
-
-def _cd_has_context_attr(context_node: Element, title: str) -> bool:
-    return _cd_get_context_attr(context_node, title) is not None
-
-
-def _cd_context_attr_tags(context_attr: Element) -> set[str]:
-    return {
-        _child_text(tag, "title")
-        for tag in context_attr.findall(_ns("contextTags"))
-        if _child_text(tag, "title")
+    if (!data.ok) {
+      cdfDiffCount.textContent = "—";
+      [cdfRailAdded,cdfRailUpdated,cdfRailBaseOnly].forEach(el => { el.textContent = "—"; });
+      setStatus(cdfAnalyzeStatus, "err", data.log || "Analysis failed.");
+      return;
+    }
+    cdfRenderDiagnostics(data.diagnostics);
+    if (!data.items || data.items.length === 0) {
+      cdfDiffCount.textContent = "0";
+      setStatus(cdfAnalyzeStatus, "ok", data.summary || "No differences found.");
+      return;
     }
 
+    cdfDiffCount.textContent = data.items.length.toLocaleString();
+    cdfDiffIndicator.classList.add("has-diffs");
+    setStatus(cdfAnalyzeStatus, "ok", data.summary);
+    cdfSelHeadText.textContent = "Review Context Definition additions, value changes, and Required Parent Blocks";
+    cdfRenderItems(data.items);
+    cdfSelectPanel.classList.add("show");
+    cdfBuildStep.classList.remove("hidden");
+    cdfOut.value = ""; _lnRefresh.cdfOut();
+    cdfBuildStatus.className = "status";
+  };
 
-def _cd_context_tag_conflicts(
-        versions: Element, target: Element) -> list[tuple[str, Element, Element]]:
-    """Return global tags already owned by existing context attributes."""
-    target_tags = _cd_context_attr_tags(target)
-    if not target_tags:
-        return []
-    conflicts: list[tuple[str, Element, Element]] = []
-    for node in versions.findall(_ns("contextNodes")):
-        for context_attr in node.findall(_ns("contextAttributes")):
-            for shared_tag in target_tags & _cd_context_attr_tags(context_attr):
-                conflicts.append((shared_tag, node, context_attr))
-    return conflicts
-
-
-def _cd_field_info(cam: Element) -> str:
-    """Human-readable field description from a contextAttributeMappings element."""
-    hd = cam.find(_ns("contextAttrHydrationDetails"))
-    if hd is not None:
-        parts = []
-        current = hd
-        first_object = _child_text(current, "objectName")
-        if first_object:
-            parts.append(first_object)
-        while current is not None:
-            query = _child_text(current, "queryAttribute")
-            if query:
-                parts.append(query)
-            current = current.find(_ns("contextAttrHydrationDetails"))
-        if parts:
-            return ".".join(parts)
-    ctxs = cam.find(_ns("ctxAttrHydrationCtxs"))
-    if ctxs is not None:
-        cqa = _child_text(ctxs, "contextQueryAttribute")
-        if cqa:
-            return f"hydration ref: {cqa}"
-    return ""
-
-
-def _cd_group_key(name: str) -> str:
-    """Strip known object-role prefixes for visual grouping."""
-    for prefix in ("AAS", "ASP", "ASS", "STI", "OLI", "Asset_"):
-        if name.startswith(prefix) and len(name) > len(prefix):
-            return name[len(prefix):]
-    return name
-
-
-def _cd_normalize_serializer_fields(root: Element) -> dict:
-    """Omit serializer-only fields that the UAT API 66 schema rejects."""
-    localization_defaults = 0
-    for parent in root.iter():
-        for child in list(parent):
-            if (_local(child.tag) == "localizationDisabled"
-                    and (child.text or "").strip().lower() == "false"):
-                parent.remove(child)
-                localization_defaults += 1
-
-    root_fields = []
-    for child in list(root):
-        tag = _local(child.tag)
-        if tag in {"isTransformationEnabled", "releaseVersion"}:
-            root.remove(child)
-            root_fields.append(tag)
-
-    return {
-        "localizationDefaults": localization_defaults,
-        "rootFields": root_fields,
+  // ── Step 3: Build ────────────────────────────────────────────────────────
+  cdfBuildBtn.onclick = async () => {
+    const selectedIds = _cdfItemCheckboxes.filter(cb => cb.checked).map(cb => cb.dataset.item);
+    if (!selectedIds.length) {
+      setStatus(cdfBuildStatus, "err", "Select at least one change to include.");
+      return;
     }
+    busy(cdfBuildBtn, "Building…");
+    cdfReport.classList.remove("show");
 
+    const data = await postJSON("/api/cdfix/build", {
+      base: cdfBase.value, modified: cdfMod.value, selectedIds
+    });
+    idle(cdfBuildBtn);
 
-def _cd_strip_org_specific_hydration_ids(root: Element) -> list[str]:
-    """Remove source-org record IDs that cannot resolve in another org."""
-    removed: list[str] = []
-    for attr_mapping in root.iter():
-        if _local(attr_mapping.tag) != "contextAttributeMappings":
-            continue
-        for hydration_ctx in list(attr_mapping.findall(_ns("ctxAttrHydrationCtxs"))):
-            value = _child_text(hydration_ctx, "contextQueryAttribute") or ""
-            if (len(value) in {15, 18} and value.isalnum()
-                    and any(char.isalpha() for char in value)
-                    and any(char.isdigit() for char in value)):
-                attr_mapping.remove(hydration_ctx)
-                removed.append(value)
-    return removed
-
-
-def _cd_semantic_signature(elem: Element, skip_children: set[str] | None = None) -> str:
-    """Order-independent signature that ignores serializer-only default false fields."""
-    skip_children = skip_children or set()
-
-    def walk(node: Element) -> str:
-        local = _local(node.tag)
-        text = (node.text or "").strip()
-        if local == "localizationDisabled" and text.lower() == "false":
-            return ""
-        parts = [local]
-        if text:
-            parts.append(f"TEXT:{text}")
-        children = []
-        for child in node:
-            if _local(child.tag) in skip_children:
-                continue
-            value = walk(child)
-            if value:
-                children.append(value)
-        parts.extend(sorted(children))
-        return "|".join(parts)
-
-    return hashlib.sha256(walk(elem).encode()).hexdigest()[:16]
-
-
-def _cd_overlay_update(base_elem: Element, modified_elem: Element) -> tuple[Element, list[str]]:
-    """
-    Overlay fields supplied by Modified without treating omissions as deletions.
-    Repeating contextTags are unioned; other supplied child groups replace the
-    same field in Base so selected value/path changes still take effect.
-    """
-    result = copy.deepcopy(base_elem)
-    result.attrib.update(modified_elem.attrib)
-    if (modified_elem.text or "").strip():
-        result.text = modified_elem.text
-
-    base_groups: OrderedDict[str, list[Element]] = OrderedDict()
-    mod_groups: OrderedDict[str, list[Element]] = OrderedDict()
-    for child in base_elem:
-        base_groups.setdefault(_local(child.tag), []).append(child)
-    for child in modified_elem:
-        mod_groups.setdefault(_local(child.tag), []).append(child)
-
-    preserved: list[str] = []
-    for tag, base_children in base_groups.items():
-        mod_children = mod_groups.get(tag, [])
-        if tag == "localizationDisabled" and all(
-                (child.text or "").strip().lower() == "false" for child in base_children):
-            continue
-        if tag == "contextTags":
-            mod_signatures = {_cd_semantic_signature(child) for child in mod_children}
-            if any(_cd_semantic_signature(child) not in mod_signatures for child in base_children):
-                preserved.append(tag)
-        elif not mod_children:
-            preserved.append(tag)
-
-    def insert_at_modified_position(tag: str, new_children: list[Element]) -> None:
-        result_children = list(result)
-        same_indexes = [
-            index for index, child in enumerate(result_children) if _local(child.tag) == tag
-        ]
-        if same_indexes:
-            insert_at = same_indexes[-1] + 1
-        else:
-            mod_tags = [_local(child.tag) for child in modified_elem]
-            target = mod_tags.index(tag)
-            insert_at = len(result_children)
-            for following_tag in mod_tags[target + 1:]:
-                following = [
-                    index for index, child in enumerate(result_children)
-                    if _local(child.tag) == following_tag
-                ]
-                if following:
-                    insert_at = following[0]
-                    break
-            else:
-                for prior_tag in reversed(mod_tags[:target]):
-                    prior = [
-                        index for index, child in enumerate(result_children)
-                        if _local(child.tag) == prior_tag
-                    ]
-                    if prior:
-                        insert_at = prior[-1] + 1
-                        break
-        for offset, child in enumerate(new_children):
-            result.insert(insert_at + offset, copy.deepcopy(child))
-
-    for tag, mod_children in mod_groups.items():
-        if tag == "contextTags":
-            existing = {
-                _cd_semantic_signature(child)
-                for child in result
-                if _local(child.tag) == "contextTags"
-            }
-            additions = [
-                child for child in mod_children
-                if _cd_semantic_signature(child) not in existing
-            ]
-            if additions:
-                insert_at_modified_position(tag, additions)
-            continue
-
-        result_children = list(result)
-        same_indexes = [
-            index for index, child in enumerate(result_children) if _local(child.tag) == tag
-        ]
-        if same_indexes:
-            insert_at = same_indexes[0]
-            for index in reversed(same_indexes):
-                result.remove(result_children[index])
-            for offset, child in enumerate(mod_children):
-                result.insert(insert_at + offset, copy.deepcopy(child))
-        else:
-            insert_at_modified_position(tag, mod_children)
-
-    return result, sorted(set(preserved))
-
-
-def _cd_overlay_context_attr_update(
-        base_elem: Element, modified_elem: Element) -> tuple[Element, list[str]]:
-    """Overlay a context attribute without changing its immutable schema."""
-    safe_modified = copy.deepcopy(modified_elem)
-    immutable_fields = {"dataType", "fieldType", "key", "transient"}
-    for child in list(safe_modified):
-        if _local(child.tag) in immutable_fields:
-            safe_modified.remove(child)
-    return _cd_overlay_update(base_elem, safe_modified)
-
-
-def _cd_diag_indexes(versions: Element) -> dict[str, dict[tuple, Element]]:
-    """Build natural-identity indexes used by the bidirectional diagnostics UI."""
-    indexes: dict[str, dict[tuple, Element]] = {
-        "mapping": {}, "nodeMapping": {}, "attributeMapping": {},
-        "contextNode": {}, "contextAttribute": {},
+    if (!data.ok) {
+      setStatus(cdfBuildStatus, "err", data.log || "Build failed.");
+      return;
     }
-    for mapping in versions.findall(_ns("contextMappings")):
-        mapping_title = _child_text(mapping, "title")
-        if not mapping_title:
-            continue
-        indexes["mapping"][(mapping_title,)] = mapping
-        for node_mapping in mapping.findall(_ns("contextNodeMappings")):
-            context_node = _child_text(node_mapping, "contextNode")
-            obj = _child_text(node_mapping, "object")
-            if not context_node or not obj:
-                continue
-            parent_key = (mapping_title, context_node, obj)
-            indexes["nodeMapping"][parent_key] = node_mapping
-            for attr_mapping in node_mapping.findall(_ns("contextAttributeMappings")):
-                attr = _child_text(attr_mapping, "contextAttribute")
-                if attr:
-                    indexes["attributeMapping"][parent_key + (attr,)] = attr_mapping
-    for context_node in versions.findall(_ns("contextNodes")):
-        node_title = _child_text(context_node, "title")
-        if not node_title:
-            continue
-        indexes["contextNode"][(node_title,)] = context_node
-        for context_attr in context_node.findall(_ns("contextAttributes")):
-            attr_title = _child_text(context_attr, "title")
-            if attr_title:
-                indexes["contextAttribute"][(node_title, attr_title)] = context_attr
-    return indexes
-
-
-def _cd_diag_entry(kind: str, key: tuple, elem: Element) -> dict:
-    labels = {
-        "mapping": "Context mapping",
-        "nodeMapping": "Node mapping parent",
-        "attributeMapping": "Attribute mapping",
-        "contextNode": "Context node parent",
-        "contextAttribute": "Context attribute",
-    }
-    if kind == "mapping":
-        path, name = f"contextMappings[{key[0]}]", key[0]
-    elif kind == "nodeMapping":
-        path = f"{key[0]} / {key[1]} / {key[2]}"
-        name = f"{key[1]} → {key[2]}"
-    elif kind == "attributeMapping":
-        path = f"{key[0]} / {key[1]} / {key[2]}"
-        name = key[3]
-    elif kind == "contextNode":
-        path, name = f"contextNodes[{key[0]}]", key[0]
-    else:
-        path, name = f"contextNodes[{key[0]}]", key[1]
-    detail = _cd_field_info(elem) if kind == "attributeMapping" else ""
-    return {"type": labels[kind], "name": name, "path": path, "detail": detail, "count": 1}
-
-
-def _cd_compare_diagnostics(base_text: str, modified_text: str,
-                            base_root: Element, mod_root: Element,
-                            base_ver: Element, mod_ver: Element) -> dict:
-    """Explain line-count and semantic differences in both directions."""
-    base_idx = _cd_diag_indexes(base_ver)
-    mod_idx = _cd_diag_indexes(mod_ver)
-    removed: list[dict] = []
-    added: list[dict] = []
-    changed: list[dict] = []
-
-    kind_order = ("mapping", "nodeMapping", "attributeMapping",
-                  "contextNode", "contextAttribute")
-    for kind in kind_order:
-        b_keys, m_keys = set(base_idx[kind]), set(mod_idx[kind])
-        for key in sorted(b_keys - m_keys):
-            removed.append(_cd_diag_entry(kind, key, base_idx[kind][key]))
-        for key in sorted(m_keys - b_keys):
-            added.append(_cd_diag_entry(kind, key, mod_idx[kind][key]))
-
-    # Material changes inside identities that exist on both sides. Ignore the
-    # localizationDisabled=false noise that Salesforce may omit on retrieval.
-    for kind in ("attributeMapping", "contextAttribute"):
-        common = set(base_idx[kind]) & set(mod_idx[kind])
-        for key in sorted(common):
-            before, after = base_idx[kind][key], mod_idx[kind][key]
-            if _cd_semantic_signature(before) == _cd_semantic_signature(after):
-                continue
-            entry = _cd_diag_entry(kind, key, after)
-            entry["before"] = _cd_field_info(before) if kind == "attributeMapping" else ""
-            entry["after"] = _cd_field_info(after) if kind == "attributeMapping" else ""
-            overlaid, preserved_fields = _cd_overlay_update(before, after)
-            if _cd_semantic_signature(before) == _cd_semantic_signature(overlaid):
-                entry["type"] = "Base-protected omission"
-                entry["detail"] = (
-                    "Modified omits "
-                    + (", ".join(preserved_fields) or "Base-only metadata")
-                    + "; Base value will be preserved and no update will be offered."
-                )
-            elif preserved_fields:
-                existing_detail = entry.get("detail", "")
-                protection = "Base-only " + ", ".join(preserved_fields) + " will be preserved."
-                entry["detail"] = (
-                    f"{existing_detail} · {protection}" if existing_detail else protection
-                )
-            changed.append(entry)
-
-    def direct_leaf_values(root: Element) -> dict[str, list[str]]:
-        values: dict[str, list[str]] = {}
-        for child in root:
-            if len(child) == 0:
-                values.setdefault(_local(child.tag), []).append((child.text or "").strip())
-        return values
-
-    base_leaf, mod_leaf = direct_leaf_values(base_root), direct_leaf_values(mod_root)
-    for tag in sorted(set(base_leaf) | set(mod_leaf)):
-        b_values, m_values = base_leaf.get(tag, []), mod_leaf.get(tag, [])
-        if b_values == m_values:
-            continue
-        if b_values and not m_values:
-            serializer_field = tag in {"isTransformationEnabled", "releaseVersion"}
-            removed.append({
-                "type": "Serializer/root omission" if serializer_field else "Root field",
-                "name": tag,
-                "path": "ContextDefinition",
-                "detail": (
-                    f"{', '.join(b_values)}. This field may be normalized or omitted by "
-                    "Salesforce retrieval."
-                    if serializer_field else ", ".join(b_values)
-                ),
-                "count": len(b_values),
-            })
-        elif m_values and not b_values:
-            added.append({"type": "Root field", "name": tag, "path": "ContextDefinition",
-                          "detail": ", ".join(m_values), "count": len(m_values)})
-        else:
-            changed.append({"type": "Root field", "name": tag, "path": "ContextDefinition",
-                            "detail": f"{', '.join(b_values)} → {', '.join(m_values)}",
-                            "before": ", ".join(b_values), "after": ", ".join(m_values),
-                            "count": 1})
-
-    tracked_tags = (
-        "contextMappings", "contextNodeMappings", "contextAttributeMappings",
-        "contextNodes", "contextAttributes", "ctxAttrHydrationCtxs",
-        "contextAttrHydrationDetails", "contextTags", "localizationDisabled",
-    )
-    counts = []
-    for tag in tracked_tags:
-        base_count = sum(1 for el in base_root.iter() if _local(el.tag) == tag)
-        mod_count = sum(1 for el in mod_root.iter() if _local(el.tag) == tag)
-        counts.append({"tag": tag, "base": base_count, "modified": mod_count,
-                       "delta": mod_count - base_count})
-
-    base_loc_false = sum(
-        1 for el in base_root.iter()
-        if _local(el.tag) == "localizationDisabled"
-        and (el.text or "").strip().lower() == "false"
-    )
-    mod_loc_false = sum(
-        1 for el in mod_root.iter()
-        if _local(el.tag) == "localizationDisabled"
-        and (el.text or "").strip().lower() == "false"
-    )
-    default_delta = base_loc_false - mod_loc_false
-    if default_delta > 0:
-        removed.insert(0, {
-            "type": "Serializer/default omission",
-            "name": "localizationDisabled=false",
-            "path": "Repeated metadata entries",
-            "detail": (
-                f"Modified contains {default_delta} fewer explicit default-false values. "
-                "Salesforce retrieval commonly omits these defaults; this is not by itself "
-                "a business-metadata deletion."
-            ),
-            "count": default_delta,
-        })
-    elif default_delta < 0:
-        added.insert(0, {
-            "type": "Serializer/default expansion",
-            "name": "localizationDisabled=false",
-            "path": "Repeated metadata entries",
-            "detail": f"Modified contains {-default_delta} more explicit default-false values.",
-            "count": -default_delta,
-        })
-
-    base_lines = len(base_text.splitlines())
-    mod_lines = len(modified_text.splitlines())
-    line_delta = mod_lines - base_lines
-    if line_delta < 0:
-        line_summary = f"Modified has {-line_delta:,} fewer lines than Base."
-    elif line_delta > 0:
-        line_summary = f"Modified has {line_delta:,} more lines than Base."
-    else:
-        line_summary = "Base and Modified have the same number of lines."
-    if default_delta > 0:
-        line_summary += (
-            f" It also has {default_delta:,} fewer explicit "
-            "localizationDisabled=false defaults; added metadata may offset part of that reduction."
-        )
-    line_summary += " Use the lists below to separate serializer omissions from real metadata changes."
-
-    return {
-        "baseLines": base_lines,
-        "modifiedLines": mod_lines,
-        "lineDelta": line_delta,
-        "baseVersion": _child_text(base_ver, "versionNumber"),
-        "modifiedVersion": _child_text(mod_ver, "versionNumber"),
-        "summary": line_summary,
-        "removed": removed,
-        "added": added,
-        "changed": changed,
-        "counts": counts,
-        "removedCount": sum(item.get("count", 1) for item in removed),
-        "addedCount": sum(item.get("count", 1) for item in added),
-        "changedCount": len(changed),
-        "businessRemovedCount": sum(
-            item.get("count", 1) for item in removed
-            if not item["type"].startswith("Serializer/")
-        ),
-    }
-
-
-def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
-    """
-    Scan Modified for additions and material updates relative to Base. Missing
-    structural parents are returned as one selectable full-block addition.
-    """
-    if not base_text.strip() or not modified_text.strip():
-        return {"ok": False, "log": "Paste both Base and Modified XMLs first."}
-    try:
-        base_root = _parse(base_text, "Base")
-        mod_root  = _parse(modified_text, "Modified")
-    except (ValueError, ET.ParseError) as exc:
-        return {"ok": False, "log": str(exc)}
-    _cd_strip_org_specific_hydration_ids(mod_root)
-
-    if _local(base_root.tag) != "ContextDefinition" or _local(mod_root.tag) != "ContextDefinition":
-        return {"ok": False,
-                "log": "Both XMLs must be ContextDefinition metadata "
-                       f"(got <{_local(base_root.tag)}> and <{_local(mod_root.tag)}>)."}
-
-    base_ver = _cd_get_versions(base_root)
-    mod_ver  = _cd_get_versions(mod_root)
-    if base_ver is None or mod_ver is None:
-        return {"ok": False, "log": "Could not find <contextDefinitionVersions> in both files."}
-
-    diagnostics = _cd_compare_diagnostics(
-        base_text, modified_text, base_root, mod_root, base_ver, mod_ver)
-    items: list[dict] = []
-
-    # ── contextMappings → contextNodeMappings → contextAttributeMappings ──────
-    for mod_m in mod_ver.findall(_ns("contextMappings")):
-        m_title = _child_text(mod_m, "title")
-        if not m_title:
-            continue
-        base_m = _cd_get_mapping(base_ver, m_title)
-        if base_m is None:
-            node_count = len(mod_m.findall(_ns("contextNodeMappings")))
-            attr_count = sum(
-                len(node.findall(_ns("contextAttributeMappings")))
-                for node in mod_m.findall(_ns("contextNodeMappings"))
-            )
-            items.append({
-                "id": f"cm\x1f{m_title}",
-                "type": "mappingBlock",
-                "mappingTitle": m_title,
-                "attrName": m_title,
-                "fieldInfo": f"{node_count} node mapping(s) · {attr_count} attribute mapping(s)",
-                "includedCount": attr_count,
-                "group": "Required parent blocks",
-                "path": f"contextMappings[{m_title}]",
-                "parentPatch": True,
-                "missingParent": False,
-                "parentPatchMessage": (
-                    f"Base does not contain mapping '{m_title}'. Step 3 will copy the complete "
-                    "<contextMappings> block from Modified, including all of its node and "
-                    "attribute mappings."
-                ),
-            })
-            continue
-
-        for mod_nm in mod_m.findall(_ns("contextNodeMappings")):
-            ctx_node = _child_text(mod_nm, "contextNode")
-            obj      = _child_text(mod_nm, "object")
-            if not ctx_node or not obj:
-                continue
-            base_nm = _cd_get_node_mapping(base_m, ctx_node, obj)
-            if base_nm is None:
-                attr_count = len(mod_nm.findall(_ns("contextAttributeMappings")))
-                items.append({
-                    "id": f"nm\x1f{m_title}\x1f{ctx_node}\x1f{obj}",
-                    "type": "nodeMappingBlock",
-                    "mappingTitle": m_title,
-                    "contextNode": ctx_node,
-                    "object": obj,
-                    "attrName": f"{ctx_node} / {obj}",
-                    "fieldInfo": f"{attr_count} attribute mapping(s)",
-                    "includedCount": attr_count,
-                    "group": "Required parent blocks",
-                    "path": f"{m_title} → {ctx_node} / {obj}",
-                    "parentPatch": True,
-                    "missingParent": False,
-                    "parentPatchMessage": (
-                        f"Base mapping '{m_title}' does not contain the {ctx_node} / {obj} "
-                        "node mapping. Step 3 will copy the complete <contextNodeMappings> "
-                        "block from Modified, including all of its attribute mappings."
-                    ),
-                })
-                continue
-
-            for cam in mod_nm.findall(_ns("contextAttributeMappings")):
-                attr = _child_text(cam, "contextAttribute")
-                if not attr:
-                    continue
-                base_cam = _cd_get_attr_mapping(base_nm, attr)
-                replaced_attr = ""
-                if base_cam is None:
-                    base_cam = _cd_get_attr_mapping_by_destination(base_nm, cam)
-                    if base_cam is not None:
-                        replaced_attr = _child_text(base_cam, "contextAttribute") or ""
-                change_kind = "add"
-                before_field = ""
-                preserved_base_fields: list[str] = []
-                if base_cam is not None:
-                    overlaid_cam, preserved_base_fields = _cd_overlay_update(base_cam, cam)
-                    if _cd_semantic_signature(base_cam) == _cd_semantic_signature(overlaid_cam):
-                        continue
-                    change_kind = "update"
-                    before_field = _cd_field_info(base_cam)
-                    field_info = _cd_field_info(overlaid_cam)
-                    if replaced_attr:
-                        before_field = f"{replaced_attr} → {before_field or 'existing XML definition'}"
-                        field_info = f"{attr} → {field_info or 'modified XML definition'}"
-                else:
-                    field_info = _cd_field_info(cam)
-                items.append({
-                    "id":           f"cam\x1f{m_title}\x1f{ctx_node}\x1f{obj}\x1f{attr}",
-                    "type":         "mapping",
-                    "mappingTitle": m_title,
-                    "contextNode":  ctx_node,
-                    "object":       obj,
-                    "attrName":     attr,
-                    "fieldInfo":    field_info,
-                    "beforeField":  before_field,
-                    "afterField":   field_info,
-                    "changeKind":   change_kind,
-                    "replacesAttr": replaced_attr,
-                    "preservedBaseFields": preserved_base_fields,
-                    "group":        _cd_group_key(attr),
-                    "path":         f"{m_title} → {ctx_node} / {obj}",
-                    "parentPatch":  False,
-                    "missingParent": False,
-                })
-
-    # ── contextNodes → contextAttributes ─────────────────────────────────────
-    for mod_cn in mod_ver.findall(_ns("contextNodes")):
-        cn_title = _child_text(mod_cn, "title")
-        if not cn_title:
-            continue
-        base_cn = _cd_get_context_node(base_ver, cn_title)
-        if base_cn is None:
-            attr_count = len(mod_cn.findall(_ns("contextAttributes")))
-            items.append({
-                "id": f"cn\x1f{cn_title}",
-                "type": "contextNodeBlock",
-                "nodeName": cn_title,
-                "attrTitle": cn_title,
-                "fieldInfo": f"{attr_count} context attribute(s)",
-                "includedCount": attr_count,
-                "group": "Required parent blocks",
-                "path": f"contextNodes[{cn_title}]",
-                "parentPatch": True,
-                "missingParent": False,
-                "parentPatchMessage": (
-                    f"Base does not contain context node '{cn_title}'. Step 3 will copy the "
-                    "complete <contextNodes> block from Modified, including all of its "
-                    "context attributes."
-                ),
-            })
-            continue
-
-        for ca in mod_cn.findall(_ns("contextAttributes")):
-            ca_title = _child_text(ca, "title")
-            if not ca_title:
-                continue
-            base_ca = _cd_get_context_attr(base_cn, ca_title)
-            tag_conflicts: list[tuple[str, Element, Element]] = []
-            if base_ca is None:
-                tag_conflicts = _cd_context_tag_conflicts(base_ver, ca)
-            change_kind = "add"
-            preserved_base_fields: list[str] = []
-            if base_ca is not None:
-                overlaid_ca, preserved_base_fields = _cd_overlay_context_attr_update(base_ca, ca)
-                if _cd_semantic_signature(base_ca) == _cd_semantic_signature(overlaid_ca):
-                    continue
-                change_kind = "update"
-            conflict_description = ", ".join(
-                f"{tag} owned by {_child_text(owner_node, 'title')}/"
-                f"{_child_text(owner_attr, 'title')}"
-                for tag, owner_node, owner_attr in tag_conflicts
-            )
-            items.append({
-                "id":        f"ca\x1f{cn_title}\x1f{ca_title}",
-                "type":      "nodeAttr",
-                "nodeName":  cn_title,
-                "attrTitle": ca_title,
-                "fieldInfo": "",
-                "beforeField": conflict_description,
-                "afterField": (
-                    f"{cn_title}/{ca_title} without duplicate context tag"
-                    if tag_conflicts else ""
-                ),
-                "changeKind": change_kind,
-                "conflictingTags": [tag for tag, _, _ in tag_conflicts],
-                "preservedBaseFields": preserved_base_fields,
-                "group":     _cd_group_key(ca_title),
-                "path":      f"contextNodes[{cn_title}]",
-                "parentPatch": False,
-                "missingParent": False,
-            })
-
-    if not items:
-        return {"ok": True, "items": [],
-                "summary": "No selectable additions or value changes found.",
-                "diagnostics": diagnostics}
-
-    parent_blocks = sum(1 for item in items if item.get("parentPatch"))
-    updates = sum(1 for item in items if item.get("changeKind") == "update")
-    additions = len(items) - updates
-    summary = (
-        f"Found {additions} selectable addition(s) and {updates} value change(s) "
-        "in Modified."
-    )
-    if parent_blocks:
-        summary += f" {parent_blocks} will add a complete required parent block."
-    return {"ok": True, "items": items,
-            "summary": summary,
-            "diagnostics": diagnostics}
-
-
-def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict:
-    """
-    Apply the user-selected additions from Modified into Base.
-    Returns the merged XML and a human-readable apply-report.
-    """
-    if not base_text.strip() or not modified_text.strip():
-        return {"ok": False, "log": "Base and Modified XMLs are required."}
-    if not selected_ids:
-        return {"ok": False, "log": "No items selected — tick at least one field to include."}
-    try:
-        base_root = _parse(base_text, "Base")
-        mod_root  = _parse(modified_text, "Modified")
-    except (ValueError, ET.ParseError) as exc:
-        return {"ok": False, "log": str(exc)}
-    omitted_hydration_ids = _cd_strip_org_specific_hydration_ids(mod_root)
-
-    base_ver = _cd_get_versions(base_root)
-    mod_ver  = _cd_get_versions(mod_root)
-    if base_ver is None or mod_ver is None:
-        return {"ok": False, "log": "Could not find <contextDefinitionVersions>."}
-
-    selected = set(selected_ids)
-    report_lines = ["CONTEXT DEFINITION FIX — APPLY REPORT", "=" * 60, ""]
-    applied = skipped = parent_blocks = updated = 0
-    errs: list[str] = []
-
-    # ── complete contextMappings blocks ───────────────────────────────────────
-    for mod_m in mod_ver.findall(_ns("contextMappings")):
-        m_title = _child_text(mod_m, "title")
-        item_id = f"cm\x1f{m_title}"
-        if item_id not in selected:
-            continue
-        if _cd_get_mapping(base_ver, m_title) is not None:
-            report_lines.append(f"  ✓ parent block already present: contextMappings[{m_title}]")
-            skipped += 1
-            continue
-        children = list(base_ver)
-        last_mapping = max(
-            (i for i, child in enumerate(children) if _local(child.tag) == "contextMappings"),
-            default=-1,
-        )
-        base_ver.insert(last_mapping + 1, copy.deepcopy(mod_m))
-        node_count = len(mod_m.findall(_ns("contextNodeMappings")))
-        attr_count = sum(
-            len(node.findall(_ns("contextAttributeMappings")))
-            for node in mod_m.findall(_ns("contextNodeMappings"))
-        )
-        report_lines.append(
-            f"  + added parent block: contextMappings[{m_title}] "
-            f"({node_count} node mapping(s), {attr_count} attribute mapping(s))"
-        )
-        applied += 1
-        parent_blocks += 1
-
-    # ── complete contextNodeMappings blocks ──────────────────────────────────
-    for mod_m in mod_ver.findall(_ns("contextMappings")):
-        m_title = _child_text(mod_m, "title")
-        for mod_nm in mod_m.findall(_ns("contextNodeMappings")):
-            ctx_node = _child_text(mod_nm, "contextNode")
-            obj = _child_text(mod_nm, "object")
-            item_id = f"nm\x1f{m_title}\x1f{ctx_node}\x1f{obj}"
-            if item_id not in selected:
-                continue
-            base_m = _cd_get_mapping(base_ver, m_title)
-            if base_m is None:
-                errs.append(
-                    f"  ✗ parent mapping unavailable: contextMappings[{m_title}] "
-                    f"for {ctx_node}/{obj}"
-                )
-                skipped += 1
-                continue
-            if _cd_get_node_mapping(base_m, ctx_node, obj) is not None:
-                report_lines.append(
-                    f"  ✓ parent block already present: {m_title}/{ctx_node}/{obj}"
-                )
-                skipped += 1
-                continue
-            children = list(base_m)
-            insert_at = next(
-                (i for i, child in enumerate(children)
-                 if _local(child.tag) in {"default", "description", "inheritedFrom", "title"}),
-                len(children),
-            )
-            base_m.insert(insert_at, copy.deepcopy(mod_nm))
-            attr_count = len(mod_nm.findall(_ns("contextAttributeMappings")))
-            report_lines.append(
-                f"  + added parent block: {m_title}/{ctx_node}/{obj} "
-                f"({attr_count} attribute mapping(s))"
-            )
-            applied += 1
-            parent_blocks += 1
-
-    # ── complete contextNodes blocks ─────────────────────────────────────────
-    for mod_cn in mod_ver.findall(_ns("contextNodes")):
-        cn_title = _child_text(mod_cn, "title")
-        item_id = f"cn\x1f{cn_title}"
-        if item_id not in selected:
-            continue
-        if _cd_get_context_node(base_ver, cn_title) is not None:
-            report_lines.append(f"  ✓ parent block already present: contextNodes[{cn_title}]")
-            skipped += 1
-            continue
-        children = list(base_ver)
-        last_node = max(
-            (i for i, child in enumerate(children) if _local(child.tag) == "contextNodes"),
-            default=-1,
-        )
-        base_ver.insert(last_node + 1, copy.deepcopy(mod_cn))
-        attr_count = len(mod_cn.findall(_ns("contextAttributes")))
-        report_lines.append(
-            f"  + added parent block: contextNodes[{cn_title}] "
-            f"({attr_count} context attribute(s))"
-        )
-        applied += 1
-        parent_blocks += 1
-
-    # ── contextAttributeMappings ──────────────────────────────────────────────
-    for mod_m in mod_ver.findall(_ns("contextMappings")):
-        m_title = _child_text(mod_m, "title")
-        for mod_nm in mod_m.findall(_ns("contextNodeMappings")):
-            ctx_node = _child_text(mod_nm, "contextNode")
-            obj      = _child_text(mod_nm, "object")
-            for cam in mod_nm.findall(_ns("contextAttributeMappings")):
-                attr    = _child_text(cam, "contextAttribute")
-                item_id = f"cam\x1f{m_title}\x1f{ctx_node}\x1f{obj}\x1f{attr}"
-                if item_id not in selected:
-                    continue
-                base_m = _cd_get_mapping(base_ver, m_title)
-                if base_m is None:
-                    errs.append(f"  ✗ contextMappings[{m_title}] not found in Base — skipped {attr}")
-                    skipped += 1
-                    continue
-                base_nm = _cd_get_node_mapping(base_m, ctx_node, obj)
-                if base_nm is None:
-                    errs.append(f"  ✗ contextNodeMappings[{ctx_node}/{obj}] not in {m_title} — skipped {attr}")
-                    skipped += 1
-                    continue
-                base_cam = _cd_get_attr_mapping(base_nm, attr)
-                replaced_attr = ""
-                if base_cam is None:
-                    base_cam = _cd_get_attr_mapping_by_destination(base_nm, cam)
-                    if base_cam is not None:
-                        replaced_attr = _child_text(base_cam, "contextAttribute") or ""
-                if base_cam is not None:
-                    overlaid_cam, preserved_fields = _cd_overlay_update(base_cam, cam)
-                    if _cd_semantic_signature(base_cam) == _cd_semantic_signature(overlaid_cam):
-                        report_lines.append(
-                            f"  ✓ no non-destructive change: {attr}  "
-                            f"[{m_title}/{ctx_node}/{obj}]"
-                        )
-                        skipped += 1
-                        continue
-                    before_field = _cd_field_info(base_cam) or "existing XML definition"
-                    after_field = _cd_field_info(overlaid_cam) or "modified XML definition"
-                    replace_at = list(base_nm).index(base_cam)
-                    base_nm[replace_at] = overlaid_cam
-                    preserved_note = (
-                        f"; preserved Base-only: {', '.join(preserved_fields)}"
-                        if preserved_fields else ""
-                    )
-                    if replaced_attr:
-                        report_lines.append(
-                            f"  ~ replaced mapping: {replaced_attr} -> {attr}  "
-                            f"[{m_title}/{ctx_node}/{obj}]  "
-                            f"destination: {after_field}{preserved_note}"
-                        )
-                    else:
-                        report_lines.append(
-                            f"  ~ updated: {attr}  [{m_title}/{ctx_node}/{obj}]  "
-                            f"{before_field} -> {after_field}{preserved_note}"
-                        )
-                    applied += 1
-                    updated += 1
-                    continue
-                new_cam = copy.deepcopy(cam)
-                children = list(base_nm)
-                idx = next((i for i, ch in enumerate(children)
-                            if _local(ch.tag) == "contextNode"), len(children))
-                base_nm.insert(idx, new_cam)
-                report_lines.append(f"  + added: {attr}  [{m_title}/{ctx_node}/{obj}]")
-                applied += 1
-
-    # ── contextAttributes in contextNodes ─────────────────────────────────────
-    for mod_cn in mod_ver.findall(_ns("contextNodes")):
-        cn_title = _child_text(mod_cn, "title")
-        for ca in mod_cn.findall(_ns("contextAttributes")):
-            ca_title = _child_text(ca, "title")
-            item_id  = f"ca\x1f{cn_title}\x1f{ca_title}"
-            if item_id not in selected:
-                continue
-            base_cn = _cd_get_context_node(base_ver, cn_title)
-            if base_cn is None:
-                errs.append(f"  ✗ contextNodes[{cn_title}] not found in Base — skipped {ca_title}")
-                skipped += 1
-                continue
-            base_ca = _cd_get_context_attr(base_cn, ca_title)
-            if base_ca is not None:
-                overlaid_ca, preserved_fields = _cd_overlay_context_attr_update(base_ca, ca)
-                if _cd_semantic_signature(base_ca) == _cd_semantic_signature(overlaid_ca):
-                    report_lines.append(
-                        f"  ✓ no non-destructive change: {ca_title}  "
-                        f"[contextNodes/{cn_title}]"
-                    )
-                    skipped += 1
-                    continue
-                replace_at = list(base_cn).index(base_ca)
-                base_cn[replace_at] = overlaid_ca
-                preserved_note = (
-                    f"; preserved Base-only: {', '.join(preserved_fields)}"
-                    if preserved_fields else ""
-                )
-                report_lines.append(
-                    f"  ~ updated: {ca_title}  [contextNodes/{cn_title}]"
-                    f"{preserved_note}"
-                )
-                applied += 1
-                updated += 1
-                continue
-            new_ca = copy.deepcopy(ca)
-            tag_conflicts = _cd_context_tag_conflicts(base_ver, new_ca)
-            conflicting_tags = {tag for tag, _, _ in tag_conflicts}
-            if conflicting_tags:
-                for context_tag in list(new_ca.findall(_ns("contextTags"))):
-                    if _child_text(context_tag, "title") in conflicting_tags:
-                        new_ca.remove(context_tag)
-            children = list(base_cn)
-            last_ca = max((i for i, ch in enumerate(children)
-                           if _local(ch.tag) == "contextAttributes"), default=-1)
-            base_cn.insert(last_ca + 1, new_ca)
-            if conflicting_tags:
-                owners = ", ".join(
-                    f"{tag} on {_child_text(owner_node, 'title')}/"
-                    f"{_child_text(owner_attr, 'title')}"
-                    for tag, owner_node, owner_attr in tag_conflicts
-                )
-                report_lines.append(
-                    f"  + added without duplicate tag: {ca_title}  "
-                    f"[contextNodes/{cn_title}]  preserved Base tag owner(s): {owners}"
-                )
-            else:
-                report_lines.append(f"  + added: {ca_title}  [contextNodes/{cn_title}]")
-            applied += 1
-
-    normalization = _cd_normalize_serializer_fields(base_root)
-    normalized_defaults = normalization["localizationDefaults"]
-    normalized_root_fields = normalization["rootFields"]
-    if normalized_defaults:
-        report_lines += [
-            "",
-            f"  ✓ normalized: omitted {normalized_defaults} explicit "
-            "localizationDisabled=false serializer default(s)",
-        ]
-    if normalized_root_fields:
-        report_lines.append(
-            "  ✓ normalized: omitted API-incompatible root field(s): "
-            + ", ".join(normalized_root_fields)
-        )
-    if omitted_hydration_ids:
-        report_lines.append(
-            f"  ✓ normalized: omitted {len(omitted_hydration_ids)} "
-            "source-org hydration ID reference(s)"
-        )
-
-    added = applied - updated
-    report_lines += [
-        "",
-        f"Summary: {added} added · {updated} updated · "
-        f"{skipped} skipped · {len(errs)} error(s)",
-    ]
-    if errs:
-        report_lines += ["", "Errors:"] + errs
-
-    return {
-        "ok":      True,
-        "result":  serialize_tree(base_root),
-        "report":  "\n".join(report_lines),
-        "applied": applied,
-        "added": added,
-        "updated": updated,
-        "skipped": skipped,
-        "errors":  len(errs),
-        "parentBlocks": parent_blocks,
-        "normalizedDefaults": normalized_defaults,
-        "normalizedRootFields": normalized_root_fields,
-        "omittedHydrationIds": len(omitted_hydration_ids),
-    }
-
-
-# ───────────────────────────────────────────────────────────────────────
-# HTTP server
-# ───────────────────────────────────────────────────────────────────────
-
-APP_ID = "xml-tool"
-DEFAULT_PORT = int(os.environ.get("XML_UI_PORT", "8799"))
-STATIC_ASSETS = {
-    "/favicon-96x96.png": ("favicon-96x96.png", "image/png"),
-    "/favicon.svg": ("favicon.svg", "image/svg+xml"),
-    "/favicon.ico": ("favicon.ico", "image/x-icon"),
-    "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"),
-    "/site.webmanifest": ("site.webmanifest", "application/manifest+json"),
-    "/web-app-manifest-192x192.png": ("web-app-manifest-192x192.png", "image/png"),
-    "/web-app-manifest-512x512.png": ("web-app-manifest-512x512.png", "image/png"),
-}
-
-
-def _static_asset_path(filename: str) -> str:
-    """Resolve packaged browser assets for both supported launch locations."""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    local_path = os.path.join(script_dir, filename)
-    if os.path.isfile(local_path):
-        return local_path
-    return os.path.abspath(os.path.join(script_dir, "..", "salesforce-xml-tool", filename))
-
-
-def _build_id() -> str:
-    try:
-        with open(os.path.abspath(__file__), "rb") as f:
-            return hashlib.sha1(f.read()).hexdigest()[:12]
-    except Exception:  # noqa: BLE001
-        return "dev"
-
-
-BUILD = _build_id()
-
-
-class Handler(BaseHTTPRequestHandler):
-    def log_message(self, *args):  # silence default logging
-        pass
-
-    def _send(self, code, body, content_type="application/json"):
-        if isinstance(body, (dict, list)):
-            body = json.dumps(body)
-        data = body if isinstance(body, bytes) else body.encode("utf-8")
-        self.send_response(code)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
-        self.end_headers()
-        self.wfile.write(data)
-
-    def do_GET(self):
-        try:
-            if self.path == "/" or self.path.startswith("/?"):
-                self._send(200, PAGE, "text/html; charset=utf-8")
-            elif self.path in STATIC_ASSETS:
-                filename, content_type = STATIC_ASSETS[self.path]
-                with open(_static_asset_path(filename), "rb") as asset:
-                    self._send(200, asset.read(), content_type)
-            elif self.path == "/api/ping":
-                self._send(200, {"app": APP_ID, "build": BUILD})
-            else:
-                self._send(404, {"error": "not found"})
-        except Exception as exc:  # noqa: BLE001
-            self._send(200, {"ok": False, "log": f"Unexpected server error: {exc}"})
-
-    def do_POST(self):
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-            raw = self.rfile.read(length) if length else b"{}"
-            try:
-                body = json.loads(raw.decode("utf-8") or "{}")
-            except json.JSONDecodeError:
-                self._send(200, {"ok": False, "log": "Invalid request body."})
-                return
-
-            if self.path == "/api/merge":
-                self._send(200, merge_xml(body.get("base", ""), body.get("override", "")))
-            elif self.path == "/api/compare":
-                self._send(200, compare_xml(body.get("a", ""), body.get("b", ""),
-                                            body.get("tag", "")))
-            elif self.path == "/api/dedup":
-                self._send(200, dedup_permset_text(body.get("content", "")))
-            elif self.path == "/api/cdfix/analyze":
-                self._send(200, cd_fix_analyze(body.get("base", ""), body.get("modified", "")))
-            elif self.path == "/api/cdfix/build":
-                self._send(200, cd_fix_build(
-                    body.get("base", ""), body.get("modified", ""),
-                    body.get("selectedIds", [])))
-            else:
-                self._send(404, {"error": "not found"})
-        except Exception as exc:  # noqa: BLE001
-            self._send(200, {"ok": False, "log": f"Unexpected server error: {exc}"})
-
-
-def port_in_use(port):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(("127.0.0.1", port)) == 0
-
-
-def is_our_server(port):
-    try:
-        import urllib.request
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ping", timeout=2) as resp:
-            return json.loads(resp.read().decode("utf-8")).get("app") == APP_ID
-    except Exception:  # noqa: BLE001
-        return False
-
-
-# PAGE is defined in the companion module section below.
-from xml_tool_page import PAGE  # noqa: E402  (kept separate for readability)
-
-
-def main():
-    if "--print-build" in sys.argv:
-        print(BUILD)
-        return
-
-    open_browser = "--no-browser" not in sys.argv
-    port = DEFAULT_PORT
-    url = f"http://127.0.0.1:{port}/"
-
-    if is_our_server(port):
-        print(f"XML Tool is already running at {url}")
-        if open_browser:
-            webbrowser.open(url)
-        return
-
-    if port_in_use(port):
-        print(f"ERROR: Port {port} is in use by another program.")
-        print("Stop it, or set a different port: XML_UI_PORT=8900 python3 xml_tool.py")
-        sys.exit(1)
-
-    try:
-        server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    except OSError as exc:
-        print(f"ERROR: Could not start server on port {port}: {exc}")
-        sys.exit(1)
-
-    print("=" * 60)
-    print("  Salesforce Metadata XML Tool — local UI")
-    print("=" * 60)
-    print(f"  Running at:  {url}")
-    print("=" * 60)
-
-    if open_browser:
-        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nStopped.")
-        server.shutdown()
-
-
-if __name__ == "__main__":
-    main()
+    cdfOut.value = data.result; _lnRefresh.cdfOut();
+    showReport(cdfReport, cdfReportBody, data.report);
+    renderCdfTimeline(data.report, data);
+    const errs = data.errors || 0;
+    const parentBlocks = data.parentBlocks || 0;
+    const parentNote = parentBlocks
+      ? `, including ${parentBlocks} complete parent block${parentBlocks === 1 ? '' : 's'}`
+      : '';
+    const normalizedDefaults = data.normalizedDefaults || 0;
+    const normalizedRootFields = data.normalizedRootFields || [];
+    const normalizedTotal = normalizedDefaults + normalizedRootFields.length;
+    const normalizationNote = normalizedTotal
+      ? `; normalized ${normalizedTotal} API-incompatible serializer field${normalizedTotal === 1 ? '' : 's'}`
+      : '';
+    const msg = errs
+      ? `Built with ${data.applied} change(s) applied · ${errs} error(s) — see report.`
+      : `Done — ${data.added || 0} added and ${data.updated || 0} updated${parentNote}, ${data.skipped} already present${normalizationNote}. Use Copy to grab the result.`;
+    setStatus(cdfBuildStatus, errs ? "info" : "ok", msg);
+  };
+
+  $("cdfCopyBtn").onclick      = (e) => copyFrom(cdfOut, e.currentTarget);
+  $("cdfDownloadBtn").onclick  = () => download(cdfOut, "context-definition-patched.xml");
+
+  // ── CD Fix pane height guard — JS fallback if CSS alone isn't enough ─────────
+  // Fires on every keystroke/paste (including Ctrl+V) and resets height to 300px.
+  ['cdfBase','cdfMod','cdfOut'].forEach(id => {
+    const ta = $(id);
+    if (!ta) return;
+    const cap = () => { ta.style.height = '300px'; ta.style.overflowY = 'auto'; };
+    ta.addEventListener('input', cap);
+    ta.addEventListener('change', cap);
+  });
+</script>
+
+<!-- Fixed scroll buttons — always visible at screen corners (inline onclick = no DOM-order dependency) -->
+<button class="fab fab-up"
+  onclick="window.scrollTo({top:0,behavior:'smooth'})"
+  title="Back to top">
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 14V4M4 9l5-5 5 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</button>
+<button class="fab fab-down"
+  onclick="window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'})"
+  title="Scroll to bottom">
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 4v10M4 9l5 5 5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</button>
+
+</body>
+</html>"""
