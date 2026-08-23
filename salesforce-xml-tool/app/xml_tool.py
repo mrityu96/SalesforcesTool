@@ -1,0 +1,1916 @@
+#!/usr/bin/env python3
+"""
+xml_tool.py — A tiny local web UI for Salesforce metadata XML comparison & merge.
+
+The user picks an operation, pastes XML, and clicks a button:
+    • Compare      — paste two XMLs, see a side-by-side diff + structural report
+    • Merge        — paste a Base XML and a Modified XML, choose which is the
+                     base, and get a single merged XML (with a one-click Copy)
+    • Deduplicate  — paste a Permission Set XML and remove duplicate entries
+
+Run it (or just double-click "Open XML Tool.command" on macOS):
+    python3 app/xml_tool.py
+
+It starts a local server on a stable port (127.0.0.1 only) and opens your
+browser. Only the Python standard library is used — nothing to install.
+"""
+
+from __future__ import annotations
+
+import copy
+import hashlib
+import json
+import os
+import socket
+import sys
+import threading
+import webbrowser
+from collections import Counter, OrderedDict
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from xml.etree.ElementTree import Element, tostring
+import xml.etree.ElementTree as ET
+
+# ───────────────────────────────────────────────────────────────────────
+# Configuration
+# ───────────────────────────────────────────────────────────────────────
+
+NS = "http://soap.sforce.com/2006/04/metadata"
+NS_PREFIX = f"{{{NS}}}"
+ET.register_namespace("", NS)
+
+# Child element(s) whose text values uniquely identify a repeating sibling.
+# Covers both Permission Sets / Profiles and Context Definitions so the merge
+# engine auto-adapts to whatever root it is given.
+IDENTITY_KEYS: dict[str, list[str]] = {
+    # ── Permission Set / Profile ──
+    "applicationVisibilities": ["application"],
+    "categoryGroupVisibilities": ["dataCategoryGroup"],
+    "classAccesses": ["apexClass"],
+    "customMetadataTypeAccesses": ["name"],
+    "customPermissions": ["name"],
+    "customSettingAccesses": ["name"],
+    "externalCredentialPrincipalAccesses": ["externalCredentialPrincipal"],
+    "externalDataSourceAccesses": ["externalDataSource"],
+    "fieldPermissions": ["field"],
+    "flowAccesses": ["flow"],
+    "objectPermissions": ["object"],
+    "pageAccesses": ["apexPage"],
+    "profileActionOverrides": ["actionName"],
+    "recordTypeVisibilities": ["recordType"],
+    "tabSettings": ["tab"],
+    "tabVisibilities": ["tab"],
+    "userPermissions": ["name"],
+    # ── Context Definition ──
+    "contextMappings": ["title"],
+    "contextNodes": ["title"],
+    "contextAttributes": ["title"],
+    "contextAttributeMappings": ["contextAttribute"],
+    "contextNodeMappings": ["contextNode", "object"],
+    "contextMappingIntents": ["mappingIntent"],
+    "contextTags": ["title"],
+    "contextDefinitionReferences": ["referenceContextDefinition"],
+    "ctxAttrHydrationCtxs": ["contextQueryAttribute"],
+    "contextAttrHydrationDetails": ["objectName", "queryAttribute"],
+}
+
+# Singleton containers that are deep-merged (recursed into) when both sides
+# share the same identity. Everything else with an identity is merged by key.
+DEEP_MERGE_TAGS: set[str] = {
+    "ContextDefinition",
+    "contextDefinitionVersions",
+    "contextMappings",
+    "contextNodeMappings",
+    "contextNodes",
+}
+
+# Scalars inside <contextDefinitionVersions> that ALWAYS come from the BASE.
+VERSION_METADATA_TAGS: set[str] = {"versionNumber", "startDate", "isActive"}
+
+# Canonical ordering for Permission Set / Profile sections (matches the
+# behaviour of dedup_permset.py for clean, stable output).
+PERMSET_SECTION_ORDER = [
+    "loginIpRanges", "description", "hasActivationRequired", "label", "license",
+    "applicationVisibilities", "classAccesses", "customMetadataTypeAccesses",
+    "customPermissions", "customSettingAccesses",
+    "externalCredentialPrincipalAccesses", "externalDataSourceAccesses",
+    "fieldPermissions", "flowAccesses", "objectPermissions", "pageAccesses",
+    "profileActionOverrides", "recordTypeVisibilities", "tabSettings",
+    "tabVisibilities", "userPermissions",
+]
+
+# Permission-set section key fields (used by the Deduplicate operation).
+PERMSET_SECTION_KEYS = {
+    "applicationVisibilities": "application",
+    "classAccesses": "apexClass",
+    "customMetadataTypeAccesses": "name",
+    "customPermissions": "name",
+    "customSettingAccesses": "name",
+    "externalCredentialPrincipalAccesses": "externalCredentialPrincipal",
+    "externalDataSourceAccesses": "externalDataSource",
+    "fieldPermissions": "field",
+    "flowAccesses": "flow",
+    "objectPermissions": "object",
+    "pageAccesses": "apexPage",
+    "profileActionOverrides": "actionName",
+    "recordTypeVisibilities": "recordType",
+    "tabSettings": "tab",
+    "tabVisibilities": "tab",
+    "userPermissions": "name",
+}
+
+# ───────────────────────────────────────────────────────────────────────
+# Namespace / identity helpers
+# ───────────────────────────────────────────────────────────────────────
+
+def _local(tag: str) -> str:
+    return tag.split("}", 1)[1] if "}" in tag else tag
+
+
+def _ns(local_name: str) -> str:
+    return f"{NS_PREFIX}{local_name}"
+
+
+def _child_text(elem: Element, local_name: str) -> str:
+    child = elem.find(_ns(local_name))
+    if child is None:
+        child = elem.find(local_name)
+    return (child.text or "").strip() if child is not None else ""
+
+
+def get_identity(elem: Element) -> str | None:
+    fields = IDENTITY_KEYS.get(_local(elem.tag))
+    if not fields:
+        return None
+    parts = [_child_text(elem, f) for f in fields]
+    if all(p == "" for p in parts):
+        return None
+    return "\x1f".join(parts)
+
+
+def _should_deep_merge(elem: Element) -> bool:
+    return _local(elem.tag) in DEEP_MERGE_TAGS
+
+# ───────────────────────────────────────────────────────────────────────
+# Fingerprinting (structural identity, order-independent)
+# ───────────────────────────────────────────────────────────────────────
+
+def _normalize(elem: Element) -> str:
+    parts = [_local(elem.tag)]
+    if elem.attrib:
+        for k in sorted(elem.attrib):
+            parts.append(f'{k}="{elem.attrib[k]}"')
+    text = (elem.text or "").strip()
+    if text:
+        parts.append(f"TEXT:{text}")
+    parts.extend(sorted(_normalize(ch) for ch in elem))
+    tail = (elem.tail or "").strip()
+    if tail:
+        parts.append(f"TAIL:{tail}")
+    return "|".join(parts)
+
+
+def _fingerprint(elem: Element) -> str:
+    return hashlib.sha256(_normalize(elem).encode()).hexdigest()[:16]
+
+# ───────────────────────────────────────────────────────────────────────
+# Core merge engine (adapted from cd_merge.py, generalised to any root)
+# ───────────────────────────────────────────────────────────────────────
+
+def _group_by_tag(elem: Element) -> "OrderedDict[str, list[Element]]":
+    groups: OrderedDict[str, list[Element]] = OrderedDict()
+    for child in elem:
+        groups.setdefault(_local(child.tag), []).append(child)
+    return groups
+
+
+def _id_index(elems: list[Element]) -> "OrderedDict[str, Element]":
+    idx: OrderedDict[str, Element] = OrderedDict()
+    for e in elems:
+        key = get_identity(e)
+        if key is not None:
+            idx[key] = e
+    return idx
+
+
+def deep_merge(base: Element, override: Element, *, _is_version_level: bool = False,
+               report: list | None = None, path: str = "") -> Element:
+    """Recursively merge *override* onto *base*; returns a new element."""
+    merged = Element(base.tag, base.attrib)
+    merged.attrib.update(override.attrib)
+    merged.text = base.text
+    merged.tail = base.tail
+
+    b_groups = _group_by_tag(base)
+    o_groups = _group_by_tag(override)
+
+    tag_order = list(b_groups)
+    for t in o_groups:
+        if t not in tag_order:
+            tag_order.append(t)
+
+    for tag in tag_order:
+        b_list = b_groups.get(tag, [])
+        o_list = o_groups.get(tag, [])
+
+        if _is_version_level and tag in VERSION_METADATA_TAGS:
+            for elem in (b_list or o_list):
+                merged.append(copy.deepcopy(elem))
+            continue
+
+        sample = (b_list + o_list)[0] if (b_list or o_list) else None
+        has_id = sample is not None and get_identity(sample) is not None
+
+        if has_id:
+            for e in _merge_by_id(b_list, o_list, report=report, path=f"{path}/{tag}"):
+                merged.append(e)
+        elif (len(b_list) == 1 and len(o_list) == 1 and _should_deep_merge(b_list[0])):
+            is_ver = _local(b_list[0].tag) == "contextDefinitionVersions"
+            merged.append(deep_merge(b_list[0], o_list[0], _is_version_level=is_ver,
+                                     report=report, path=f"{path}/{tag}"))
+        elif len(b_list) <= 1 and len(o_list) <= 1:
+            src = o_list[0] if o_list else (b_list[0] if b_list else None)
+            if src is not None:
+                merged.append(copy.deepcopy(src))
+                if (report is not None and b_list and o_list
+                        and _fingerprint(b_list[0]) != _fingerprint(o_list[0])):
+                    report.append(("OVERRIDE", f"{path}/{tag}", ""))
+        else:
+            b_fps = {_fingerprint(c) for c in b_list}
+            for c in b_list:
+                merged.append(copy.deepcopy(c))
+            for c in o_list:
+                if _fingerprint(c) not in b_fps:
+                    merged.append(copy.deepcopy(c))
+                    if report is not None:
+                        report.append(("ADD", f"{path}/{tag}", "(no-id fallback)"))
+
+    return merged
+
+
+def _merge_by_id(b_list: list[Element], o_list: list[Element], *,
+                 report: list | None = None, path: str = "") -> list[Element]:
+    b_idx = _id_index(b_list)
+    o_idx = _id_index(o_list)
+    result: list[Element] = []
+    seen: set[str] = set()
+
+    for key, b_elem in b_idx.items():
+        seen.add(key)
+        if key in o_idx:
+            o_elem = o_idx[key]
+            same = _fingerprint(b_elem) == _fingerprint(o_elem)
+            if _should_deep_merge(b_elem):
+                is_ver = _local(b_elem.tag) == "contextDefinitionVersions"
+                result.append(deep_merge(b_elem, o_elem, _is_version_level=is_ver,
+                                         report=report, path=f"{path}[{key}]"))
+                if report is not None and not same:
+                    report.append(("DEEP-MERGE", f"{path}[{key}]", ""))
+            else:
+                result.append(copy.deepcopy(o_elem))
+                if report is not None and not same:
+                    report.append(("OVERRIDE", f"{path}[{key}]", ""))
+        else:
+            result.append(copy.deepcopy(b_elem))
+
+    for key, o_elem in o_idx.items():
+        if key not in seen:
+            result.append(copy.deepcopy(o_elem))
+            if report is not None:
+                report.append(("ADD", f"{path}[{key}]", "new from modified"))
+
+    return result
+
+# ───────────────────────────────────────────────────────────────────────
+# Pretty-print + serialization
+# ───────────────────────────────────────────────────────────────────────
+
+def _indent_tree(root: Element, indent_str: str = "    ") -> None:
+    def _walk(elem: Element, level: int) -> None:
+        child_prefix = "\n" + indent_str * (level + 1)
+        closing_prefix = "\n" + indent_str * level
+        children = list(elem)
+        if children:
+            if not (elem.text and elem.text.strip()):
+                elem.text = child_prefix
+            last = len(children) - 1
+            for i, child in enumerate(children):
+                _walk(child, level + 1)
+                if not (child.tail and child.tail.strip()):
+                    child.tail = child_prefix if i < last else closing_prefix
+        if level and not (elem.tail and elem.tail.strip()):
+            elem.tail = "\n" + indent_str * (level - 1)
+
+    _walk(root, 0)
+    root.tail = None
+
+
+def serialize_tree(root: Element) -> str:
+    _indent_tree(root)
+    raw = tostring(root, encoding="unicode", xml_declaration=False)
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + raw + "\n"
+
+# ───────────────────────────────────────────────────────────────────────
+# Permission-set normalisation
+# ───────────────────────────────────────────────────────────────────────
+
+def _reorder_permset(root: Element) -> None:
+    """Sort top-level Permission Set / Profile children into a stable order."""
+    def keyfn(el: Element):
+        tag = _local(el.tag)
+        try:
+            si = PERMSET_SECTION_ORDER.index(tag)
+        except ValueError:
+            si = len(PERMSET_SECTION_ORDER)
+        ident = get_identity(el) or _child_text(el, "name") or ""
+        return (si, tag, ident)
+
+    children = sorted(list(root), key=keyfn)
+    for c in list(root):
+        root.remove(c)
+    for c in children:
+        root.append(c)
+
+# ───────────────────────────────────────────────────────────────────────
+# Validation
+# ───────────────────────────────────────────────────────────────────────
+
+def _collect_ids(root: Element, tag_local: str) -> set[str]:
+    ids: set[str] = set()
+    for elem in root.iter():
+        if _local(elem.tag) == tag_local:
+            eid = get_identity(elem)
+            if eid:
+                ids.add(eid)
+    return ids
+
+
+def validate_merge(base_root: Element, override_root: Element,
+                   merged_root: Element) -> list[str]:
+    """Every unique identity present in either input must survive into the merge."""
+    errors: list[str] = []
+    tags = set()
+    for r in (base_root, override_root):
+        for elem in r.iter():
+            t = _local(elem.tag)
+            if t in IDENTITY_KEYS:
+                tags.add(t)
+    for tag_local in sorted(tags):
+        base_ids = _collect_ids(base_root, tag_local)
+        override_ids = _collect_ids(override_root, tag_local)
+        merged_ids = _collect_ids(merged_root, tag_local)
+        missing = (base_ids | override_ids) - merged_ids
+        for m in sorted(missing):
+            src = "BASE" if m in base_ids else "MODIFIED"
+            errors.append(f"MISSING <{tag_local}> '{m.replace(chr(0x1f), ' / ')}' (from {src})")
+    return errors
+
+
+def _find_duplicates(root: Element, label: str) -> list[str]:
+    """Return warnings for every duplicate identity key found in root."""
+    from collections import Counter
+    warnings: list[str] = []
+    counts: Counter = Counter()
+    for child in root:
+        tag = _local(child.tag)
+        if tag not in IDENTITY_KEYS:
+            continue
+        key = get_identity(child)
+        if key is not None:
+            counts[(tag, key)] += 1
+    for (tag, key), count in sorted(counts.items()):
+        if count > 1:
+            display_key = key.replace("\x1f", " / ")
+            warnings.append(
+                f"  [{label}] <{tag}> '{display_key}' appears {count}x — "
+                f"only the last occurrence will be kept in the merged output."
+            )
+    return warnings
+
+# ───────────────────────────────────────────────────────────────────────
+# Operation: MERGE
+# ───────────────────────────────────────────────────────────────────────
+
+def _parse(text: str, label: str) -> Element:
+    if not text or not text.strip():
+        raise ValueError(f"The {label} XML is empty.")
+    return ET.fromstring(text)
+
+
+def merge_xml(base_text: str, override_text: str) -> dict:
+    """Merge two pasted XML strings. Returns {ok, merged, report, warnings, duplicates}."""
+    try:
+        base_root = _parse(base_text, "Base")
+        override_root = _parse(override_text, "Modified")
+    except ValueError as e:
+        return {"ok": False, "log": str(e)}
+    except ET.ParseError as e:
+        return {"ok": False, "log": f"XML parse error: {e}"}
+
+    if _local(base_root.tag) != _local(override_root.tag):
+        return {"ok": False, "log": (
+            f"Root elements differ: Base is <{_local(base_root.tag)}> but "
+            f"Modified is <{_local(override_root.tag)}>. They must be the same "
+            "metadata type to merge.")}
+
+    dup_warnings: list[str] = (
+        _find_duplicates(base_root, "Base") +
+        _find_duplicates(override_root, "Modified")
+    )
+
+    actions: list[tuple] = []
+    root_local = _local(base_root.tag)
+    merged_root = deep_merge(base_root, override_root, report=actions, path=root_local)
+
+    if root_local in ("PermissionSet", "Profile"):
+        _reorder_permset(merged_root)
+
+    errors = validate_merge(base_root, override_root, merged_root)
+    merged_xml = serialize_tree(merged_root)
+    report = _format_merge_report(
+        actions, base_root, override_root, merged_root, errors, dup_warnings)
+
+    return {"ok": True, "merged": merged_xml, "report": report,
+            "warnings": errors, "duplicates": dup_warnings, "rootType": root_local}
+
+
+def _format_merge_report(actions: list[tuple], base_root: Element,
+                         override_root: Element, merged_root: Element,
+                         errors: list[str],
+                         dup_warnings: list[str] | None = None) -> str:
+    lines: list[str] = []
+
+    if dup_warnings:
+        lines.append("!" * 60)
+        lines.append(f"  DUPLICATE ENTRIES DETECTED IN INPUT FILES  ({len(dup_warnings)} total)")
+        lines.append("!" * 60)
+        lines.append("")
+        lines.append("  Your input XML files contain elements with duplicate identity")
+        lines.append("  keys (same apexClass, field, object, etc. listed more than once).")
+        lines.append("  The merge engine keeps only the LAST occurrence of each duplicate.")
+        lines.append("  The merged output has FEWER entries than your inputs as a result.")
+        lines.append("")
+        lines.append("  To fix: run the DEDUPLICATE operation on each input file first,")
+        lines.append("  then re-merge the cleaned files.")
+        lines.append("")
+        for w in dup_warnings:
+            lines.append(w)
+        lines.append("")
+        lines.append("!" * 60)
+        lines.append("")
+
+    tags = set()
+    for r in (base_root, override_root, merged_root):
+        for elem in r.iter():
+            t = _local(elem.tag)
+            if t in IDENTITY_KEYS:
+                tags.add(t)
+
+    if tags:
+        lines.append(f"{'Element Type':<34}{'Base':>7}{'Modified':>10}{'Merged':>8}")
+        lines.append("-" * 59)
+        for tag_local in sorted(tags):
+            b = len(_collect_ids(base_root, tag_local))
+            o = len(_collect_ids(override_root, tag_local))
+            m = len(_collect_ids(merged_root, tag_local))
+            flag = " !" if m < b else ""
+            lines.append(f"{tag_local:<34}{b:>7}{o:>10}{m:>8}{flag}")
+        lines.append("")
+
+    adds = [a for a in actions if a[0] == "ADD"]
+    overrides = [a for a in actions if a[0] == "OVERRIDE"]
+    merges = [a for a in actions if a[0] == "DEEP-MERGE"]
+    lines.append(f"Summary:  {len(adds)} added  |  {len(overrides)} overridden  "
+                 f"|  {len(merges)} deep-merged")
+    lines.append("")
+
+    if adds:
+        lines.append("NEW (added from Modified, not in Base):")
+        for _, p, note in adds:
+            lines.append(f"  + {p}  {note}".rstrip())
+        lines.append("")
+    if overrides:
+        lines.append("OVERRIDDEN (Modified replaced Base):")
+        for _, p, _n in overrides:
+            lines.append(f"  ~ {p}")
+        lines.append("")
+    if merges:
+        lines.append("DEEP-MERGED containers:")
+        for _, p, _n in merges:
+            lines.append(f"  * {p}")
+        lines.append("")
+    if not actions:
+        lines.append("(no differences — Base and Modified are structurally identical)")
+        lines.append("")
+
+    if errors:
+        lines.append("!! WARNING — some elements could not be accounted for:")
+        for e in errors:
+            lines.append(f"  x {e}")
+    else:
+        lines.append("Validation passed — every element from both sides is present.")
+    return "\n".join(lines)
+
+# ───────────────────────────────────────────────────────────────────────
+# Operation: COMPARE
+# ───────────────────────────────────────────────────────────────────────
+
+def _collect_compare_elements(root: Element, tag_filter: str | None) -> list[Element]:
+    if tag_filter:
+        return [e for e in root.iter() if _local(e.tag) == tag_filter]
+    children = list(root)
+    if len(children) == 1 and len(list(children[0])) > 0:
+        return list(children[0])
+    return children
+
+
+def _pretty_snippet(elem: Element, max_lines: int = 12) -> str:
+    raw = tostring(elem, encoding="unicode", short_empty_elements=True)
+    out = []
+    for ln in raw.splitlines():
+        out.append(ln.replace(NS_PREFIX, "").replace(f' xmlns="{NS}"', ""))
+    if len(out) > max_lines:
+        half = max_lines // 2
+        out = out[:half] + [f"      ... ({len(out) - max_lines} more lines) ..."] + out[-half:]
+    return "\n".join(out)
+
+
+def _compare_diff_items(counter: Counter, index: dict[str, Element]) -> list[dict]:
+    """Create one display item per unique structural difference."""
+    items = []
+    for fingerprint, count in counter.items():
+        elem = index[fingerprint]
+        identity = get_identity(elem) or ""
+        items.append({
+            "tag": _local(elem.tag),
+            "identity": identity.replace("\x1f", " / "),
+            "count": count,
+            "snippet": _pretty_snippet(elem, max_lines=80),
+        })
+    return sorted(items, key=lambda item: (
+        item["tag"].lower(), item["identity"].lower(), item["snippet"]
+    ))
+
+
+def compare_xml(a_text: str, b_text: str, tag_filter: str | None = None) -> dict:
+    """Structural comparison of two XML strings. Returns {ok, report, xml}."""
+    if not a_text.strip() or not b_text.strip():
+        return {"ok": False, "log": "Please paste XML in both panes before comparing."}
+    try:
+        root_a = ET.fromstring(a_text)
+        root_b = ET.fromstring(b_text)
+    except ET.ParseError as e:
+        # Not valid XML (e.g. Apex). The UI still renders a line-level diff.
+        return {"ok": True, "xml": False,
+                "report": f"Content is not valid XML ({e}).\n"
+                          "Showing line-by-line differences only."}
+
+    tf = tag_filter.strip() if tag_filter else None
+    elements_a = _collect_compare_elements(root_a, tf)
+    elements_b = _collect_compare_elements(root_b, tf)
+
+    fps_a = Counter(_fingerprint(e) for e in elements_a)
+    fps_b = Counter(_fingerprint(e) for e in elements_b)
+    index_a, index_b = {}, {}
+    for e in elements_a:
+        index_a.setdefault(_fingerprint(e), e)
+    for e in elements_b:
+        index_b.setdefault(_fingerprint(e), e)
+
+    only_a = fps_a - fps_b
+    only_b = fps_b - fps_a
+    common = fps_a & fps_b
+
+    lines = []
+    lines.append("STRUCTURAL COMPARISON (order-independent)")
+    if tf:
+        lines.append(f"Filter: <{tf}> elements only")
+    lines.append(f"  Left elements:   {len(elements_a)}")
+    lines.append(f"  Right elements:  {len(elements_b)}")
+    lines.append(f"  Matched:         {sum(common.values())}")
+    lines.append(f"  Only in Left:    {sum(only_a.values())}")
+    lines.append(f"  Only in Right:   {sum(only_b.values())}")
+    lines.append("")
+
+    if only_a:
+        lines.append("-" * 60)
+        lines.append(f"IN LEFT BUT MISSING FROM RIGHT  [{sum(only_a.values())}]")
+        lines.append("-" * 60)
+        for fp, count in sorted(only_a.items(), key=lambda x: x[1], reverse=True):
+            elem = index_a[fp]
+            lines.append(f"\n  <{_local(elem.tag)}>  (x{count})")
+            lines.append("  " + _pretty_snippet(elem).replace("\n", "\n  "))
+    if only_b:
+        lines.append("")
+        lines.append("-" * 60)
+        lines.append(f"IN RIGHT BUT MISSING FROM LEFT  [{sum(only_b.values())}]")
+        lines.append("-" * 60)
+        for fp, count in sorted(only_b.items(), key=lambda x: x[1], reverse=True):
+            elem = index_b[fp]
+            lines.append(f"\n  <{_local(elem.tag)}>  (x{count})")
+            lines.append("  " + _pretty_snippet(elem).replace("\n", "\n  "))
+    if not only_a and not only_b:
+        lines.append("FILES ARE STRUCTURALLY IDENTICAL (no missing elements).")
+
+    return {
+        "ok": True,
+        "xml": True,
+        "report": "\n".join(lines),
+        "onlyLeft": sum(only_a.values()),
+        "onlyRight": sum(only_b.values()),
+        "matched": sum(common.values()),
+        "uniqueLeft": _compare_diff_items(only_a, index_a),
+        "uniqueRight": _compare_diff_items(only_b, index_b),
+    }
+
+# ───────────────────────────────────────────────────────────────────────
+# Operation: DEDUPLICATE (permission sets)
+# ───────────────────────────────────────────────────────────────────────
+
+def dedup_permset_text(text: str) -> dict:
+    """Remove duplicate entries from a Permission Set / Profile XML string."""
+    if not text or not text.strip():
+        return {"ok": False, "log": "Please paste a Permission Set XML first."}
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as e:
+        return {"ok": False, "log": f"XML parse error: {e}"}
+
+    singles: "OrderedDict[str, Element]" = OrderedDict()
+    sections: "OrderedDict[str, OrderedDict[str, Element]]" = OrderedDict()
+    stats: dict[str, dict] = {}
+    singleton_stats: "OrderedDict[str, dict]" = OrderedDict()
+    warnings: list[str] = []
+
+    for child in root:
+        tag = _local(child.tag)
+        if tag in PERMSET_SECTION_KEYS:
+            if tag not in sections:
+                sections[tag] = OrderedDict()
+                stats[tag] = {"total": 0, "dupes": 0}
+            stats[tag]["total"] += 1
+            key_val = _child_text(child, PERMSET_SECTION_KEYS[tag])
+            if key_val and key_val in sections[tag]:
+                stats[tag]["dupes"] += 1
+            else:
+                sections[tag][key_val or f"__unknown_{stats[tag]['total']}"] = child
+        else:
+            if tag not in singleton_stats:
+                singleton_stats[tag] = {"total": 0, "dupes": 0, "conflicts": 0}
+            singleton_stats[tag]["total"] += 1
+            if tag in singles:
+                singleton_stats[tag]["dupes"] += 1
+                if _normalize(singles[tag]) != _normalize(child):
+                    singleton_stats[tag]["conflicts"] += 1
+            else:
+                # Singleton metadata is authoritative at its first occurrence.
+                # Later copies are removed, with conflicting values reported.
+                singles[tag] = child
+
+    new_root = Element(root.tag, root.attrib)
+    items: list[tuple] = []
+    for tag, elem in singles.items():
+        items.append((tag, "", elem))
+    for tag, entries in sections.items():
+        for key_val, elem in entries.items():
+            items.append((tag, key_val, elem))
+
+    def sort_key(it):
+        try:
+            si = PERMSET_SECTION_ORDER.index(it[0])
+        except ValueError:
+            si = len(PERMSET_SECTION_ORDER)
+        return (si, it[0], it[1])
+
+    items.sort(key=sort_key)
+    for _tag, _k, elem in items:
+        new_root.append(copy.deepcopy(elem))
+
+    section_dupes = sum(s["dupes"] for s in stats.values())
+    singleton_dupes = sum(s["dupes"] for s in singleton_stats.values())
+    total_dupes = section_dupes + singleton_dupes
+    report_lines = ["DEDUPLICATION REPORT", "-" * 40]
+    for tag in PERMSET_SECTION_ORDER:
+        if tag in stats:
+            s = stats[tag]
+            unique = s["total"] - s["dupes"]
+            report_lines.append(
+                f"  {tag}: {s['total']} -> {unique} unique "
+                f"({s['dupes']} duplicates removed)")
+    duplicated_singletons = [
+        (tag, values) for tag, values in singleton_stats.items() if values["dupes"]
+    ]
+    if duplicated_singletons:
+        report_lines += ["", "SINGLETON ELEMENTS:"]
+        for tag, values in duplicated_singletons:
+            report_lines.append(
+                f"  {tag}: {values['total']} -> 1 "
+                f"({values['dupes']} duplicate{'s' if values['dupes'] != 1 else ''} removed)"
+            )
+            if values["conflicts"]:
+                warning = (
+                    f"<{tag}> had {values['conflicts']} conflicting duplicate value(s); "
+                    "the first occurrence was kept."
+                )
+                warnings.append(warning)
+                report_lines.append(f"    ! {warning}")
+    report_lines.append("")
+    report_lines.append(f"TOTAL duplicates removed: {total_dupes}")
+
+    return {"ok": True, "result": serialize_tree(new_root),
+            "report": "\n".join(report_lines), "removed": total_dupes,
+            "singletonDuplicates": singleton_dupes, "warnings": warnings}
+
+# ───────────────────────────────────────────────────────────────────────
+# Operation: CONTEXT DEFINITION FIX
+# ───────────────────────────────────────────────────────────────────────
+
+def _cd_get_versions(root: Element) -> Element | None:
+    return root.find(_ns("contextDefinitionVersions"))
+
+
+def _cd_get_mapping(versions: Element, title: str) -> Element | None:
+    for cm in versions.findall(_ns("contextMappings")):
+        if _child_text(cm, "title") == title:
+            return cm
+    return None
+
+
+def _cd_get_node_mapping(mapping: Element, ctx_node: str, obj: str) -> Element | None:
+    for nm in mapping.findall(_ns("contextNodeMappings")):
+        if _child_text(nm, "contextNode") == ctx_node and _child_text(nm, "object") == obj:
+            return nm
+    return None
+
+
+def _cd_get_context_node(versions: Element, title: str) -> Element | None:
+    for cn in versions.findall(_ns("contextNodes")):
+        if _child_text(cn, "title") == title:
+            return cn
+    return None
+
+
+def _cd_get_attr_mapping(node_mapping: Element, attr_name: str) -> Element | None:
+    for cam in node_mapping.findall(_ns("contextAttributeMappings")):
+        if _child_text(cam, "contextAttribute") == attr_name:
+            return cam
+    return None
+
+
+def _cd_mapping_destination(cam: Element) -> tuple[tuple[str, str], ...] | None:
+    """Return the object/field hydration path written by an attribute mapping."""
+    current = cam.find(_ns("contextAttrHydrationDetails"))
+    if current is None:
+        return None
+    path: list[tuple[str, str]] = []
+    while current is not None:
+        path.append((
+            _child_text(current, "objectName") or "",
+            _child_text(current, "queryAttribute") or "",
+        ))
+        current = current.find(_ns("contextAttrHydrationDetails"))
+    return tuple(path) if any(obj or field for obj, field in path) else None
+
+
+def _cd_get_attr_mapping_by_destination(
+        node_mapping: Element, target: Element) -> Element | None:
+    """Find a differently named context attribute mapped to target's destination."""
+    destination = _cd_mapping_destination(target)
+    if destination is None:
+        return None
+    target_attr = _child_text(target, "contextAttribute")
+    for cam in node_mapping.findall(_ns("contextAttributeMappings")):
+        if (_child_text(cam, "contextAttribute") != target_attr
+                and _cd_mapping_destination(cam) == destination):
+            return cam
+    return None
+
+
+def _cd_has_attr_mapping(node_mapping: Element, attr_name: str) -> bool:
+    return _cd_get_attr_mapping(node_mapping, attr_name) is not None
+
+
+def _cd_get_context_attr(context_node: Element, title: str) -> Element | None:
+    for ca in context_node.findall(_ns("contextAttributes")):
+        if _child_text(ca, "title") == title:
+            return ca
+    return None
+
+
+def _cd_has_context_attr(context_node: Element, title: str) -> bool:
+    return _cd_get_context_attr(context_node, title) is not None
+
+
+def _cd_context_attr_tags(context_attr: Element) -> set[str]:
+    return {
+        _child_text(tag, "title")
+        for tag in context_attr.findall(_ns("contextTags"))
+        if _child_text(tag, "title")
+    }
+
+
+def _cd_context_tag_conflicts(
+        versions: Element, target: Element) -> list[tuple[str, Element, Element]]:
+    """Return global tags already owned by existing context attributes."""
+    target_tags = _cd_context_attr_tags(target)
+    if not target_tags:
+        return []
+    conflicts: list[tuple[str, Element, Element]] = []
+    for node in versions.findall(_ns("contextNodes")):
+        for context_attr in node.findall(_ns("contextAttributes")):
+            for shared_tag in target_tags & _cd_context_attr_tags(context_attr):
+                conflicts.append((shared_tag, node, context_attr))
+    return conflicts
+
+
+def _cd_field_info(cam: Element) -> str:
+    """Human-readable field description from a contextAttributeMappings element."""
+    hd = cam.find(_ns("contextAttrHydrationDetails"))
+    if hd is not None:
+        parts = []
+        current = hd
+        first_object = _child_text(current, "objectName")
+        if first_object:
+            parts.append(first_object)
+        while current is not None:
+            query = _child_text(current, "queryAttribute")
+            if query:
+                parts.append(query)
+            current = current.find(_ns("contextAttrHydrationDetails"))
+        if parts:
+            return ".".join(parts)
+    ctxs = cam.find(_ns("ctxAttrHydrationCtxs"))
+    if ctxs is not None:
+        cqa = _child_text(ctxs, "contextQueryAttribute")
+        if cqa:
+            return f"hydration ref: {cqa}"
+    return ""
+
+
+def _cd_group_key(name: str) -> str:
+    """Strip known object-role prefixes for visual grouping."""
+    for prefix in ("AAS", "ASP", "ASS", "STI", "OLI", "Asset_"):
+        if name.startswith(prefix) and len(name) > len(prefix):
+            return name[len(prefix):]
+    return name
+
+
+def _cd_normalize_serializer_fields(root: Element) -> dict:
+    """Omit serializer-only fields that the UAT API 66 schema rejects."""
+    localization_defaults = 0
+    for parent in root.iter():
+        for child in list(parent):
+            if (_local(child.tag) == "localizationDisabled"
+                    and (child.text or "").strip().lower() == "false"):
+                parent.remove(child)
+                localization_defaults += 1
+
+    root_fields = []
+    for child in list(root):
+        tag = _local(child.tag)
+        if tag in {"isTransformationEnabled", "releaseVersion"}:
+            root.remove(child)
+            root_fields.append(tag)
+
+    return {
+        "localizationDefaults": localization_defaults,
+        "rootFields": root_fields,
+    }
+
+
+def _cd_strip_org_specific_hydration_ids(root: Element) -> list[str]:
+    """Remove source-org record IDs that cannot resolve in another org."""
+    removed: list[str] = []
+    for attr_mapping in root.iter():
+        if _local(attr_mapping.tag) != "contextAttributeMappings":
+            continue
+        for hydration_ctx in list(attr_mapping.findall(_ns("ctxAttrHydrationCtxs"))):
+            value = _child_text(hydration_ctx, "contextQueryAttribute") or ""
+            if (len(value) in {15, 18} and value.isalnum()
+                    and any(char.isalpha() for char in value)
+                    and any(char.isdigit() for char in value)):
+                attr_mapping.remove(hydration_ctx)
+                removed.append(value)
+    return removed
+
+
+def _cd_semantic_signature(elem: Element, skip_children: set[str] | None = None) -> str:
+    """Order-independent signature that ignores serializer-only default false fields."""
+    skip_children = skip_children or set()
+
+    def walk(node: Element) -> str:
+        local = _local(node.tag)
+        text = (node.text or "").strip()
+        if local == "localizationDisabled" and text.lower() == "false":
+            return ""
+        parts = [local]
+        if text:
+            parts.append(f"TEXT:{text}")
+        children = []
+        for child in node:
+            if _local(child.tag) in skip_children:
+                continue
+            value = walk(child)
+            if value:
+                children.append(value)
+        parts.extend(sorted(children))
+        return "|".join(parts)
+
+    return hashlib.sha256(walk(elem).encode()).hexdigest()[:16]
+
+
+def _cd_overlay_update(base_elem: Element, modified_elem: Element) -> tuple[Element, list[str]]:
+    """
+    Overlay fields supplied by Modified without treating omissions as deletions.
+    Repeating contextTags are unioned; other supplied child groups replace the
+    same field in Base so selected value/path changes still take effect.
+    """
+    result = copy.deepcopy(base_elem)
+    result.attrib.update(modified_elem.attrib)
+    if (modified_elem.text or "").strip():
+        result.text = modified_elem.text
+
+    base_groups: OrderedDict[str, list[Element]] = OrderedDict()
+    mod_groups: OrderedDict[str, list[Element]] = OrderedDict()
+    for child in base_elem:
+        base_groups.setdefault(_local(child.tag), []).append(child)
+    for child in modified_elem:
+        mod_groups.setdefault(_local(child.tag), []).append(child)
+
+    preserved: list[str] = []
+    for tag, base_children in base_groups.items():
+        mod_children = mod_groups.get(tag, [])
+        if tag == "localizationDisabled" and all(
+                (child.text or "").strip().lower() == "false" for child in base_children):
+            continue
+        if tag == "contextTags":
+            mod_signatures = {_cd_semantic_signature(child) for child in mod_children}
+            if any(_cd_semantic_signature(child) not in mod_signatures for child in base_children):
+                preserved.append(tag)
+        elif not mod_children:
+            preserved.append(tag)
+
+    def insert_at_modified_position(tag: str, new_children: list[Element]) -> None:
+        result_children = list(result)
+        same_indexes = [
+            index for index, child in enumerate(result_children) if _local(child.tag) == tag
+        ]
+        if same_indexes:
+            insert_at = same_indexes[-1] + 1
+        else:
+            mod_tags = [_local(child.tag) for child in modified_elem]
+            target = mod_tags.index(tag)
+            insert_at = len(result_children)
+            for following_tag in mod_tags[target + 1:]:
+                following = [
+                    index for index, child in enumerate(result_children)
+                    if _local(child.tag) == following_tag
+                ]
+                if following:
+                    insert_at = following[0]
+                    break
+            else:
+                for prior_tag in reversed(mod_tags[:target]):
+                    prior = [
+                        index for index, child in enumerate(result_children)
+                        if _local(child.tag) == prior_tag
+                    ]
+                    if prior:
+                        insert_at = prior[-1] + 1
+                        break
+        for offset, child in enumerate(new_children):
+            result.insert(insert_at + offset, copy.deepcopy(child))
+
+    for tag, mod_children in mod_groups.items():
+        if tag == "contextTags":
+            existing = {
+                _cd_semantic_signature(child)
+                for child in result
+                if _local(child.tag) == "contextTags"
+            }
+            additions = [
+                child for child in mod_children
+                if _cd_semantic_signature(child) not in existing
+            ]
+            if additions:
+                insert_at_modified_position(tag, additions)
+            continue
+
+        result_children = list(result)
+        same_indexes = [
+            index for index, child in enumerate(result_children) if _local(child.tag) == tag
+        ]
+        if same_indexes:
+            insert_at = same_indexes[0]
+            for index in reversed(same_indexes):
+                result.remove(result_children[index])
+            for offset, child in enumerate(mod_children):
+                result.insert(insert_at + offset, copy.deepcopy(child))
+        else:
+            insert_at_modified_position(tag, mod_children)
+
+    return result, sorted(set(preserved))
+
+
+def _cd_overlay_context_attr_update(
+        base_elem: Element, modified_elem: Element) -> tuple[Element, list[str]]:
+    """Overlay a context attribute without changing its immutable schema."""
+    safe_modified = copy.deepcopy(modified_elem)
+    immutable_fields = {"dataType", "fieldType", "key", "transient"}
+    for child in list(safe_modified):
+        if _local(child.tag) in immutable_fields:
+            safe_modified.remove(child)
+    return _cd_overlay_update(base_elem, safe_modified)
+
+
+def _cd_diag_indexes(versions: Element) -> dict[str, dict[tuple, Element]]:
+    """Build natural-identity indexes used by the bidirectional diagnostics UI."""
+    indexes: dict[str, dict[tuple, Element]] = {
+        "mapping": {}, "nodeMapping": {}, "attributeMapping": {},
+        "contextNode": {}, "contextAttribute": {},
+    }
+    for mapping in versions.findall(_ns("contextMappings")):
+        mapping_title = _child_text(mapping, "title")
+        if not mapping_title:
+            continue
+        indexes["mapping"][(mapping_title,)] = mapping
+        for node_mapping in mapping.findall(_ns("contextNodeMappings")):
+            context_node = _child_text(node_mapping, "contextNode")
+            obj = _child_text(node_mapping, "object")
+            if not context_node or not obj:
+                continue
+            parent_key = (mapping_title, context_node, obj)
+            indexes["nodeMapping"][parent_key] = node_mapping
+            for attr_mapping in node_mapping.findall(_ns("contextAttributeMappings")):
+                attr = _child_text(attr_mapping, "contextAttribute")
+                if attr:
+                    indexes["attributeMapping"][parent_key + (attr,)] = attr_mapping
+    for context_node in versions.findall(_ns("contextNodes")):
+        node_title = _child_text(context_node, "title")
+        if not node_title:
+            continue
+        indexes["contextNode"][(node_title,)] = context_node
+        for context_attr in context_node.findall(_ns("contextAttributes")):
+            attr_title = _child_text(context_attr, "title")
+            if attr_title:
+                indexes["contextAttribute"][(node_title, attr_title)] = context_attr
+    return indexes
+
+
+def _cd_diag_entry(kind: str, key: tuple, elem: Element) -> dict:
+    labels = {
+        "mapping": "Context mapping",
+        "nodeMapping": "Node mapping parent",
+        "attributeMapping": "Attribute mapping",
+        "contextNode": "Context node parent",
+        "contextAttribute": "Context attribute",
+    }
+    if kind == "mapping":
+        path, name = f"contextMappings[{key[0]}]", key[0]
+    elif kind == "nodeMapping":
+        path = f"{key[0]} / {key[1]} / {key[2]}"
+        name = f"{key[1]} → {key[2]}"
+    elif kind == "attributeMapping":
+        path = f"{key[0]} / {key[1]} / {key[2]}"
+        name = key[3]
+    elif kind == "contextNode":
+        path, name = f"contextNodes[{key[0]}]", key[0]
+    else:
+        path, name = f"contextNodes[{key[0]}]", key[1]
+    detail = _cd_field_info(elem) if kind == "attributeMapping" else ""
+    return {"type": labels[kind], "name": name, "path": path, "detail": detail, "count": 1}
+
+
+def _cd_compare_diagnostics(base_text: str, modified_text: str,
+                            base_root: Element, mod_root: Element,
+                            base_ver: Element, mod_ver: Element) -> dict:
+    """Explain line-count and semantic differences in both directions."""
+    base_idx = _cd_diag_indexes(base_ver)
+    mod_idx = _cd_diag_indexes(mod_ver)
+    removed: list[dict] = []
+    added: list[dict] = []
+    changed: list[dict] = []
+
+    kind_order = ("mapping", "nodeMapping", "attributeMapping",
+                  "contextNode", "contextAttribute")
+    for kind in kind_order:
+        b_keys, m_keys = set(base_idx[kind]), set(mod_idx[kind])
+        for key in sorted(b_keys - m_keys):
+            removed.append(_cd_diag_entry(kind, key, base_idx[kind][key]))
+        for key in sorted(m_keys - b_keys):
+            added.append(_cd_diag_entry(kind, key, mod_idx[kind][key]))
+
+    # Material changes inside identities that exist on both sides. Ignore the
+    # localizationDisabled=false noise that Salesforce may omit on retrieval.
+    for kind in ("attributeMapping", "contextAttribute"):
+        common = set(base_idx[kind]) & set(mod_idx[kind])
+        for key in sorted(common):
+            before, after = base_idx[kind][key], mod_idx[kind][key]
+            if _cd_semantic_signature(before) == _cd_semantic_signature(after):
+                continue
+            entry = _cd_diag_entry(kind, key, after)
+            entry["before"] = _cd_field_info(before) if kind == "attributeMapping" else ""
+            entry["after"] = _cd_field_info(after) if kind == "attributeMapping" else ""
+            overlaid, preserved_fields = _cd_overlay_update(before, after)
+            if _cd_semantic_signature(before) == _cd_semantic_signature(overlaid):
+                entry["type"] = "Base-protected omission"
+                entry["detail"] = (
+                    "Modified omits "
+                    + (", ".join(preserved_fields) or "Base-only metadata")
+                    + "; Base value will be preserved and no update will be offered."
+                )
+            elif preserved_fields:
+                existing_detail = entry.get("detail", "")
+                protection = "Base-only " + ", ".join(preserved_fields) + " will be preserved."
+                entry["detail"] = (
+                    f"{existing_detail} · {protection}" if existing_detail else protection
+                )
+            changed.append(entry)
+
+    def direct_leaf_values(root: Element) -> dict[str, list[str]]:
+        values: dict[str, list[str]] = {}
+        for child in root:
+            if len(child) == 0:
+                values.setdefault(_local(child.tag), []).append((child.text or "").strip())
+        return values
+
+    base_leaf, mod_leaf = direct_leaf_values(base_root), direct_leaf_values(mod_root)
+    for tag in sorted(set(base_leaf) | set(mod_leaf)):
+        b_values, m_values = base_leaf.get(tag, []), mod_leaf.get(tag, [])
+        if b_values == m_values:
+            continue
+        if b_values and not m_values:
+            serializer_field = tag in {"isTransformationEnabled", "releaseVersion"}
+            removed.append({
+                "type": "Serializer/root omission" if serializer_field else "Root field",
+                "name": tag,
+                "path": "ContextDefinition",
+                "detail": (
+                    f"{', '.join(b_values)}. This field may be normalized or omitted by "
+                    "Salesforce retrieval."
+                    if serializer_field else ", ".join(b_values)
+                ),
+                "count": len(b_values),
+            })
+        elif m_values and not b_values:
+            added.append({"type": "Root field", "name": tag, "path": "ContextDefinition",
+                          "detail": ", ".join(m_values), "count": len(m_values)})
+        else:
+            changed.append({"type": "Root field", "name": tag, "path": "ContextDefinition",
+                            "detail": f"{', '.join(b_values)} → {', '.join(m_values)}",
+                            "before": ", ".join(b_values), "after": ", ".join(m_values),
+                            "count": 1})
+
+    tracked_tags = (
+        "contextMappings", "contextNodeMappings", "contextAttributeMappings",
+        "contextNodes", "contextAttributes", "ctxAttrHydrationCtxs",
+        "contextAttrHydrationDetails", "contextTags", "localizationDisabled",
+    )
+    counts = []
+    for tag in tracked_tags:
+        base_count = sum(1 for el in base_root.iter() if _local(el.tag) == tag)
+        mod_count = sum(1 for el in mod_root.iter() if _local(el.tag) == tag)
+        counts.append({"tag": tag, "base": base_count, "modified": mod_count,
+                       "delta": mod_count - base_count})
+
+    base_loc_false = sum(
+        1 for el in base_root.iter()
+        if _local(el.tag) == "localizationDisabled"
+        and (el.text or "").strip().lower() == "false"
+    )
+    mod_loc_false = sum(
+        1 for el in mod_root.iter()
+        if _local(el.tag) == "localizationDisabled"
+        and (el.text or "").strip().lower() == "false"
+    )
+    default_delta = base_loc_false - mod_loc_false
+    if default_delta > 0:
+        removed.insert(0, {
+            "type": "Serializer/default omission",
+            "name": "localizationDisabled=false",
+            "path": "Repeated metadata entries",
+            "detail": (
+                f"Modified contains {default_delta} fewer explicit default-false values. "
+                "Salesforce retrieval commonly omits these defaults; this is not by itself "
+                "a business-metadata deletion."
+            ),
+            "count": default_delta,
+        })
+    elif default_delta < 0:
+        added.insert(0, {
+            "type": "Serializer/default expansion",
+            "name": "localizationDisabled=false",
+            "path": "Repeated metadata entries",
+            "detail": f"Modified contains {-default_delta} more explicit default-false values.",
+            "count": -default_delta,
+        })
+
+    base_lines = len(base_text.splitlines())
+    mod_lines = len(modified_text.splitlines())
+    line_delta = mod_lines - base_lines
+    if line_delta < 0:
+        line_summary = f"Modified has {-line_delta:,} fewer lines than Base."
+    elif line_delta > 0:
+        line_summary = f"Modified has {line_delta:,} more lines than Base."
+    else:
+        line_summary = "Base and Modified have the same number of lines."
+    if default_delta > 0:
+        line_summary += (
+            f" It also has {default_delta:,} fewer explicit "
+            "localizationDisabled=false defaults; added metadata may offset part of that reduction."
+        )
+    line_summary += " Use the lists below to separate serializer omissions from real metadata changes."
+
+    return {
+        "baseLines": base_lines,
+        "modifiedLines": mod_lines,
+        "lineDelta": line_delta,
+        "baseVersion": _child_text(base_ver, "versionNumber"),
+        "modifiedVersion": _child_text(mod_ver, "versionNumber"),
+        "summary": line_summary,
+        "removed": removed,
+        "added": added,
+        "changed": changed,
+        "counts": counts,
+        "removedCount": sum(item.get("count", 1) for item in removed),
+        "addedCount": sum(item.get("count", 1) for item in added),
+        "changedCount": len(changed),
+        "businessRemovedCount": sum(
+            item.get("count", 1) for item in removed
+            if not item["type"].startswith("Serializer/")
+        ),
+    }
+
+
+def cd_fix_analyze(base_text: str, modified_text: str) -> dict:
+    """
+    Scan Modified for additions and material updates relative to Base. Missing
+    structural parents are returned as one selectable full-block addition.
+    """
+    if not base_text.strip() or not modified_text.strip():
+        return {"ok": False, "log": "Paste both Base and Modified XMLs first."}
+    try:
+        base_root = _parse(base_text, "Base")
+        mod_root  = _parse(modified_text, "Modified")
+    except (ValueError, ET.ParseError) as exc:
+        return {"ok": False, "log": str(exc)}
+    _cd_strip_org_specific_hydration_ids(mod_root)
+
+    if _local(base_root.tag) != "ContextDefinition" or _local(mod_root.tag) != "ContextDefinition":
+        return {"ok": False,
+                "log": "Both XMLs must be ContextDefinition metadata "
+                       f"(got <{_local(base_root.tag)}> and <{_local(mod_root.tag)}>)."}
+
+    base_ver = _cd_get_versions(base_root)
+    mod_ver  = _cd_get_versions(mod_root)
+    if base_ver is None or mod_ver is None:
+        return {"ok": False, "log": "Could not find <contextDefinitionVersions> in both files."}
+
+    diagnostics = _cd_compare_diagnostics(
+        base_text, modified_text, base_root, mod_root, base_ver, mod_ver)
+    items: list[dict] = []
+
+    # ── contextMappings → contextNodeMappings → contextAttributeMappings ──────
+    for mod_m in mod_ver.findall(_ns("contextMappings")):
+        m_title = _child_text(mod_m, "title")
+        if not m_title:
+            continue
+        base_m = _cd_get_mapping(base_ver, m_title)
+        if base_m is None:
+            node_count = len(mod_m.findall(_ns("contextNodeMappings")))
+            attr_count = sum(
+                len(node.findall(_ns("contextAttributeMappings")))
+                for node in mod_m.findall(_ns("contextNodeMappings"))
+            )
+            items.append({
+                "id": f"cm\x1f{m_title}",
+                "type": "mappingBlock",
+                "mappingTitle": m_title,
+                "attrName": m_title,
+                "fieldInfo": f"{node_count} node mapping(s) · {attr_count} attribute mapping(s)",
+                "includedCount": attr_count,
+                "group": "Required parent blocks",
+                "path": f"contextMappings[{m_title}]",
+                "parentPatch": True,
+                "missingParent": False,
+                "parentPatchMessage": (
+                    f"Base does not contain mapping '{m_title}'. Step 3 will copy the complete "
+                    "<contextMappings> block from Modified, including all of its node and "
+                    "attribute mappings."
+                ),
+            })
+            continue
+
+        for mod_nm in mod_m.findall(_ns("contextNodeMappings")):
+            ctx_node = _child_text(mod_nm, "contextNode")
+            obj      = _child_text(mod_nm, "object")
+            if not ctx_node or not obj:
+                continue
+            base_nm = _cd_get_node_mapping(base_m, ctx_node, obj)
+            if base_nm is None:
+                attr_count = len(mod_nm.findall(_ns("contextAttributeMappings")))
+                items.append({
+                    "id": f"nm\x1f{m_title}\x1f{ctx_node}\x1f{obj}",
+                    "type": "nodeMappingBlock",
+                    "mappingTitle": m_title,
+                    "contextNode": ctx_node,
+                    "object": obj,
+                    "attrName": f"{ctx_node} / {obj}",
+                    "fieldInfo": f"{attr_count} attribute mapping(s)",
+                    "includedCount": attr_count,
+                    "group": "Required parent blocks",
+                    "path": f"{m_title} → {ctx_node} / {obj}",
+                    "parentPatch": True,
+                    "missingParent": False,
+                    "parentPatchMessage": (
+                        f"Base mapping '{m_title}' does not contain the {ctx_node} / {obj} "
+                        "node mapping. Step 3 will copy the complete <contextNodeMappings> "
+                        "block from Modified, including all of its attribute mappings."
+                    ),
+                })
+                continue
+
+            for cam in mod_nm.findall(_ns("contextAttributeMappings")):
+                attr = _child_text(cam, "contextAttribute")
+                if not attr:
+                    continue
+                base_cam = _cd_get_attr_mapping(base_nm, attr)
+                replaced_attr = ""
+                if base_cam is None:
+                    base_cam = _cd_get_attr_mapping_by_destination(base_nm, cam)
+                    if base_cam is not None:
+                        replaced_attr = _child_text(base_cam, "contextAttribute") or ""
+                change_kind = "add"
+                before_field = ""
+                preserved_base_fields: list[str] = []
+                if base_cam is not None:
+                    overlaid_cam, preserved_base_fields = _cd_overlay_update(base_cam, cam)
+                    if _cd_semantic_signature(base_cam) == _cd_semantic_signature(overlaid_cam):
+                        continue
+                    change_kind = "update"
+                    before_field = _cd_field_info(base_cam)
+                    field_info = _cd_field_info(overlaid_cam)
+                    if replaced_attr:
+                        before_field = f"{replaced_attr} → {before_field or 'existing XML definition'}"
+                        field_info = f"{attr} → {field_info or 'modified XML definition'}"
+                else:
+                    field_info = _cd_field_info(cam)
+                items.append({
+                    "id":           f"cam\x1f{m_title}\x1f{ctx_node}\x1f{obj}\x1f{attr}",
+                    "type":         "mapping",
+                    "mappingTitle": m_title,
+                    "contextNode":  ctx_node,
+                    "object":       obj,
+                    "attrName":     attr,
+                    "fieldInfo":    field_info,
+                    "beforeField":  before_field,
+                    "afterField":   field_info,
+                    "changeKind":   change_kind,
+                    "replacesAttr": replaced_attr,
+                    "preservedBaseFields": preserved_base_fields,
+                    "group":        _cd_group_key(attr),
+                    "path":         f"{m_title} → {ctx_node} / {obj}",
+                    "parentPatch":  False,
+                    "missingParent": False,
+                })
+
+    # ── contextNodes → contextAttributes ─────────────────────────────────────
+    for mod_cn in mod_ver.findall(_ns("contextNodes")):
+        cn_title = _child_text(mod_cn, "title")
+        if not cn_title:
+            continue
+        base_cn = _cd_get_context_node(base_ver, cn_title)
+        if base_cn is None:
+            attr_count = len(mod_cn.findall(_ns("contextAttributes")))
+            items.append({
+                "id": f"cn\x1f{cn_title}",
+                "type": "contextNodeBlock",
+                "nodeName": cn_title,
+                "attrTitle": cn_title,
+                "fieldInfo": f"{attr_count} context attribute(s)",
+                "includedCount": attr_count,
+                "group": "Required parent blocks",
+                "path": f"contextNodes[{cn_title}]",
+                "parentPatch": True,
+                "missingParent": False,
+                "parentPatchMessage": (
+                    f"Base does not contain context node '{cn_title}'. Step 3 will copy the "
+                    "complete <contextNodes> block from Modified, including all of its "
+                    "context attributes."
+                ),
+            })
+            continue
+
+        for ca in mod_cn.findall(_ns("contextAttributes")):
+            ca_title = _child_text(ca, "title")
+            if not ca_title:
+                continue
+            base_ca = _cd_get_context_attr(base_cn, ca_title)
+            tag_conflicts: list[tuple[str, Element, Element]] = []
+            if base_ca is None:
+                tag_conflicts = _cd_context_tag_conflicts(base_ver, ca)
+            change_kind = "add"
+            preserved_base_fields: list[str] = []
+            if base_ca is not None:
+                overlaid_ca, preserved_base_fields = _cd_overlay_context_attr_update(base_ca, ca)
+                if _cd_semantic_signature(base_ca) == _cd_semantic_signature(overlaid_ca):
+                    continue
+                change_kind = "update"
+            conflict_description = ", ".join(
+                f"{tag} owned by {_child_text(owner_node, 'title')}/"
+                f"{_child_text(owner_attr, 'title')}"
+                for tag, owner_node, owner_attr in tag_conflicts
+            )
+            items.append({
+                "id":        f"ca\x1f{cn_title}\x1f{ca_title}",
+                "type":      "nodeAttr",
+                "nodeName":  cn_title,
+                "attrTitle": ca_title,
+                "fieldInfo": "",
+                "beforeField": conflict_description,
+                "afterField": (
+                    f"{cn_title}/{ca_title} without duplicate context tag"
+                    if tag_conflicts else ""
+                ),
+                "changeKind": change_kind,
+                "conflictingTags": [tag for tag, _, _ in tag_conflicts],
+                "preservedBaseFields": preserved_base_fields,
+                "group":     _cd_group_key(ca_title),
+                "path":      f"contextNodes[{cn_title}]",
+                "parentPatch": False,
+                "missingParent": False,
+            })
+
+    if not items:
+        return {"ok": True, "items": [],
+                "summary": "No selectable additions or value changes found.",
+                "diagnostics": diagnostics}
+
+    parent_blocks = sum(1 for item in items if item.get("parentPatch"))
+    updates = sum(1 for item in items if item.get("changeKind") == "update")
+    additions = len(items) - updates
+    summary = (
+        f"Found {additions} selectable addition(s) and {updates} value change(s) "
+        "in Modified."
+    )
+    if parent_blocks:
+        summary += f" {parent_blocks} will add a complete required parent block."
+    return {"ok": True, "items": items,
+            "summary": summary,
+            "diagnostics": diagnostics}
+
+
+def cd_fix_build(base_text: str, modified_text: str, selected_ids: list) -> dict:
+    """
+    Apply the user-selected additions from Modified into Base.
+    Returns the merged XML and a human-readable apply-report.
+    """
+    if not base_text.strip() or not modified_text.strip():
+        return {"ok": False, "log": "Base and Modified XMLs are required."}
+    if not selected_ids:
+        return {"ok": False, "log": "No items selected — tick at least one field to include."}
+    try:
+        base_root = _parse(base_text, "Base")
+        mod_root  = _parse(modified_text, "Modified")
+    except (ValueError, ET.ParseError) as exc:
+        return {"ok": False, "log": str(exc)}
+    omitted_hydration_ids = _cd_strip_org_specific_hydration_ids(mod_root)
+
+    base_ver = _cd_get_versions(base_root)
+    mod_ver  = _cd_get_versions(mod_root)
+    if base_ver is None or mod_ver is None:
+        return {"ok": False, "log": "Could not find <contextDefinitionVersions>."}
+
+    selected = set(selected_ids)
+    report_lines = ["CONTEXT DEFINITION FIX — APPLY REPORT", "=" * 60, ""]
+    applied = skipped = parent_blocks = updated = 0
+    errs: list[str] = []
+
+    # ── complete contextMappings blocks ───────────────────────────────────────
+    for mod_m in mod_ver.findall(_ns("contextMappings")):
+        m_title = _child_text(mod_m, "title")
+        item_id = f"cm\x1f{m_title}"
+        if item_id not in selected:
+            continue
+        if _cd_get_mapping(base_ver, m_title) is not None:
+            report_lines.append(f"  ✓ parent block already present: contextMappings[{m_title}]")
+            skipped += 1
+            continue
+        children = list(base_ver)
+        last_mapping = max(
+            (i for i, child in enumerate(children) if _local(child.tag) == "contextMappings"),
+            default=-1,
+        )
+        base_ver.insert(last_mapping + 1, copy.deepcopy(mod_m))
+        node_count = len(mod_m.findall(_ns("contextNodeMappings")))
+        attr_count = sum(
+            len(node.findall(_ns("contextAttributeMappings")))
+            for node in mod_m.findall(_ns("contextNodeMappings"))
+        )
+        report_lines.append(
+            f"  + added parent block: contextMappings[{m_title}] "
+            f"({node_count} node mapping(s), {attr_count} attribute mapping(s))"
+        )
+        applied += 1
+        parent_blocks += 1
+
+    # ── complete contextNodeMappings blocks ──────────────────────────────────
+    for mod_m in mod_ver.findall(_ns("contextMappings")):
+        m_title = _child_text(mod_m, "title")
+        for mod_nm in mod_m.findall(_ns("contextNodeMappings")):
+            ctx_node = _child_text(mod_nm, "contextNode")
+            obj = _child_text(mod_nm, "object")
+            item_id = f"nm\x1f{m_title}\x1f{ctx_node}\x1f{obj}"
+            if item_id not in selected:
+                continue
+            base_m = _cd_get_mapping(base_ver, m_title)
+            if base_m is None:
+                errs.append(
+                    f"  ✗ parent mapping unavailable: contextMappings[{m_title}] "
+                    f"for {ctx_node}/{obj}"
+                )
+                skipped += 1
+                continue
+            if _cd_get_node_mapping(base_m, ctx_node, obj) is not None:
+                report_lines.append(
+                    f"  ✓ parent block already present: {m_title}/{ctx_node}/{obj}"
+                )
+                skipped += 1
+                continue
+            children = list(base_m)
+            insert_at = next(
+                (i for i, child in enumerate(children)
+                 if _local(child.tag) in {"default", "description", "inheritedFrom", "title"}),
+                len(children),
+            )
+            base_m.insert(insert_at, copy.deepcopy(mod_nm))
+            attr_count = len(mod_nm.findall(_ns("contextAttributeMappings")))
+            report_lines.append(
+                f"  + added parent block: {m_title}/{ctx_node}/{obj} "
+                f"({attr_count} attribute mapping(s))"
+            )
+            applied += 1
+            parent_blocks += 1
+
+    # ── complete contextNodes blocks ─────────────────────────────────────────
+    for mod_cn in mod_ver.findall(_ns("contextNodes")):
+        cn_title = _child_text(mod_cn, "title")
+        item_id = f"cn\x1f{cn_title}"
+        if item_id not in selected:
+            continue
+        if _cd_get_context_node(base_ver, cn_title) is not None:
+            report_lines.append(f"  ✓ parent block already present: contextNodes[{cn_title}]")
+            skipped += 1
+            continue
+        children = list(base_ver)
+        last_node = max(
+            (i for i, child in enumerate(children) if _local(child.tag) == "contextNodes"),
+            default=-1,
+        )
+        base_ver.insert(last_node + 1, copy.deepcopy(mod_cn))
+        attr_count = len(mod_cn.findall(_ns("contextAttributes")))
+        report_lines.append(
+            f"  + added parent block: contextNodes[{cn_title}] "
+            f"({attr_count} context attribute(s))"
+        )
+        applied += 1
+        parent_blocks += 1
+
+    # ── contextAttributeMappings ──────────────────────────────────────────────
+    for mod_m in mod_ver.findall(_ns("contextMappings")):
+        m_title = _child_text(mod_m, "title")
+        for mod_nm in mod_m.findall(_ns("contextNodeMappings")):
+            ctx_node = _child_text(mod_nm, "contextNode")
+            obj      = _child_text(mod_nm, "object")
+            for cam in mod_nm.findall(_ns("contextAttributeMappings")):
+                attr    = _child_text(cam, "contextAttribute")
+                item_id = f"cam\x1f{m_title}\x1f{ctx_node}\x1f{obj}\x1f{attr}"
+                if item_id not in selected:
+                    continue
+                base_m = _cd_get_mapping(base_ver, m_title)
+                if base_m is None:
+                    errs.append(f"  ✗ contextMappings[{m_title}] not found in Base — skipped {attr}")
+                    skipped += 1
+                    continue
+                base_nm = _cd_get_node_mapping(base_m, ctx_node, obj)
+                if base_nm is None:
+                    errs.append(f"  ✗ contextNodeMappings[{ctx_node}/{obj}] not in {m_title} — skipped {attr}")
+                    skipped += 1
+                    continue
+                base_cam = _cd_get_attr_mapping(base_nm, attr)
+                replaced_attr = ""
+                if base_cam is None:
+                    base_cam = _cd_get_attr_mapping_by_destination(base_nm, cam)
+                    if base_cam is not None:
+                        replaced_attr = _child_text(base_cam, "contextAttribute") or ""
+                if base_cam is not None:
+                    overlaid_cam, preserved_fields = _cd_overlay_update(base_cam, cam)
+                    if _cd_semantic_signature(base_cam) == _cd_semantic_signature(overlaid_cam):
+                        report_lines.append(
+                            f"  ✓ no non-destructive change: {attr}  "
+                            f"[{m_title}/{ctx_node}/{obj}]"
+                        )
+                        skipped += 1
+                        continue
+                    before_field = _cd_field_info(base_cam) or "existing XML definition"
+                    after_field = _cd_field_info(overlaid_cam) or "modified XML definition"
+                    replace_at = list(base_nm).index(base_cam)
+                    base_nm[replace_at] = overlaid_cam
+                    preserved_note = (
+                        f"; preserved Base-only: {', '.join(preserved_fields)}"
+                        if preserved_fields else ""
+                    )
+                    if replaced_attr:
+                        report_lines.append(
+                            f"  ~ replaced mapping: {replaced_attr} -> {attr}  "
+                            f"[{m_title}/{ctx_node}/{obj}]  "
+                            f"destination: {after_field}{preserved_note}"
+                        )
+                    else:
+                        report_lines.append(
+                            f"  ~ updated: {attr}  [{m_title}/{ctx_node}/{obj}]  "
+                            f"{before_field} -> {after_field}{preserved_note}"
+                        )
+                    applied += 1
+                    updated += 1
+                    continue
+                new_cam = copy.deepcopy(cam)
+                children = list(base_nm)
+                idx = next((i for i, ch in enumerate(children)
+                            if _local(ch.tag) == "contextNode"), len(children))
+                base_nm.insert(idx, new_cam)
+                report_lines.append(f"  + added: {attr}  [{m_title}/{ctx_node}/{obj}]")
+                applied += 1
+
+    # ── contextAttributes in contextNodes ─────────────────────────────────────
+    for mod_cn in mod_ver.findall(_ns("contextNodes")):
+        cn_title = _child_text(mod_cn, "title")
+        for ca in mod_cn.findall(_ns("contextAttributes")):
+            ca_title = _child_text(ca, "title")
+            item_id  = f"ca\x1f{cn_title}\x1f{ca_title}"
+            if item_id not in selected:
+                continue
+            base_cn = _cd_get_context_node(base_ver, cn_title)
+            if base_cn is None:
+                errs.append(f"  ✗ contextNodes[{cn_title}] not found in Base — skipped {ca_title}")
+                skipped += 1
+                continue
+            base_ca = _cd_get_context_attr(base_cn, ca_title)
+            if base_ca is not None:
+                overlaid_ca, preserved_fields = _cd_overlay_context_attr_update(base_ca, ca)
+                if _cd_semantic_signature(base_ca) == _cd_semantic_signature(overlaid_ca):
+                    report_lines.append(
+                        f"  ✓ no non-destructive change: {ca_title}  "
+                        f"[contextNodes/{cn_title}]"
+                    )
+                    skipped += 1
+                    continue
+                replace_at = list(base_cn).index(base_ca)
+                base_cn[replace_at] = overlaid_ca
+                preserved_note = (
+                    f"; preserved Base-only: {', '.join(preserved_fields)}"
+                    if preserved_fields else ""
+                )
+                report_lines.append(
+                    f"  ~ updated: {ca_title}  [contextNodes/{cn_title}]"
+                    f"{preserved_note}"
+                )
+                applied += 1
+                updated += 1
+                continue
+            new_ca = copy.deepcopy(ca)
+            tag_conflicts = _cd_context_tag_conflicts(base_ver, new_ca)
+            conflicting_tags = {tag for tag, _, _ in tag_conflicts}
+            if conflicting_tags:
+                for context_tag in list(new_ca.findall(_ns("contextTags"))):
+                    if _child_text(context_tag, "title") in conflicting_tags:
+                        new_ca.remove(context_tag)
+            children = list(base_cn)
+            last_ca = max((i for i, ch in enumerate(children)
+                           if _local(ch.tag) == "contextAttributes"), default=-1)
+            base_cn.insert(last_ca + 1, new_ca)
+            if conflicting_tags:
+                owners = ", ".join(
+                    f"{tag} on {_child_text(owner_node, 'title')}/"
+                    f"{_child_text(owner_attr, 'title')}"
+                    for tag, owner_node, owner_attr in tag_conflicts
+                )
+                report_lines.append(
+                    f"  + added without duplicate tag: {ca_title}  "
+                    f"[contextNodes/{cn_title}]  preserved Base tag owner(s): {owners}"
+                )
+            else:
+                report_lines.append(f"  + added: {ca_title}  [contextNodes/{cn_title}]")
+            applied += 1
+
+    normalization = _cd_normalize_serializer_fields(base_root)
+    normalized_defaults = normalization["localizationDefaults"]
+    normalized_root_fields = normalization["rootFields"]
+    if normalized_defaults:
+        report_lines += [
+            "",
+            f"  ✓ normalized: omitted {normalized_defaults} explicit "
+            "localizationDisabled=false serializer default(s)",
+        ]
+    if normalized_root_fields:
+        report_lines.append(
+            "  ✓ normalized: omitted API-incompatible root field(s): "
+            + ", ".join(normalized_root_fields)
+        )
+    if omitted_hydration_ids:
+        report_lines.append(
+            f"  ✓ normalized: omitted {len(omitted_hydration_ids)} "
+            "source-org hydration ID reference(s)"
+        )
+
+    added = applied - updated
+    report_lines += [
+        "",
+        f"Summary: {added} added · {updated} updated · "
+        f"{skipped} skipped · {len(errs)} error(s)",
+    ]
+    if errs:
+        report_lines += ["", "Errors:"] + errs
+
+    return {
+        "ok":      True,
+        "result":  serialize_tree(base_root),
+        "report":  "\n".join(report_lines),
+        "applied": applied,
+        "added": added,
+        "updated": updated,
+        "skipped": skipped,
+        "errors":  len(errs),
+        "parentBlocks": parent_blocks,
+        "normalizedDefaults": normalized_defaults,
+        "normalizedRootFields": normalized_root_fields,
+        "omittedHydrationIds": len(omitted_hydration_ids),
+    }
+
+
+# ───────────────────────────────────────────────────────────────────────
+# HTTP server
+# ───────────────────────────────────────────────────────────────────────
+
+APP_ID = "xml-tool"
+DEFAULT_PORT = int(os.environ.get("XML_UI_PORT", "8799"))
+STATIC_ASSETS = {
+    "/favicon/favicon-96x96.png": ("favicon/favicon-96x96.png", "image/png"),
+    "/favicon/favicon.svg": ("favicon/favicon.svg", "image/svg+xml"),
+    "/favicon/favicon.ico": ("favicon/favicon.ico", "image/x-icon"),
+    "/favicon/apple-touch-icon.png": ("favicon/apple-touch-icon.png", "image/png"),
+    "/favicon/site.webmanifest": ("favicon/site.webmanifest", "application/manifest+json"),
+    "/favicon/web-app-manifest-192x192.png": (
+        "favicon/web-app-manifest-192x192.png", "image/png"),
+    "/favicon/web-app-manifest-512x512.png": (
+        "favicon/web-app-manifest-512x512.png", "image/png"),
+    # Conventional browser fallback when no explicit <link> has been processed.
+    "/favicon.ico": ("favicon/favicon.ico", "image/x-icon"),
+}
+
+
+def _static_asset_path(filename: str) -> str:
+    """Resolve packaged browser assets for both supported launch locations."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = (
+        os.path.join(script_dir, filename),
+        os.path.join(script_dir, "..", filename),
+        os.path.join(script_dir, "..", "salesforce-xml-tool", filename),
+    )
+    for candidate in candidates:
+        resolved = os.path.abspath(candidate)
+        if os.path.isfile(resolved):
+            return resolved
+    return os.path.abspath(candidates[0])
+
+
+def _build_id() -> str:
+    try:
+        with open(os.path.abspath(__file__), "rb") as f:
+            return hashlib.sha1(f.read()).hexdigest()[:12]
+    except Exception:  # noqa: BLE001
+        return "dev"
+
+
+BUILD = _build_id()
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):  # silence default logging
+        pass
+
+    def _send(self, code, body, content_type="application/json"):
+        if isinstance(body, (dict, list)):
+            body = json.dumps(body)
+        data = body if isinstance(body, bytes) else body.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self):
+        try:
+            if self.path == "/" or self.path.startswith("/?"):
+                self._send(200, PAGE, "text/html; charset=utf-8")
+            elif self.path in STATIC_ASSETS:
+                filename, content_type = STATIC_ASSETS[self.path]
+                with open(_static_asset_path(filename), "rb") as asset:
+                    self._send(200, asset.read(), content_type)
+            elif self.path == "/api/ping":
+                self._send(200, {"app": APP_ID, "build": BUILD})
+            else:
+                self._send(404, {"error": "not found"})
+        except Exception as exc:  # noqa: BLE001
+            self._send(200, {"ok": False, "log": f"Unexpected server error: {exc}"})
+
+    def do_POST(self):
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                body = json.loads(raw.decode("utf-8") or "{}")
+            except json.JSONDecodeError:
+                self._send(200, {"ok": False, "log": "Invalid request body."})
+                return
+
+            if self.path == "/api/merge":
+                self._send(200, merge_xml(body.get("base", ""), body.get("override", "")))
+            elif self.path == "/api/compare":
+                self._send(200, compare_xml(body.get("a", ""), body.get("b", ""),
+                                            body.get("tag", "")))
+            elif self.path == "/api/dedup":
+                self._send(200, dedup_permset_text(body.get("content", "")))
+            elif self.path == "/api/cdfix/analyze":
+                self._send(200, cd_fix_analyze(body.get("base", ""), body.get("modified", "")))
+            elif self.path == "/api/cdfix/build":
+                self._send(200, cd_fix_build(
+                    body.get("base", ""), body.get("modified", ""),
+                    body.get("selectedIds", [])))
+            else:
+                self._send(404, {"error": "not found"})
+        except Exception as exc:  # noqa: BLE001
+            self._send(200, {"ok": False, "log": f"Unexpected server error: {exc}"})
+
+
+def port_in_use(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
+def is_our_server(port):
+    try:
+        import urllib.request
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ping", timeout=2) as resp:
+            return json.loads(resp.read().decode("utf-8")).get("app") == APP_ID
+    except Exception:  # noqa: BLE001
+        return False
+
+
+# PAGE is defined in the companion module section below.
+from xml_tool_page import PAGE  # noqa: E402  (kept separate for readability)
+
+
+def main():
+    if "--print-build" in sys.argv:
+        print(BUILD)
+        return
+
+    open_browser = "--no-browser" not in sys.argv
+    port = DEFAULT_PORT
+    url = f"http://127.0.0.1:{port}/"
+
+    if is_our_server(port):
+        print(f"XML Tool is already running at {url}")
+        if open_browser:
+            webbrowser.open(url)
+        return
+
+    if port_in_use(port):
+        print(f"ERROR: Port {port} is in use by another program.")
+        print("Stop it, or set a different port: XML_UI_PORT=8900 python3 app/xml_tool.py")
+        sys.exit(1)
+
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    except OSError as exc:
+        print(f"ERROR: Could not start server on port {port}: {exc}")
+        sys.exit(1)
+
+    print("=" * 60)
+    print("  Salesforce Metadata XML Tool — local UI")
+    print("=" * 60)
+    print(f"  Running at:  {url}")
+    print("=" * 60)
+
+    if open_browser:
+        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopped.")
+        server.shutdown()
+
+
+if __name__ == "__main__":
+    main()
