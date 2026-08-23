@@ -43,10 +43,10 @@ Definitions**, but the compare works on any XML (or text).
 ### macOS (easiest)
 
 1. Download/clone this folder.
-2. Double-click **`Open XML Tool.command`**.
+2. Open `launchers/` and double-click **`Open XML Tool.command`**.
 3. Your browser opens at `http://127.0.0.1:8799`. Done.
 
-To stop it later, double-click **`Stop XML Tool.command`**.
+To stop it later, double-click **`launchers/Stop XML Tool.command`**.
 
 > **First launch shows a security warning?** That's normal — see
 > [macOS security warning](#macos-security-warning-apple-could-not-verify) below.
@@ -59,15 +59,15 @@ To stop it later, double-click **`Stop XML Tool.command`**.
 
 ### Windows
 
-Double-click **`run.bat`** (or run it from a terminal). Your browser opens
+Double-click **`launchers/run.bat`** (or run it from a terminal). Your browser opens
 automatically. Close the window to stop the tool.
 
 ### Linux / any terminal
 
 ```bash
-./run.sh
+./launchers/run.sh
 # or:
-python3 xml_tool.py
+python3 app/xml_tool.py
 ```
 
 Then open `http://127.0.0.1:8799` if it doesn't open automatically. Press
@@ -76,8 +76,8 @@ Then open `http://127.0.0.1:8799` if it doesn't open automatically. Press
 ### Change the port
 
 ```bash
-XML_UI_PORT=8900 python3 xml_tool.py      # macOS / Linux
-set XML_UI_PORT=8900 && python xml_tool.py  # Windows
+XML_UI_PORT=8900 python3 app/xml_tool.py      # macOS / Linux
+set XML_UI_PORT=8900 && python app\xml_tool.py  # Windows
 ```
 
 ---
@@ -180,15 +180,27 @@ screenshot above shows dark mode).
 
 ```
 salesforce-xml-tool/
-├── xml_tool.py            # Local server + merge/compare/dedup/cdfix engine (the logic)
-├── xml_tool_page.py       # The web UI (HTML + CSS + JS), kept separate for clarity
-├── Open XML Tool.command  # macOS: double-click to start (runs in background)
-├── Stop XML Tool.command  # macOS: double-click to stop
-├── run.sh                 # macOS / Linux launcher
-├── run.bat                # Windows launcher
+├── app/
+│   ├── xml_tool.py        # Local server + merge/compare/dedup/cdfix engine
+│   ├── xml_tool_page.py   # Web UI (HTML + CSS + JavaScript)
+│   └── utilities/
+│       └── patch_ref_product_category.py
+├── launchers/
+│   ├── Open XML Tool.command  # macOS: double-click to start in background
+│   ├── Stop XML Tool.command  # macOS: double-click to stop
+│   ├── run.sh                 # Linux / macOS terminal launcher
+│   └── run.bat                # Windows launcher
 ├── README.md
 ├── LICENSE
 ├── .gitignore
+├── favicon/               # Browser, Apple touch, and web-app icon assets
+│   ├── favicon.svg
+│   ├── favicon.ico
+│   ├── favicon-96x96.png
+│   ├── apple-touch-icon.png
+│   ├── web-app-manifest-192x192.png
+│   ├── web-app-manifest-512x512.png
+│   └── site.webmanifest
 └── docs/
     └── screenshots/       # Images used in this README
 ```
@@ -247,7 +259,7 @@ Python you can inspect.
    ```bash
    git clone https://github.com/<your-username>/salesforce-xml-tool.git
    cd salesforce-xml-tool
-   open "Open XML Tool.command"
+   open "launchers/Open XML Tool.command"
    ```
 
 2. **Allow it in System Settings** (works on all recent macOS, including Sequoia):
@@ -266,14 +278,14 @@ Python you can inspect.
    Then double-click normally.
 
 > None of this requires admin rights or installing anything. If you'd rather skip
-> the `.command` launcher entirely, teammates can just run `python3 xml_tool.py`
+> the `.command` launcher entirely, teammates can just run `python3 app/xml_tool.py`
 > in Terminal — that never triggers Gatekeeper.
 
 ### "Port 8799 is in use"
 
 Another copy is already running, or something else holds the port. Stop it with
-`Stop XML Tool.command`, or start on a different port:
-`XML_UI_PORT=8900 python3 xml_tool.py`.
+`launchers/Stop XML Tool.command`, or start on a different port:
+`XML_UI_PORT=8900 python3 app/xml_tool.py`.
 
 ### macOS says you do not have appropriate access privileges
 
@@ -283,10 +295,10 @@ in Terminal:
 
 ```bash
 cd "/path/to/salesforce-xml-tool"
-chmod 755 "Open XML Tool.command" "Stop XML Tool.command" "run.sh"
+chmod 755 "launchers/Open XML Tool.command" "launchers/Stop XML Tool.command" "launchers/run.sh"
 ```
 
-Then double-click **`Open XML Tool.command`** again.
+Then double-click **`launchers/Open XML Tool.command`** again.
 
 If macOS next shows **“Apple could not verify…”**, and you trust the repository,
 remove the downloaded-folder quarantine flag once:
@@ -300,14 +312,14 @@ web page, which can lose Unix file modes. Commit all three with executable mode
 `100755`:
 
 ```bash
-git add --chmod=+x "Open XML Tool.command" "Stop XML Tool.command" "run.sh"
+git add --chmod=+x "launchers/Open XML Tool.command" "launchers/Stop XML Tool.command" "launchers/run.sh"
 git commit -m "Preserve executable permissions for launch scripts"
 ```
 
 After pushing, verify the Git index shows `100755` for each launcher:
 
 ```bash
-git ls-files --stage -- "Open XML Tool.command" "Stop XML Tool.command" "run.sh"
+git ls-files --stage -- "launchers/Open XML Tool.command" "launchers/Stop XML Tool.command" "launchers/run.sh"
 ```
 
 ---
@@ -315,8 +327,8 @@ git ls-files --stage -- "Open XML Tool.command" "Stop XML Tool.command" "run.sh"
 ## Contributing
 
 Issues and pull requests are welcome. The whole thing is plain Python + vanilla
-JS with no build step, so editing is easy: change `xml_tool.py` (logic) or
-`xml_tool_page.py` (UI) and relaunch.
+JS with no build step, so editing is easy: change `app/xml_tool.py` (logic) or
+`app/xml_tool_page.py` (UI) and relaunch.
 
 ## License
 
