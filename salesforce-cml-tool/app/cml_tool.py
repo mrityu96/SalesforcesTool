@@ -820,7 +820,29 @@ def compare_cml(source_org, target_org, model, source_version_id,
         return {"ok": False, "log": f"Could not fetch from source '{source_org}':\n{src.get('log')}"}
     if t is None:
         return {"ok": False, "log": f"Could not fetch from target '{target_org}':\n{tgt.get('log')}"}
-    return {"ok": True, "model": model, "source": s, "target": t}
+    try:
+        semantic = compare_cml_semantics(
+            s.get("content", ""), t.get("content", ""))
+    except Exception as exc:  # noqa: BLE001
+        # Semantic analysis is supplemental and must never block the raw diff.
+        semantic = {
+            "schemaVersion": "1.0",
+            "entities": [],
+            "stats": {
+                "UNCHANGED": 0, "MOVED": 0, "ADDED": 0,
+                "REMOVED": 0, "MODIFIED": 0, "AMBIGUOUS": 0,
+            },
+            "sourceParseIssues": [],
+            "targetParseIssues": [],
+            "analysisError": str(exc),
+        }
+    return {
+        "ok": True,
+        "model": model,
+        "source": s,
+        "target": t,
+        "semantic": semantic,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -5351,6 +5373,251 @@ def analyze_cml_logic(content):
     }
 
 
+_SEMANTIC_POSITION_FIELDS = {
+    "raw", "sourceRange", "line", "column", "start", "end",
+    "startLine", "endLine", "startColumn", "endColumn",
+    "parseDiagnosticCodes", "syntaxComplete", "malformed",
+}
+
+
+def _semantic_value(value):
+    """Canonical AST value without formatting or source-position metadata."""
+    if isinstance(value, dict):
+        return {
+            key: _semantic_value(item)
+            for key, item in sorted(value.items())
+            if key not in _SEMANTIC_POSITION_FIELDS
+        }
+    if isinstance(value, list):
+        return [_semantic_value(item) for item in value]
+    return value
+
+
+def _semantic_line_range(source_range):
+    if not isinstance(source_range, dict):
+        return None
+    start = source_range.get("start") or {}
+    end = source_range.get("end") or {}
+    start_line = max(1, int(start.get("line") or 1))
+    end_line = max(start_line, int(end.get("line") or start_line))
+    return {"startLine": start_line, "endLine": end_line}
+
+
+def _semantic_entity(identity, kind, name, scope, source_range, raw,
+                     properties):
+    return {
+        "identity": identity,
+        "kind": kind,
+        "name": name,
+        "scope": scope,
+        "range": _semantic_line_range(source_range),
+        "raw": raw or "",
+        "properties": _semantic_value(properties),
+    }
+
+
+def _semantic_index(content):
+    """Parse CML once and index named entities independently of line order."""
+    tokens, diagnostics = _tokenize_cml(content)
+    parser = _CmlParser(content, tokens, diagnostics)
+    declarations, types, logic, unknown = parser.parse()
+    entities = []
+
+    for declaration in declarations:
+        kind = declaration.get("kind")
+        name = declaration.get("name")
+        if kind == "type" or not name:
+            continue
+        entities.append(_semantic_entity(
+            f"{kind}:{name}", kind, name, "top-level",
+            declaration.get("sourceRange"), declaration.get("raw"), {
+                "dataType": declaration.get("dataType"),
+                "annotations": declaration.get("annotations") or [],
+                "value": declaration.get("value"),
+            }))
+
+    for type_record in types:
+        type_name = type_record.get("name")
+        if not type_name:
+            continue
+        entities.append(_semantic_entity(
+            f"type:{type_name}", "type", type_name, "top-level",
+            type_record.get("sourceRange"), type_record.get("raw"), {
+                "parent": type_record.get("parent"),
+                "annotations": type_record.get("annotations") or [],
+                "stub": bool(type_record.get("stub")),
+            }))
+        for variable in type_record.get("variables") or []:
+            name = variable.get("name")
+            if not name:
+                continue
+            entities.append(_semantic_entity(
+                f"variable:{type_name}:{name}", "variable", name, type_name,
+                variable.get("sourceRange"), variable.get("raw"), {
+                    "dataType": variable.get("dataType"),
+                    "annotations": variable.get("annotations") or [],
+                    "domain": variable.get("domain"),
+                }))
+        for relation in type_record.get("relations") or []:
+            name = relation.get("name")
+            if not name:
+                continue
+            entities.append(_semantic_entity(
+                f"relation:{type_name}:{name}", "relation", name, type_name,
+                relation.get("sourceRange"), relation.get("raw"), {
+                    "target": relation.get("target"),
+                    "cardinality": relation.get("cardinality"),
+                    "order": relation.get("order"),
+                    "body": relation.get("body"),
+                    "annotations": relation.get("annotations") or [],
+                }))
+
+    for record in logic:
+        kind = record.get("kind") or "logic"
+        scope = record.get("scope") or "top-level"
+        name = record.get("name")
+        properties = {
+            "annotations": record.get("annotations") or [],
+            "arguments": record.get("arguments") or [],
+            "condition": record.get("conditionAst"),
+        }
+        if name:
+            identity = f"logic:{scope}:{kind}:{name}"
+        else:
+            # Anonymous rules have no platform identity. An exact structural
+            # fingerprint safely recognizes moved/unchanged rules without
+            # guessing that two different rules are modifications.
+            fingerprint = hashlib.sha256(json.dumps(
+                _semantic_value(properties), sort_keys=True,
+                separators=(",", ":")).encode("utf-8")).hexdigest()[:16]
+            identity = f"logic:{scope}:{kind}:anonymous:{fingerprint}"
+        entities.append(_semantic_entity(
+            identity, kind, name, scope, record.get("sourceRange"),
+            record.get("raw"), properties))
+
+    issues = [{
+        "code": item.get("code"),
+        "severity": item.get("severity"),
+        "message": item.get("message"),
+        "line": item.get("line"),
+    } for item in diagnostics if item.get("severity") in ("error", "warning")]
+    return entities, issues, len(unknown)
+
+
+def _semantic_property_changes(source, target):
+    source_props = source.get("properties") or {}
+    target_props = target.get("properties") or {}
+    changes = []
+    for prop in sorted(set(source_props) | set(target_props)):
+        if source_props.get(prop) != target_props.get(prop):
+            changes.append({
+                "property": prop,
+                "source": source_props.get(prop),
+                "target": target_props.get(prop),
+            })
+    return changes
+
+
+def _semantic_result(status, source=None, target=None, changes=None,
+                     reason=None):
+    entity = source or target or {}
+    result = {
+        "kind": entity.get("kind"),
+        "identity": entity.get("identity"),
+        "name": entity.get("name"),
+        "scope": entity.get("scope"),
+        "status": status,
+        "sourceRange": source.get("range") if source else None,
+        "targetRange": target.get("range") if target else None,
+        "propertyChanges": changes or [],
+    }
+    if reason:
+        result["reason"] = reason
+    return result
+
+
+def compare_cml_semantics(source_content, target_content):
+    """Compare parsed CML entities by stable structural identity in O(n)."""
+    source_entities, source_issues, source_unknown = _semantic_index(
+        source_content or "")
+    target_entities, target_issues, target_unknown = _semantic_index(
+        target_content or "")
+    source_map, target_map = {}, {}
+    for entity in source_entities:
+        source_map.setdefault(entity["identity"], []).append(entity)
+    for entity in target_entities:
+        target_map.setdefault(entity["identity"], []).append(entity)
+
+    results = []
+    for identity in sorted(set(source_map) | set(target_map)):
+        source_group = source_map.get(identity, [])
+        target_group = target_map.get(identity, [])
+        if len(source_group) > 1 or len(target_group) > 1:
+            remaining_target = list(target_group)
+            unmatched_source = []
+            for source in source_group:
+                exact_index = next((
+                    index for index, target in enumerate(remaining_target)
+                    if source["properties"] == target["properties"]), None)
+                if exact_index is None:
+                    unmatched_source.append(source)
+                    continue
+                target = remaining_target.pop(exact_index)
+                moved = (
+                    (source.get("range") or {}).get("startLine")
+                    != (target.get("range") or {}).get("startLine"))
+                results.append(_semantic_result(
+                    "MOVED" if moved else "UNCHANGED", source, target))
+            if len(unmatched_source) == 1 and len(remaining_target) == 1:
+                source, target = unmatched_source[0], remaining_target[0]
+                results.append(_semantic_result(
+                    "MODIFIED", source, target,
+                    _semantic_property_changes(source, target)))
+            else:
+                for source in unmatched_source:
+                    results.append(_semantic_result(
+                        "AMBIGUOUS", source=source,
+                        reason="Duplicate semantic identity in source or target."))
+                for target in remaining_target:
+                    results.append(_semantic_result(
+                        "AMBIGUOUS", target=target,
+                        reason="Duplicate semantic identity in source or target."))
+            continue
+
+        source = source_group[0] if source_group else None
+        target = target_group[0] if target_group else None
+        if source is None:
+            results.append(_semantic_result("ADDED", target=target))
+        elif target is None:
+            results.append(_semantic_result("REMOVED", source=source))
+        else:
+            changes = _semantic_property_changes(source, target)
+            if changes:
+                results.append(_semantic_result(
+                    "MODIFIED", source, target, changes))
+            else:
+                moved = (
+                    (source.get("range") or {}).get("startLine")
+                    != (target.get("range") or {}).get("startLine"))
+                results.append(_semantic_result(
+                    "MOVED" if moved else "UNCHANGED", source, target))
+
+    counts = {
+        status: sum(item["status"] == status for item in results)
+        for status in (
+            "UNCHANGED", "MOVED", "ADDED", "REMOVED", "MODIFIED", "AMBIGUOUS")
+    }
+    return {
+        "schemaVersion": "1.0",
+        "entities": results,
+        "stats": counts,
+        "sourceParseIssues": source_issues,
+        "targetParseIssues": target_issues,
+        "sourceUnknownCount": source_unknown,
+        "targetUnknownCount": target_unknown,
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # silence default request logging
         pass
@@ -5482,6 +5749,11 @@ class Handler(BaseHTTPRequestHandler):
                     body.get("sourceOrg"), body.get("targetOrg"),
                     body.get("model"), body.get("sourceVersionId"),
                     body.get("targetVersionId")
+                ))
+            elif self.path == "/api/semantic/compare":
+                self._send(200, compare_cml_semantics(
+                    body.get("sourceContent") or "",
+                    body.get("targetContent") or ""
                 ))
             elif self.path == "/api/logic/analyze":
                 self._send(200, analyze_cml_logic(body.get("content")))
@@ -5631,7 +5903,7 @@ PAGE = r"""<!DOCTYPE html>
   :root {
     color-scheme: light;
     --bg:#f7f8fc; --panel:#ffffff; --gutter:#f0f3fa; --input-bg:#fbfcff;
-    --line:#dce2ef; --text:#172033; --muted:#667085; --gutter-text:#8490a6;
+    --line:#dce2ef; --text:#172033; --muted:#667085; --gutter-text:#8490a6; --comment:#9aa4b5;
     --accent:#3b82f6; --accent-strong:#06b6d4; --green:#22c55e; --red:#ef4444;
     --purple:#8b5cf6; --amber:#f59e0b; --teal:#06b6d4; --on-accent:#ffffff;
     --radius:18px;
@@ -5648,7 +5920,7 @@ PAGE = r"""<!DOCTYPE html>
   html[data-theme="dark"] {
     color-scheme: dark;
     --bg:#090e1a; --panel:#11182a; --gutter:#171f34; --input-bg:#0c1323;
-    --line:#303b57; --text:#f4f7ff; --muted:#b5bfd3; --gutter-text:#7f8ba5;
+    --line:#303b57; --text:#f4f7ff; --muted:#b5bfd3; --gutter-text:#7f8ba5; --comment:#929db2;
     --accent:#60a5fa; --accent-strong:#22d3ee; --green:#4ade80; --red:#f87171;
     --purple:#a78bfa; --amber:#fbbf24; --teal:#22d3ee;
     --ok-bg:color-mix(in srgb,var(--green) 13%,var(--panel)); --ok-text:#a7f3d0;
@@ -5820,6 +6092,8 @@ PAGE = r"""<!DOCTYPE html>
     box-shadow:0 8px 20px color-mix(in srgb,var(--green) 22%,transparent); }
   .btn-purple { background:linear-gradient(135deg,var(--purple),color-mix(in srgb,var(--purple) 75%,var(--text))); color:var(--on-accent);
     box-shadow:0 8px 20px color-mix(in srgb,var(--purple) 22%,transparent); }
+  .btn-danger { background:linear-gradient(135deg,var(--red),color-mix(in srgb,var(--red) 75%,var(--text))); color:var(--on-accent);
+    box-shadow:0 8px 20px color-mix(in srgb,var(--red) 22%,transparent); }
   .ghost { background:var(--panel); border:1px solid var(--line); color:var(--text);
     font-weight:650; border-radius:10px; padding:8px 14px; font-size:12px; cursor:pointer;
     transition:transform .14s,background .14s,border-color .14s,color .14s;
@@ -5832,12 +6106,21 @@ PAGE = r"""<!DOCTYPE html>
   .linklike:hover { background:color-mix(in srgb,var(--accent) 10%,transparent); }
   .linklike:disabled { opacity:.45; cursor:not-allowed; background:none; }
 
-  /* deploy group inline widget */
-  .deploy-group { display:inline-flex; align-items:center; gap:8px; padding:4px 4px 4px 12px;
-    border:1px solid var(--line); border-radius:12px; background:var(--gutter);
-    flex:1 1 620px; flex-wrap:wrap; max-width:100%; }
-  .deploy-group label { margin:0; text-transform:none; letter-spacing:0; font-size:12px; white-space:nowrap; }
-  .deploy-group select { width:auto; min-width:min(140px,100%); max-width:100%; padding:7px 10px; border-radius:9px; }
+  /* Desktop CML actions */
+  .cml-actions { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:18px;
+    align-items:stretch; margin-top:18px; }
+  .fetch-action-panel { display:flex; align-items:flex-start; }
+  .deploy-panel { display:grid; grid-template-columns:minmax(210px,.8fr) minmax(300px,1.35fr) max-content;
+    gap:14px; align-items:end; padding:14px; border:1px solid var(--line);
+    border-radius:16px; background:var(--gutter); min-width:0; }
+  .deploy-panel .field select { width:100% !important; min-height:44px; }
+  .deploy-action-stack { display:flex; flex-direction:column; align-items:stretch; gap:9px; }
+  .cml-main-action { min-width:176px; min-height:56px; padding:14px 26px; font-size:15px;
+    display:inline-flex; align-items:center; justify-content:center; gap:9px; }
+  .cml-main-action svg { width:19px; height:19px; flex:none; }
+  .restore-action { min-width:176px; min-height:52px; padding:12px 20px; font-size:14px;
+    display:inline-flex; align-items:center; justify-content:center; gap:9px; }
+  .restore-action svg { width:18px; height:18px; flex:none; }
 
   /* ── Status / conn ────────────────────────────────────────────── */
   .conn { display:none; margin:0 0 16px; padding:11px 16px; border-radius:12px; font-size:13px;
@@ -5860,17 +6143,29 @@ PAGE = r"""<!DOCTYPE html>
   .editor-head { display:flex; align-items:center; justify-content:space-between; gap:8px;
     padding:9px 13px; border-bottom:1px solid var(--line); background:var(--gutter); }
   .editor-head .ttl { font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
-  .editor-head .mini { display:flex; gap:6px; }
+  .editor-head .mini { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
   .editor-body { display:flex; align-items:stretch; min-width:0; background:var(--input-bg); }
-  .editor-line-numbers { flex:0 0 auto; min-width:3.5em; height:320px;
+  .editor-line-numbers { flex:0 0 auto; min-width:3.5em; height:640px;
     margin:0; padding:10px 10px; overflow:hidden; border-right:1px solid var(--line);
     background:var(--gutter); color:var(--gutter-text); text-align:right; user-select:none;
     pointer-events:none; white-space:pre; font-family:"JetBrains Mono","Fira Code",ui-monospace,
     "SF Mono",Menlo,Consolas,monospace; font-size:12.5px; line-height:1.5; }
-  .editor-wrap textarea { flex:1 1 auto; min-width:0; border:none; border-radius:0;
-    min-height:320px; margin:0; line-height:1.5; white-space:pre; overflow-wrap:normal;
-    overflow-x:auto; overflow-y:auto; }
+  .editor-code-pane { position:relative; flex:1 1 auto; min-width:0; height:640px;
+    background:var(--input-bg); }
+  .editor-highlight,.editor-wrap textarea { position:absolute; inset:0; width:100%; height:100%;
+    margin:0; padding:10px 13px; border:none; border-radius:0; font-size:12.5px;
+    line-height:1.5; tab-size:2; white-space:pre; overflow-wrap:normal;
+    font-family:"JetBrains Mono","Fira Code",ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+  .editor-highlight { z-index:0; overflow:hidden; pointer-events:none; color:var(--text);
+    background:var(--input-bg); }
+  .editor-highlight .cml-comment { color:var(--comment); }
+  .editor-wrap textarea { z-index:1; min-width:0; min-height:0; resize:none; overflow:auto;
+    background:transparent; color:transparent; -webkit-text-fill-color:transparent;
+    caret-color:var(--text); }
+  .editor-wrap textarea::placeholder { color:var(--muted); -webkit-text-fill-color:var(--muted); }
+  .editor-wrap textarea::selection { background:color-mix(in srgb,var(--accent) 28%,transparent); }
   .editor-wrap textarea:focus { border:none; box-shadow:none; }
+  .key-field-compact { flex:0 1 170px !important; width:170px; max-width:170px !important; }
 
   /* ── Diff view ────────────────────────────────────────────────── */
   .diff { margin-top:22px; display:none; }
@@ -5883,9 +6178,18 @@ PAGE = r"""<!DOCTYPE html>
   .lg-chg { background:var(--chg-bg); border:1px solid var(--chg-line); }
   .lg-del { background:var(--del-bg); border:1px solid var(--del-line); }
   .lg-ins { background:var(--ins-bg); border:1px solid var(--ins-line); }
-  .diff-panes { display:flex; gap:12px; align-items:stretch; }
+  .diff-panes { display:grid; grid-template-columns:minmax(0,1fr) 48px minmax(0,1fr);
+    gap:8px; align-items:stretch; }
   .pane { flex:1; min-width:0; border:1px solid var(--line); border-radius:16px; overflow:hidden; display:flex; flex-direction:column; }
-  .pane-title { padding:8px 12px; font-size:12px; font-weight:600; color:var(--muted); border-bottom:1px solid var(--line); background:var(--gutter); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pane-title { min-height:40px; padding:6px 10px; font-size:12px; font-weight:600; color:var(--muted);
+    border-bottom:1px solid var(--line); background:var(--gutter); white-space:nowrap;
+    overflow:hidden; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .pane-title-text { overflow:hidden; text-overflow:ellipsis; }
+  .pane-copy { display:inline-flex; align-items:center; gap:5px; flex:none; padding:4px 8px;
+    border:1px solid var(--line); border-radius:7px; background:var(--panel); color:var(--text);
+    font-size:11px; font-weight:700; cursor:pointer; }
+  .pane-copy:hover { border-color:var(--accent); color:var(--accent); background:var(--info-bg); }
+  .pane-copy svg { width:13px; height:13px; }
   .pane-scroll { overflow:auto; max-height:600px; }
   table.pane-table { border-collapse:collapse; width:100%; font-family:"JetBrains Mono","SF Mono",Menlo,Consolas,monospace; font-size:12.5px; }
   .pane-table td { padding:0 8px; vertical-align:top; white-space:pre; }
@@ -5896,26 +6200,45 @@ PAGE = r"""<!DOCTYPE html>
   .row-del .code { background:var(--del-bg); border-left-color:var(--del-line); }
   .row-ins .code { background:var(--ins-bg); border-left-color:var(--ins-line); }
   .row-filler td { background:repeating-linear-gradient(45deg,transparent,transparent 6px,rgba(128,128,128,.06) 6px,rgba(128,128,128,.06) 12px); }
-  .moved { color:var(--accent); font-style:italic; }
   .diff-panes.hide-eq tr.eqrow { display:none; }
   .diff-opts { font-size:12px; color:var(--muted); display:inline-flex; align-items:center; gap:6px; }
   .diff-opts input { width:auto; }
+  .merge-rail { min-width:0; border:1px solid var(--line); border-radius:12px; overflow:hidden;
+    background:var(--gutter); display:flex; flex-direction:column; }
+  .merge-rail .pane-title { padding-left:4px; padding-right:4px; text-align:center; }
+  .merge-scroll { overflow:hidden; max-height:600px; flex:1; }
+  table.merge-table { border-collapse:collapse; width:100%; font-family:"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+    font-size:12.5px; }
+  .merge-table td { height:18.75px; padding:0; text-align:center; vertical-align:top; white-space:nowrap; }
+  .merge-table tr:not(.eqrow) td { background:color-mix(in srgb,var(--accent) 5%,var(--gutter)); }
+  .merge-arrow { width:34px; height:18px; padding:0; border:1px solid var(--accent);
+    border-radius:6px; background:var(--panel); color:var(--accent); font-size:14px;
+    font-weight:850; line-height:16px; cursor:pointer; }
+  .merge-arrow:hover { background:var(--accent); color:var(--on-accent); transform:none; }
+  .merge-workflow { margin:0 0 12px; padding:10px 12px; border:1px solid var(--accent);
+    border-radius:12px; background:var(--info-bg); display:flex; align-items:center;
+    justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .merge-workflow-copy { color:var(--text); font-size:12px; }
+  .merge-workflow-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 
-  /* ── Semantic diff ────────────────────────────────────────────── */
-  .sem-diff { display:none; margin-top:12px; }
-  .sem-diff.show { display:block; }
-  .sem-sec { margin-bottom:14px; }
-  .sem-sec h4 { margin:0 0 6px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
-  .sem-block { border:1px solid var(--line); border-radius:12px; padding:8px 12px; margin-bottom:6px; font-size:13px; }
-  .sem-block .nm { font-weight:700; }
-  .sem-block .knd { font-size:11px; color:var(--muted); }
-  .sem-mem { font-family:"JetBrains Mono","SF Mono",Menlo,Consolas,monospace; font-size:12px; padding:3px 8px; border-radius:5px; margin:3px 0; white-space:pre-wrap; }
-  .sem-mem.add { background:var(--ins-bg); color:var(--ins-line); }
-  .sem-mem.del { background:var(--del-bg); color:var(--del-line); }
-  .sem-mem.chg { background:var(--chg-bg); color:var(--chg-line); }
-  .sem-mem .lab { font-weight:700; margin-right:6px; }
-  .sem-ok { padding:13px 16px; border-radius:12px; background:var(--ok-bg); color:var(--ok-text); font-size:13px; }
-  .sem-moved { font-size:12px; color:var(--muted); margin-top:6px; }
+  /* ── Semantic overlay (never replaces the two code panes) ───── */
+  .summary-stack { display:flex; flex-direction:column; gap:3px; min-width:0; }
+  .semantic-inline-summary { color:var(--muted); font-size:12px; }
+  .semantic-inline-summary strong { color:var(--text); }
+  .semantic-badge { display:inline-flex; align-items:center; margin:0 7px 0 1px;
+    padding:1px 6px; border-radius:999px; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    font-size:9px; font-weight:850; line-height:14px; letter-spacing:.035em; text-transform:uppercase;
+    vertical-align:1px; }
+  .semantic-badge.moved { background:var(--info-bg); color:var(--accent); border:1px solid var(--accent); }
+  .semantic-badge.modified { background:color-mix(in srgb,var(--amber) 13%,var(--panel)); color:var(--amber); border:1px solid var(--amber); }
+  .semantic-badge.added { background:var(--ins-bg); color:var(--ins-line); border:1px solid var(--ins-line); }
+  .semantic-badge.removed { background:var(--del-bg); color:var(--del-line); border:1px solid var(--del-line); }
+  .semantic-badge.ambiguous { background:var(--chg-bg); color:var(--purple); border:1px solid var(--purple); }
+  .pane-table tr.sem-moved .code { background:var(--info-bg); box-shadow:inset 4px 0 0 var(--accent); }
+  .pane-table tr.sem-modified .code { background:color-mix(in srgb,var(--amber) 11%,var(--panel)); box-shadow:inset 4px 0 0 var(--amber); }
+  .pane-table tr.sem-added .code { box-shadow:inset 4px 0 0 var(--ins-line); }
+  .pane-table tr.sem-removed .code { box-shadow:inset 4px 0 0 var(--del-line); }
+  .pane-table tr.sem-ambiguous .code { background:var(--chg-bg); box-shadow:inset 4px 0 0 var(--purple); }
 
   /* ── Lint / best-practices ────────────────────────────────────── */
   .lint { display:none; margin-top:16px; }
@@ -6102,7 +6425,8 @@ PAGE = r"""<!DOCTYPE html>
     .topbar { flex-direction:column; align-items:flex-start; gap:8px; }
     .top-actions { width:100%; justify-content:space-between; }
     .conn-strip { grid-template-columns:1fr; }
-    .diff-panes { flex-direction:column; }
+    .diff-panes { grid-template-columns:1fr; }
+    .merge-rail { display:none; }
     .tabs { width:100%; }
     .tab { flex:1; }
     .deploy-group { flex-wrap:wrap; }
@@ -6141,7 +6465,7 @@ PAGE = r"""<!DOCTYPE html>
       </button>
       <button class="side-nav" data-view="data">
         <span class="nav-icon"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span>
-        <span>Constraint Data</span>
+        <span>Constraint Data Deploy</span>
       </button>
       <button class="side-nav" data-view="logic">
         <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M8 4h8M8 20h8M12 4v5M12 15v5M5 9h14v6H5z"/></svg></span>
@@ -6200,7 +6524,7 @@ PAGE = r"""<!DOCTYPE html>
         <button class="tab active" data-view="fetch">Fetch &amp; Deploy</button>
         <button class="tab" data-view="compare">Compare</button>
         <button class="tab" data-view="lint">Best Practices</button>
-        <button class="tab" data-view="data">Constraint Data</button>
+        <button class="tab" data-view="data">Constraint Data Deploy</button>
         <button class="tab" data-view="logic">Logic Explorer</button>
       </div>
 
@@ -6253,28 +6577,48 @@ PAGE = r"""<!DOCTYPE html>
             <div class="editor-head">
               <span class="ttl">CML Content</span>
               <div class="mini">
+                <button class="ghost" id="lineCommentBtn" title="Toggle // on the selected line or lines (Cmd+/)">// Line comment</button>
+                <button class="ghost" id="blockCommentBtn" title="Wrap or unwrap the selection with /* and */">/* */ Block comment</button>
                 <button class="ghost" id="lintBtn" title="Scan against built-in best-practice rules">Check best practices</button>
                 <button class="ghost" id="copyBtn">Copy</button>
               </div>
             </div>
             <div class="editor-body">
               <pre class="editor-line-numbers" id="contentLineNumbers" aria-hidden="true">1</pre>
-              <textarea id="content" placeholder="Fetched CML appears here. You can also paste CML and Deploy it." spellcheck="false" wrap="off"></textarea>
+              <div class="editor-code-pane">
+                <pre class="editor-highlight" id="contentHighlight" aria-hidden="true"></pre>
+                <textarea id="content" placeholder="Fetched CML appears here. You can also paste CML and Deploy it." spellcheck="false" wrap="off"></textarea>
+              </div>
             </div>
           </div>
 
-          <div class="btn-row">
-            <button class="btn btn-primary" id="fetchBtn">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>Fetch CML
-            </button>
-            <span class="deploy-group">
-              <label for="deployOrg">Deploy to</label>
-              <select id="deployOrg"><option>Loading orgs…</option></select>
-              <label for="deployVersion">Target exact version</label>
-              <select id="deployVersion"><option value="">None — select deployment target</option></select>
-              <button class="btn btn-green" id="deployBtn">Deploy CML</button>
-              <button class="ghost" id="rollbackBtn" title="Restore the newest saved backup for this target and model">Restore backup</button>
-            </span>
+          <div class="cml-actions">
+            <div class="fetch-action-panel">
+              <button class="btn btn-primary cml-main-action" id="fetchBtn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                Fetch CML
+              </button>
+            </div>
+            <div class="deploy-panel">
+              <div class="field">
+                <label for="deployOrg">Deploy to org</label>
+                <select id="deployOrg"><option>Loading orgs…</option></select>
+              </div>
+              <div class="field">
+                <label for="deployVersion">Target exact CML version</label>
+                <select id="deployVersion"><option value="">None — select deployment target</option></select>
+              </div>
+              <div class="deploy-action-stack">
+                <button class="btn btn-green cml-main-action" id="deployBtn">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V3M7 8l5-5 5 5"/><path d="M5 21h14a2 2 0 0 0 2-2v-4M3 15v4a2 2 0 0 0 2 2"/></svg>
+                  Deploy CML
+                </button>
+                <button class="ghost restore-action" id="rollbackBtn" title="Restore the newest saved backup for this target and model">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+                  Restore Backup CML
+                </button>
+              </div>
+            </div>
           </div>
 
           <div class="lint" id="lint"></div>
@@ -6290,7 +6634,7 @@ PAGE = r"""<!DOCTYPE html>
               <span class="step-dot">2</span>
               <div>
                 <h2>Compare CML</h2>
-                <p>Fetch the selected CML from both orgs and show a synchronized line diff plus a structural semantic diff.</p>
+                <p>Review a VS Code-style side-by-side diff and apply selected source changes to a target draft.</p>
               </div>
             </div>
             <button class="btn btn-purple" id="compareBtn">
@@ -6300,7 +6644,10 @@ PAGE = r"""<!DOCTYPE html>
 
           <div class="diff" id="diff">
             <div class="diff-head">
-              <div class="summary" id="diffSummary"></div>
+              <div class="summary-stack">
+                <div class="summary" id="diffSummary"></div>
+                <div class="semantic-inline-summary" id="semanticInlineSummary" hidden></div>
+              </div>
               <div class="legend">
                 <span id="lineLegend">
                   <span><i class="lg-chg">~</i>Changed</span>
@@ -6308,20 +6655,36 @@ PAGE = r"""<!DOCTYPE html>
                   <span><i class="lg-ins">+</i>Only in target</span>
                 </span>
                 <label class="diff-opts" id="onlyDiffsWrap"><input type="checkbox" id="onlyDiffs" /> Show only differences</label>
-                <label class="diff-opts" title="Compare by structure (types, attributes, relations, constraints) ignoring order and formatting"><input type="checkbox" id="semanticDiff" /> Semantic</label>
+                <label class="diff-opts" title="Show a separate structural summary without hiding either code pane"><input type="checkbox" id="semanticDiff" /> Semantic summary</label>
+              </div>
+            </div>
+            <div class="merge-workflow" id="mergeWorkflow" hidden>
+              <div class="merge-workflow-copy" id="mergeWorkflowCopy"></div>
+              <div class="merge-workflow-actions">
+                <button class="ghost" id="resetMergeBtn">Reset target draft</button>
+                <button class="btn btn-green" id="reviewMergeBtn">Review &amp; Deploy merged target</button>
               </div>
             </div>
             <div class="diff-panes" id="diffPanes">
               <div class="pane">
-                <div class="pane-title" id="srcTitle">Source</div>
+                <div class="pane-title"><span class="pane-title-text" id="srcTitle">Source</span></div>
                 <div class="pane-scroll" id="srcScroll"><table class="pane-table" id="srcTable"></table></div>
               </div>
+              <div class="merge-rail" aria-label="Merge source changes into target draft">
+                <div class="pane-title" title="Apply a source change to the target draft">→</div>
+                <div class="merge-scroll" id="mergeScroll"><table class="merge-table" id="mergeTable"></table></div>
+              </div>
               <div class="pane">
-                <div class="pane-title" id="tgtTitle">Target</div>
+                <div class="pane-title">
+                  <span class="pane-title-text" id="tgtTitle">Target</span>
+                  <button type="button" class="pane-copy" id="copyTargetCmlBtn" title="Copy the complete target CML or current target draft">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"/></svg>
+                    <span>Copy</span>
+                  </button>
+                </div>
                 <div class="pane-scroll" id="tgtScroll"><table class="pane-table" id="tgtTable"></table></div>
               </div>
             </div>
-            <div class="sem-diff" id="semDiff"></div>
           </div>
 
           <div id="compareStatus" class="status" style="margin-top:14px;display:none;"></div>
@@ -6356,7 +6719,7 @@ PAGE = r"""<!DOCTYPE html>
             <div class="card-title">
               <span class="step-dot" style="background:linear-gradient(135deg,var(--teal),var(--accent-strong));">4</span>
               <div>
-                <h2>Constraint Data</h2>
+                <h2>Constraint Data Deploy</h2>
                 <p>View, compare, and deploy ExpressionSetConstraintObj rows (Product associations).</p>
               </div>
             </div>
@@ -6365,8 +6728,8 @@ PAGE = r"""<!DOCTYPE html>
           <p class="sub" style="margin:0 0 14px;">Deploying CML code alone doesn't recreate Product associations. These rows are matched across orgs by a <strong>foreign key</strong> — a field whose value is stable across orgs — instead of by record Id.</p>
           <p class="meta" style="margin:0 0 14px;"><strong>Safe deployment boundary:</strong> catalog records are read-only. The tool reports missing products, classifications, attributes, component groups, and relationships, but it only writes CML content and ExpressionSetConstraintObj associations.</p>
 
-          <div class="conn-strip" style="grid-template-columns:minmax(200px,340px) auto;gap:14px;align-items:end;margin-bottom:16px;">
-            <div class="field">
+          <div class="conn-strip" style="gap:14px;align-items:end;margin-bottom:16px;">
+            <div class="field key-field-compact">
               <label for="keyField">Match records by (foreign key field)</label>
               <input id="keyField" list="keyFieldOpts" value="Global_Key__c" spellcheck="false" autocomplete="off"
                      placeholder="Global_Key__c" title="API name of a field that identifies the same record across orgs" />
@@ -6383,6 +6746,7 @@ PAGE = r"""<!DOCTYPE html>
             <div class="btn-row" style="margin-top:0;gap:8px;">
               <button class="btn btn-primary" id="loadDataBtn">View data</button>
               <button class="btn btn-purple" id="compareDataBtn">Compare data</button>
+              <button class="btn btn-danger" id="stopCompareDataBtn" hidden>Stop Comparison</button>
             </div>
           </div>
 
@@ -6512,9 +6876,9 @@ PAGE = r"""<!DOCTYPE html>
   // ── Navigation ──────────────────────────────────────────────────
   const PAGE_META = {
     fetch:   { title:"Fetch &amp; Deploy",  sub:"Pick a source org — CMLs load automatically. Fetch, edit, and deploy to any org." },
-    compare: { title:"Compare",             sub:"Fetch the selected CML from both orgs and show a line diff plus semantic diff." },
+    compare: { title:"Compare",             sub:"Use a VS Code-style diff to review and merge source changes into a guarded target draft." },
     lint:    { title:"Best Practices",      sub:"Client-side CML linter — checks rules, scores quality, and provides paste-ready fixes." },
-    data:    { title:"Constraint Data",     sub:"View, compare, and deploy ExpressionSetConstraintObj rows (Product associations)." },
+    data:    { title:"Constraint Data Deploy", sub:"View, compare, and deploy ExpressionSetConstraintObj rows (Product associations)." },
     logic:   { title:"Logic Explorer",      sub:"Plain-English local logic explanation for the CML currently in the editor." },
   };
   function switchView(view) {
@@ -6532,20 +6896,26 @@ PAGE = r"""<!DOCTYPE html>
   });
 
   const orgSel = $("org"), targetSel = $("targetOrg"), targetVersionSel = $("targetVersion"), model = $("model"), content = $("content"), status = $("status");
-  const contentLineNumbers = $("contentLineNumbers");
+  const contentLineNumbers = $("contentLineNumbers"), contentHighlight = $("contentHighlight");
   const fetchBtn = $("fetchBtn"), deployBtn = $("deployBtn"), rollbackBtn = $("rollbackBtn"), compareBtn = $("compareBtn"), copyBtn = $("copyBtn");
+  const lineCommentBtn = $("lineCommentBtn"), blockCommentBtn = $("blockCommentBtn");
   const cmlFilter = $("cmlFilter"), reloadBtn = $("reloadBtn"), cmlCount = $("cmlCount");
   const combo = $("combo"), comboSelected = $("comboSelected"), selectedName = $("selectedName"), changeModelBtn = $("changeModelBtn");
   const deployOrgSel = $("deployOrg"), deployVersionSel = $("deployVersion");
   const themeBtn = $("themeBtn"), conn = $("conn");
   const diffBox = $("diff"), diffSummary = $("diffSummary"), onlyDiffs = $("onlyDiffs");
-  const diffPanes = $("diffPanes"), srcTable = $("srcTable"), tgtTable = $("tgtTable");
-  const srcTitle = $("srcTitle"), tgtTitle = $("tgtTitle"), srcScroll = $("srcScroll"), tgtScroll = $("tgtScroll");
+  const diffPanes = $("diffPanes"), srcTable = $("srcTable"), tgtTable = $("tgtTable"), mergeTable = $("mergeTable");
+  const srcTitle = $("srcTitle"), tgtTitle = $("tgtTitle"), srcScroll = $("srcScroll"), tgtScroll = $("tgtScroll"), mergeScroll = $("mergeScroll");
   const lintBtn = $("lintBtn"), lintBox = $("lint");
   const lintPanelBtn = $("lintPanelBtn"), lintPanel = $("lintPanel"), lintStatus = $("lintStatus");
-  const semanticChk = $("semanticDiff"), semDiff = $("semDiff"), lineLegend = $("lineLegend"), onlyDiffsWrap = $("onlyDiffsWrap");
+  const semanticChk = $("semanticDiff"), semanticInlineSummary = $("semanticInlineSummary");
+  const lineLegend = $("lineLegend"), onlyDiffsWrap = $("onlyDiffsWrap");
+  const mergeWorkflow = $("mergeWorkflow"), mergeWorkflowCopy = $("mergeWorkflowCopy");
+  const resetMergeBtn = $("resetMergeBtn"), reviewMergeBtn = $("reviewMergeBtn");
+  const copyTargetCmlBtn = $("copyTargetCmlBtn");
   let lastCompare = null;
-  const loadDataBtn = $("loadDataBtn"), compareDataBtn = $("compareDataBtn"), keyField = $("keyField");
+  let activeMergeHunks = [];
+  const loadDataBtn = $("loadDataBtn"), compareDataBtn = $("compareDataBtn"), stopCompareDataBtn = $("stopCompareDataBtn"), keyField = $("keyField");
   const keyName = () => (keyField.value || "Global_Key__c").trim();
   const dataBox = $("data"), dataChips = $("dataChips"), dataTable = $("dataTable"), dataFilter = $("dataFilter");
   const deployBar = $("deployBar"), selSummary = $("selSummary"), deployDataBtn = $("deployDataBtn");
@@ -6567,6 +6937,7 @@ PAGE = r"""<!DOCTYPE html>
   let currentKeyField = "Global_Key__c";  // foreign key the shown data was matched on
   let logicAnalysis = null;
   let selectedLogicId = null;
+  let dataCompareController = null;
   const selectedSourceVersion = () => allModels.find(m => m.versionId === model.value) || null;
   const selectedModelName = () => (selectedSourceVersion() || {}).name || "";
   const selectedVersionLabel = (m) => m
@@ -6649,10 +7020,51 @@ PAGE = r"""<!DOCTYPE html>
   };
 
   // ---- CML editor line-number gutter ----
+  function editorEsc(value) {
+    return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  function renderEditorHighlight() {
+    const source = content.value || "";
+    let rendered = "", index = 0;
+    while (index < source.length) {
+      const quote = source[index];
+      if (quote === '"' || quote === "'") {
+        let end = index + 1;
+        while (end < source.length) {
+          if (source[end] === "\\\\") { end += 2; continue; }
+          if (source[end] === quote) { end += 1; break; }
+          end += 1;
+        }
+        rendered += editorEsc(source.slice(index, end));
+        index = end;
+        continue;
+      }
+      if (source.startsWith("//", index)) {
+        let end = source.indexOf("\n", index);
+        if (end < 0) end = source.length;
+        rendered += `<span class="cml-comment">${editorEsc(source.slice(index, end))}</span>`;
+        index = end;
+        continue;
+      }
+      if (source.startsWith("/*", index)) {
+        const close = source.indexOf("*/", index + 2);
+        const end = close < 0 ? source.length : close + 2;
+        rendered += `<span class="cml-comment">${editorEsc(source.slice(index, end))}</span>`;
+        index = end;
+        continue;
+      }
+      rendered += editorEsc(source[index]);
+      index += 1;
+    }
+    contentHighlight.innerHTML = rendered + (source.endsWith("\n") ? " " : "\n");
+    contentHighlight.scrollTop = content.scrollTop;
+    contentHighlight.scrollLeft = content.scrollLeft;
+  }
   function updateEditorLineNumbers() {
     const lineCount = Math.max(1, content.value.replace(/\r\n?/g, "\n").split("\n").length);
     contentLineNumbers.textContent = Array.from({ length: lineCount }, (_, index) => index + 1).join("\n");
     contentLineNumbers.scrollTop = content.scrollTop;
+    renderEditorHighlight();
   }
   function setEditorContent(value) {
     content.value = value == null ? "" : String(value);
@@ -6660,6 +7072,8 @@ PAGE = r"""<!DOCTYPE html>
   }
   function syncEditorGutter() {
     contentLineNumbers.scrollTop = content.scrollTop;
+    contentHighlight.scrollTop = content.scrollTop;
+    contentHighlight.scrollLeft = content.scrollLeft;
   }
   function syncEditorGutterSize() {
     contentLineNumbers.style.height = content.offsetHeight + "px";
@@ -6675,6 +7089,57 @@ PAGE = r"""<!DOCTYPE html>
   }
   content.addEventListener("input", updateEditorLineNumbers);
   content.addEventListener("scroll", syncEditorGutter, { passive: true });
+  function replaceEditorRange(start, end, replacement, selectionStart, selectionEnd) {
+    content.setRangeText(replacement, start, end, "select");
+    content.setSelectionRange(selectionStart, selectionEnd);
+    content.dispatchEvent(new Event("input", { bubbles:true }));
+    content.focus();
+  }
+  function toggleLineComment() {
+    const value = content.value;
+    const selectionStart = content.selectionStart;
+    const selectionEnd = content.selectionEnd;
+    const lineStart = value.lastIndexOf("\n", Math.max(0, selectionStart - 1)) + 1;
+    const effectiveEnd = selectionEnd > selectionStart && value[selectionEnd - 1] === "\n"
+      ? selectionEnd - 1 : selectionEnd;
+    const nextBreak = value.indexOf("\n", effectiveEnd);
+    const lineEnd = nextBreak < 0 ? value.length : nextBreak;
+    const original = value.slice(lineStart, lineEnd);
+    const lines = original.split("\n");
+    const nonBlank = lines.filter(line => line.trim().length);
+    const uncomment = nonBlank.length > 0 && nonBlank.every(line => /^\s*\/\//.test(line));
+    const changed = lines.map(line => {
+      if (uncomment) return line.replace(/^(\s*)\/\/ ?/, "$1");
+      const indent = (line.match(/^\s*/) || [""])[0];
+      return indent + "// " + line.slice(indent.length);
+    }).join("\n");
+    replaceEditorRange(lineStart, lineEnd, changed, lineStart, lineStart + changed.length);
+  }
+  function toggleBlockComment() {
+    let start = content.selectionStart, end = content.selectionEnd;
+    if (start === end) {
+      start = content.value.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
+      const nextBreak = content.value.indexOf("\n", end);
+      end = nextBreak < 0 ? content.value.length : nextBreak;
+    }
+    const selected = content.value.slice(start, end);
+    const leading = selected.match(/^\s*/)?.[0] || "";
+    const trailing = selected.match(/\s*$/)?.[0] || "";
+    const core = selected.slice(leading.length, selected.length - trailing.length);
+    const isCommented = core.startsWith("/*") && core.endsWith("*/");
+    const replacement = isCommented
+      ? leading + core.slice(2, -2).replace(/^ /, "").replace(/ $/, "") + trailing
+      : leading + "/* " + core + " */" + trailing;
+    replaceEditorRange(start, end, replacement, start, start + replacement.length);
+  }
+  lineCommentBtn.onclick = toggleLineComment;
+  blockCommentBtn.onclick = toggleBlockComment;
+  content.addEventListener("keydown", event => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "/") {
+      event.preventDefault();
+      toggleLineComment();
+    }
+  });
   updateEditorLineNumbers();
   syncEditorGutterSize();
   if (typeof ResizeObserver === "function") {
@@ -6716,16 +7181,20 @@ PAGE = r"""<!DOCTYPE html>
     catch (e) { return { error: "Unexpected server response (HTTP " + res.status + "):\n" + text.slice(0, 500) }; }
   }
 
-  async function postJSON(url, payload) {
+  async function postJSON(url, payload, options = {}) {
     let res;
     try {
       res = await fetch(url, {
         method: "POST", headers: {
           "Content-Type": "application/json", "X-CML-CSRF": CSRF_TOKEN
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: options.signal
       });
-    } catch (e) { throw { conn: true }; }
+    } catch (e) {
+      if (e && e.name === "AbortError") throw { aborted: true };
+      throw { conn: true };
+    }
     const text = await res.text();
     try { return JSON.parse(text); }
     catch (e) { return { ok: false, log: "Server returned an unexpected response (HTTP " + res.status + "):\n" + text.slice(0, 500) }; }
@@ -6760,9 +7229,9 @@ PAGE = r"""<!DOCTYPE html>
     actionBtns.forEach(b => b.disabled = true);
   }
   function idle() {
-    fetchBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>Fetch CML';
-    deployBtn.textContent = "Deploy CML";
-    rollbackBtn.textContent = "Restore backup";
+    fetchBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>Fetch CML';
+    deployBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V3M7 8l5-5 5 5"/><path d="M5 21h14a2 2 0 0 0 2-2v-4M3 15v4a2 2 0 0 0 2 2"/></svg>Deploy CML';
+    rollbackBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>Restore Backup CML';
     compareBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M10 8l-3 4 3 4M14 8l3 4-3 4"/></svg>Compare source ↔ target';
     loadDataBtn.textContent = "View data";
     compareDataBtn.textContent = "Compare data";
@@ -7040,7 +7509,13 @@ PAGE = r"""<!DOCTYPE html>
         targetVersionId: targetVersionSel.value
       });
       if (d.ok) {
-        lastCompare = { src: d.source, tgt: d.target };
+        lastCompare = {
+          src: d.source,
+          tgt: { ...d.target },
+          originalTargetContent: d.target.content || "",
+          mergeCount: 0,
+          semantic: d.semantic || null
+        };
         renderCompare();
         setStatus("ok", `Compared "${d.model}".\nSource: ${d.source.file}\nTarget: ${d.target.file}`, cmpStatus);
       } else {
@@ -7308,84 +7783,134 @@ PAGE = r"""<!DOCTYPE html>
     return ops;
   }
 
-  function mapLines(arr) {
-    const map = new Map();
-    arr.forEach((line, idx) => {
-      const key = line.trim();
-      if (!key) return;
-      if (!map.has(line)) map.set(line, []);
-      map.get(line).push(idx + 1);
-    });
-    return map;
-  }
-
   // A row rendered into a pane table. `marker` is a glyph cue (+ - ~) so the
   // diff is readable without relying on color (colorblind-friendly).
-  function paneRow(rowType, num, codeHtml, marker) {
-    const cls = rowType === "eq" ? "eqrow"
+  function semanticLineMaps() {
+    const source = new Map(), target = new Map();
+    if (!semanticChk.checked || !lastCompare || !lastCompare.semantic) return { source, target };
+    const priority = { AMBIGUOUS:5, MODIFIED:4, MOVED:3, REMOVED:2, ADDED:2 };
+    const add = (map, range, entity) => {
+      if (!range || entity.status === "UNCHANGED") return;
+      for (let line = range.startLine; line <= range.endLine; line++) {
+        const mark = map.get(line) || { statuses:[], badges:[] };
+        if (!mark.statuses.includes(entity.status)) mark.statuses.push(entity.status);
+        if (line === range.startLine) mark.badges.push(entity);
+        mark.statuses.sort((a, b) => (priority[b] || 0) - (priority[a] || 0));
+        map.set(line, mark);
+      }
+    };
+    (lastCompare.semantic.entities || []).forEach(entity => {
+      add(source, entity.sourceRange, entity);
+      add(target, entity.targetRange, entity);
+    });
+    return { source, target };
+  }
+
+  function semanticTooltip(entity) {
+    const changes = (entity.propertyChanges || []).map(change => change.property);
+    return `${entity.identity || entity.name || entity.kind}: ${entity.status}`
+      + (changes.length ? ` · changed ${changes.join(", ")}` : "")
+      + (entity.reason ? ` · ${entity.reason}` : "");
+  }
+
+  function semanticDecoration(mark) {
+    if (!mark) return { className:"", badges:"" };
+    const status = (mark.statuses[0] || "").toLowerCase();
+    const badges = mark.badges.map(entity =>
+      `<span class="semantic-badge ${entity.status.toLowerCase()}" title="${esc(semanticTooltip(entity)).replace(/"/g, "&quot;")}">${esc(entity.status)}</span>`
+    ).join("");
+    return { className: status ? ` sem-${status}` : "", badges };
+  }
+
+  function paneRow(rowType, num, codeHtml, marker, semanticMark) {
+    const baseClass = rowType === "eq" ? "eqrow"
       : rowType === "chg" ? "row-chg"
       : rowType === "del" ? "row-del"
       : rowType === "ins" ? "row-ins" : "row-filler";
     if (rowType === "filler") {
       return `<tr class="row-filler"><td class="gutter">&nbsp;</td><td class="code">&nbsp;</td></tr>`;
     }
+    const semantic = semanticDecoration(semanticMark);
     const mk = `<span class="mk">${marker}</span>`;
-    return `<tr class="${cls}"><td class="gutter">${num}</td><td class="code">${mk}${codeHtml}</td></tr>`;
+    return `<tr class="${baseClass}${semantic.className}"><td class="gutter">${num}</td><td class="code">${mk}${semantic.badges}${codeHtml}</td></tr>`;
+  }
+
+  function mergeRailRow(row) {
+    if (row.type === "eq") return '<tr class="eqrow"><td>&nbsp;</td></tr>';
+    const button = row.mergeLead
+      ? `<button type="button" class="merge-arrow" data-merge-hunk="${row.mergeId}" title="Apply this source change to the target draft" aria-label="Apply source change to target draft">→</button>`
+      : "&nbsp;";
+    return `<tr><td>${button}</td></tr>`;
+  }
+
+  function updateMergeWorkflow() {
+    const count = lastCompare ? lastCompare.mergeCount || 0 : 0;
+    mergeWorkflow.hidden = count === 0;
+    if (!count) return;
+    mergeWorkflowCopy.textContent = `${count} source change${count === 1 ? "" : "s"} applied to the target working draft. Salesforce has not been changed yet.`;
   }
 
   function renderDiff(src, tgt) {
     const a = (src.content || "").replace(/\r\n/g, "\n").split("\n");
     const b = (tgt.content || "").replace(/\r\n/g, "\n").split("\n");
     const ops = diffOps(a, b);
-    const srcMap = mapLines(a), tgtMap = mapLines(b);
+    const semanticMaps = semanticLineMaps();
+    activeMergeHunks = [];
 
     // Pair runs of del/ins into aligned "changed" rows.
     const rows = []; let pendDel = [], pendIns = [];
-    const flush = () => {
+    const flush = (nextTargetLine) => {
+      if (!pendDel.length && !pendIns.length) return;
+      const mergeId = activeMergeHunks.length;
+      activeMergeHunks.push({
+        targetStart: pendIns.length ? pendIns[0] : nextTargetLine,
+        targetDeleteCount: pendIns.length,
+        sourceLines: pendDel.map(index => a[index])
+      });
       const k = Math.max(pendDel.length, pendIns.length);
       for (let x = 0; x < k; x++) {
         const d = pendDel[x], ins = pendIns[x];
-        if (d != null && ins != null) rows.push({ type: "chg", a: d, b: ins });
-        else if (d != null) rows.push({ type: "del", a: d });
-        else rows.push({ type: "ins", b: ins });
+        const merge = { mergeId, mergeLead: x === 0 };
+        if (d != null && ins != null) rows.push({ type: "chg", a: d, b: ins, ...merge });
+        else if (d != null) rows.push({ type: "del", a: d, ...merge });
+        else rows.push({ type: "ins", b: ins, ...merge });
       }
       pendDel = []; pendIns = [];
     };
     for (const op of ops) {
-      if (op.t === "eq") { flush(); rows.push({ type: "eq", a: op.a, b: op.b }); }
+      if (op.t === "eq") { flush(op.b); rows.push({ type: "eq", a: op.a, b: op.b }); }
       else if (op.t === "del") pendDel.push(op.a);
       else pendIns.push(op.b);
     }
-    flush();
+    flush(b.length);
 
-    let chg = 0, del = 0, ins = 0, left = "", right = "";
+    let chg = 0, del = 0, ins = 0, left = "", middle = "", right = "";
     for (const r of rows) {
+      middle += mergeRailRow(r);
       if (r.type === "eq") {
-        left += paneRow("eq", r.a + 1, esc(a[r.a]), " ");
-        right += paneRow("eq", r.b + 1, esc(b[r.b]), " ");
+        left += paneRow("eq", r.a + 1, esc(a[r.a]), " ", semanticMaps.source.get(r.a + 1));
+        right += paneRow("eq", r.b + 1, esc(b[r.b]), " ", semanticMaps.target.get(r.b + 1));
       } else if (r.type === "chg") {
         chg++;
-        left += paneRow("chg", r.a + 1, esc(a[r.a]), "~");
-        right += paneRow("chg", r.b + 1, esc(b[r.b]), "~");
+        left += paneRow("chg", r.a + 1, esc(a[r.a]), "~", semanticMaps.source.get(r.a + 1));
+        right += paneRow("chg", r.b + 1, esc(b[r.b]), "~", semanticMaps.target.get(r.b + 1));
       } else if (r.type === "del") {
         del++;
-        const where = tgtMap.get(a[r.a]);
-        const note = where ? `  <span class="moved">↦ also in target at L${where.join(", ")}</span>` : "";
-        left += paneRow("del", r.a + 1, esc(a[r.a]) + note, "−");
+        left += paneRow("del", r.a + 1, esc(a[r.a]), "−", semanticMaps.source.get(r.a + 1));
         right += paneRow("filler");
       } else {
         ins++;
-        const where = srcMap.get(b[r.b]);
-        const note = where ? `  <span class="moved">↤ also in source at L${where.join(", ")}</span>` : "";
         left += paneRow("filler");
-        right += paneRow("ins", r.b + 1, esc(b[r.b]) + note, "+");
+        right += paneRow("ins", r.b + 1, esc(b[r.b]), "+", semanticMaps.target.get(r.b + 1));
       }
     }
     srcTable.innerHTML = "<tbody>" + left + "</tbody>";
+    mergeTable.innerHTML = "<tbody>" + middle + "</tbody>";
     tgtTable.innerHTML = "<tbody>" + right + "</tbody>";
     srcTitle.textContent = "Source — " + src.org;
-    tgtTitle.textContent = "Target — " + tgt.org;
+    tgtTitle.textContent = (lastCompare && lastCompare.mergeCount ? "Target draft — " : "Target — ") + tgt.org;
     diffPanes.classList.toggle("hide-eq", onlyDiffs.checked);
+    updateMergeWorkflow();
 
     if (chg + del + ins === 0) {
       diffSummary.textContent = `Identical — "${selectedModelName()}" matches exactly (${a.length} lines).`;
@@ -7399,17 +7924,88 @@ PAGE = r"""<!DOCTYPE html>
   // Keep the two panes vertically aligned while allowing independent
   // horizontal scrolling of long lines.
   let syncing = false;
-  function syncScroll(from, to) {
+  function syncScroll(from) {
     from.addEventListener("scroll", () => {
-      if (syncing) { syncing = false; return; }
+      if (syncing) return;
       syncing = true;
-      to.scrollTop = from.scrollTop;
+      [srcScroll, mergeScroll, tgtScroll].forEach(pane => {
+        if (pane !== from) pane.scrollTop = from.scrollTop;
+      });
+      requestAnimationFrame(() => { syncing = false; });
     });
   }
-  syncScroll(srcScroll, tgtScroll);
-  syncScroll(tgtScroll, srcScroll);
+  syncScroll(srcScroll);
+  syncScroll(mergeScroll);
+  syncScroll(tgtScroll);
 
   onlyDiffs.onchange = () => diffPanes.classList.toggle("hide-eq", onlyDiffs.checked);
+  mergeTable.onclick = async event => {
+    const button = event.target.closest("[data-merge-hunk]");
+    if (!button || !lastCompare) return;
+    const hunk = activeMergeHunks[Number(button.dataset.mergeHunk)];
+    if (!hunk) return;
+    const targetLines = (lastCompare.tgt.content || "").replace(/\r\n/g, "\n").split("\n");
+    targetLines.splice(hunk.targetStart, hunk.targetDeleteCount, ...hunk.sourceLines);
+    lastCompare.tgt.content = targetLines.join("\n");
+    lastCompare.mergeCount = (lastCompare.mergeCount || 0) + 1;
+    lastCompare.semantic = null;
+    renderCompare();
+    try {
+      lastCompare.semantic = await postJSON("/api/semantic/compare", {
+        sourceContent: lastCompare.src.content || "",
+        targetContent: lastCompare.tgt.content || ""
+      });
+      renderCompare();
+    } catch (e) {
+      if (e && e.conn) handleDisconnect();
+    }
+  };
+  resetMergeBtn.onclick = () => {
+    if (!lastCompare) return;
+    lastCompare.tgt.content = lastCompare.originalTargetContent;
+    lastCompare.mergeCount = 0;
+    lastCompare.semantic = null;
+    renderCompare();
+    postJSON("/api/semantic/compare", {
+      sourceContent: lastCompare.src.content || "",
+      targetContent: lastCompare.tgt.content || ""
+    }).then(data => {
+      if (!lastCompare) return;
+      lastCompare.semantic = data;
+      renderCompare();
+    }).catch(e => { if (e && e.conn) handleDisconnect(); });
+    setStatus("info", "Target draft reset to the version fetched from Salesforce. No org data was changed.", cmpStatus);
+  };
+  reviewMergeBtn.onclick = async () => {
+    if (!lastCompare || !lastCompare.mergeCount) return;
+    setEditorContent(lastCompare.tgt.content);
+    deployOrgSel.value = targetSel.value;
+    await loadTargetVersions(deployOrgSel, deployVersionSel, "deployment");
+    deployVersionSel.value = targetVersionSel.value;
+    fitPicklist(deployOrgSel);
+    fitPicklist(deployVersionSel);
+    switchView("fetch");
+    setStatus("info", `Merged target draft loaded for review.\nDeployment target: ${targetSel.value} · exact version ${targetVersionSel.value}.\nReview the CML, then use Deploy CML. The normal backup, confirmation, and verification safeguards still apply.`);
+  };
+  copyTargetCmlBtn.onclick = async () => {
+    if (!lastCompare) return;
+    const value = lastCompare.tgt.content || "";
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch (e) {
+      const helper = document.createElement("textarea");
+      helper.value = value;
+      helper.style.position = "fixed";
+      helper.style.opacity = "0";
+      document.body.appendChild(helper);
+      helper.select();
+      document.execCommand("copy");
+      helper.remove();
+    }
+    const label = copyTargetCmlBtn.querySelector("span");
+    if (label) label.textContent = "Copied";
+    setTimeout(() => { if (label) label.textContent = "Copy"; }, 1300);
+  };
 
   // ========================================================================
   //  CML analysis — semantic diff + best-practices linter (all client-side)
@@ -7599,58 +8195,33 @@ PAGE = r"""<!DOCTYPE html>
     return { added, removed, changed };
   }
 
-  function renderSemantic(src, tgt) {
-    const d = semanticDiff(src.content || "", tgt.content || "");
-    const total = d.added.length + d.removed.length + d.changed.length;
-    srcTitle.textContent = "Source — " + src.org;
-    tgtTitle.textContent = "Target — " + tgt.org;
-    if (total === 0) {
-      diffSummary.textContent = `Semantically identical${d.reordered ? " (only ordering/formatting differs)" : ""}.`;
-    } else {
-      diffSummary.textContent = `${d.changed.length} changed · ${d.removed.length} only in source · ${d.added.length} only in target · ${d.same} unchanged`;
+  function renderSemanticSummary() {
+    const semantic = lastCompare && lastCompare.semantic;
+    semanticInlineSummary.hidden = !semanticChk.checked;
+    if (!semanticChk.checked) return;
+    if (!semantic) {
+      semanticInlineSummary.textContent = "Semantic: refreshing the target draft analysis…";
+      return;
     }
-    let html = "";
-    if (total === 0) {
-      html += `<div class="sem-ok">No structural differences. The two models define the same types, attributes, relations and constraints` + (d.reordered ? `, just in a different order or formatting.` : `.`) + `</div>`;
+    if (semantic.analysisError) {
+      semanticInlineSummary.innerHTML = `<strong>Semantic:</strong> unavailable — ${esc(semantic.analysisError)}`;
+      return;
     }
-    const blockLine = (u) => `<div class="sem-block"><span class="nm">${esc(u.name || "(anonymous)")}</span> <span class="knd">${esc(u.kind)}</span></div>`;
-    if (d.removed.length) html += `<div class="sem-sec"><h4>Only in source (${src.org})</h4>` + d.removed.map(blockLine).join("") + `</div>`;
-    if (d.added.length) html += `<div class="sem-sec"><h4>Only in target (${tgt.org})</h4>` + d.added.map(blockLine).join("") + `</div>`;
-    if (d.changed.length) {
-      html += `<div class="sem-sec"><h4>Changed</h4>`;
-      for (const c of d.changed) {
-        html += `<div class="sem-block"><div><span class="nm">${esc(c.name)}</span> <span class="knd">${esc(c.kind)}</span></div>`;
-        if (c.whole) {
-          html += `<div class="sem-mem del"><span class="lab">src</span>${esc(c.whole.src)}</div>`;
-          html += `<div class="sem-mem add"><span class="lab">tgt</span>${esc(c.whole.tgt)}</div>`;
-        } else if (c.members) {
-          const m = c.members;
-          m.changed.forEach(x => {
-            html += `<div class="sem-mem chg"><span class="lab">−</span>${esc(x.src)}</div>`;
-            html += `<div class="sem-mem chg"><span class="lab">+</span>${esc(x.tgt)}</div>`;
-          });
-          m.removed.forEach(x => { html += `<div class="sem-mem del"><span class="lab">−</span>${esc(x)}</div>`; });
-          m.added.forEach(x => { html += `<div class="sem-mem add"><span class="lab">+</span>${esc(x)}</div>`; });
-          if (!m.changed.length && !m.removed.length && !m.added.length) html += `<div class="knd">Members match; difference is in the type header or formatting.</div>`;
-        }
-        html += `</div>`;
-      }
-      html += `</div>`;
-    }
-    if (d.reordered && total > 0) html += `<div class="sem-moved">Note: some identical blocks appear in a different order between the two orgs (no semantic change).</div>`;
-    semDiff.innerHTML = html;
+    const s = semantic.stats || {};
+    const parseIssues = (semantic.sourceParseIssues || []).length
+      + (semantic.targetParseIssues || []).length;
+    semanticInlineSummary.innerHTML = "<strong>Semantic:</strong> "
+      + `${s.ADDED || 0} added · ${s.REMOVED || 0} removed · ${s.MODIFIED || 0} modified · `
+      + `${s.MOVED || 0} moved · ${s.UNCHANGED || 0} unchanged`
+      + (s.AMBIGUOUS ? ` · ${s.AMBIGUOUS} ambiguous` : "")
+      + (parseIssues ? ` · ${parseIssues} parser warning${parseIssues === 1 ? "" : "s"}` : "");
   }
 
-  // Toggle between line diff and semantic diff and (re)render the last comparison.
+  // Semantic analysis is an overlay: it never replaces or hides the code panes.
   function renderCompare() {
-    const sem = semanticChk.checked;
-    diffPanes.style.display = sem ? "none" : "";
-    semDiff.classList.toggle("show", sem);
-    lineLegend.style.display = sem ? "none" : "";
-    onlyDiffsWrap.style.display = sem ? "none" : "";
     if (!lastCompare) return;
-    if (sem) renderSemantic(lastCompare.src, lastCompare.tgt);
-    else renderDiff(lastCompare.src, lastCompare.tgt);
+    renderDiff(lastCompare.src, lastCompare.tgt);
+    renderSemanticSummary();
     diffBox.classList.add("show");
   }
   semanticChk.onchange = renderCompare;
@@ -8161,14 +8732,17 @@ PAGE = r"""<!DOCTYPE html>
     const source = selectedSourceVersion();
     if (!source) { setStatus("err", "Please select an exact source CML version.", dSt()); model.focus(); return; }
     if (!targetVersionSel.value) { setStatus("err", "Please select an exact compare target version.", dSt()); targetVersionSel.focus(); return; }
+    dataCompareController = new AbortController();
     busy(compareDataBtn, "Comparing…");
+    stopCompareDataBtn.hidden = false;
+    stopCompareDataBtn.disabled = false;
     setStatus("info", `Comparing ExpressionSet-scoped constraint data for "${source.name}" between exact versions ${source.versionId} and ${targetVersionSel.value}…\nThis reads both orgs and can take up to a minute — please wait.`, dSt());
     try {
       const data = await postJSON("/api/data/compare", {
         sourceOrg: orgSel.value, targetOrg: targetSel.value,
         model: source.name, sourceVersionId: source.versionId,
         targetVersionId: targetVersionSel.value, keyField: keyName()
-      });
+      }, { signal: dataCompareController.signal });
       if (data.ok) {
         dataMode = "compare";
         currentKeyField = data.keyField || keyName();
@@ -8208,9 +8782,22 @@ PAGE = r"""<!DOCTYPE html>
         setStatus("err", data.log || "Compare failed.", dSt());
       }
     } catch (e) {
-      if (e && e.conn) { handleDisconnect(); } else { setStatus("err", "Data compare error: " + e, dSt()); }
+      if (e && e.aborted) {
+        setStatus("info", "Constraint data comparison stopped. No comparison results were changed.", dSt());
+      } else if (e && e.conn) {
+        handleDisconnect();
+      } else {
+        setStatus("err", "Data compare error: " + e, dSt());
+      }
     }
+    dataCompareController = null;
+    stopCompareDataBtn.hidden = true;
     idle();
+  };
+  stopCompareDataBtn.onclick = () => {
+    if (!dataCompareController) return;
+    stopCompareDataBtn.disabled = true;
+    dataCompareController.abort();
   };
 
   function dupSum(d) { return d ? (d.exact + d.tag + d.ref + d.name) : 0; }
