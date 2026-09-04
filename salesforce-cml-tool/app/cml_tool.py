@@ -308,6 +308,9 @@ def list_models(org):
         "SELECT Id, ExpressionSetDefinition.DeveloperName, "
         "ExpressionSetDefinition.MasterLabel, VersionNumber, Status "
         "FROM ExpressionSetDefinitionVersion "
+        "WHERE ExpressionSetDefinitionId IN ("
+        "SELECT ExpressionSetDefinitionId FROM ExpressionSet "
+        "WHERE UsageType = 'Constraint') "
         "ORDER BY ExpressionSetDefinition.DeveloperName, VersionNumber DESC"
     )
     records, err = _query_json(org, query)
@@ -327,6 +330,14 @@ def list_models(org):
             "version": rec.get("VersionNumber"),
             "status": rec.get("Status"),
         })
+    status_rank = {"active": 0, "inactive": 1}
+    models.sort(key=lambda item: (
+        status_rank.get(str(item.get("status") or "").strip().lower(), 2),
+        str(item.get("name") or "").lower(),
+        -(float(item.get("version")) if str(
+            item.get("version") or "").replace(".", "", 1).isdigit() else -1),
+        str(item.get("versionId") or ""),
+    ))
     return {"models": models}
 
 
@@ -342,13 +353,18 @@ def resolve_exact_version(org, model, version_id):
         "ExpressionSetDefinition.DeveloperName, "
         "ExpressionSetDefinition.MasterLabel "
         "FROM ExpressionSetDefinitionVersion "
-        "WHERE Id = '" + _soql_str(version_id) + "'")
+        "WHERE Id = '" + _soql_str(version_id) + "' "
+        "AND ExpressionSetDefinitionId IN ("
+        "SELECT ExpressionSetDefinitionId FROM ExpressionSet "
+        "WHERE UsageType = 'Constraint')")
     if err:
         return None, err
     if not recs:
         return None, (
-            f"Exact version '{version_id}' was not found in '{org}'. Refresh "
-            "the version list and select it again.")
+            f"Exact Constraint CML version '{version_id}' was not found in "
+            f"'{org}'. It may be unavailable or belong to a non-Constraint "
+            "Expression Set such as a pricing procedure. Refresh the CML "
+            "version list and select it again.")
     rec = recs[0]
     definition = rec.get("ExpressionSetDefinition") or {}
     observed_model = definition.get("DeveloperName")
@@ -1040,7 +1056,8 @@ def export_constraints(org, model, version_id,
             f"portable in both orgs), then try again.")}
 
     soql = (
-        "SELECT Id, ExpressionSetId, ExpressionSet.Name, ConstraintModelTag, "
+        "SELECT Id, ExpressionSetId, ExpressionSet.Name, ExpressionSet.ApiName, "
+        "ExpressionSet.ExpressionSetDefinition.DeveloperName, ConstraintModelTag, "
         "ConstraintModelTagType, ReferenceObjectId, " + typeof +
         "FROM ExpressionSetConstraintObj "
         "WHERE ExpressionSetId = '" + _soql_str(expression_set_id) + "' "
@@ -1051,7 +1068,25 @@ def export_constraints(org, model, version_id,
         return {"ok": False, "log": f"Could not load constraint data from {org}:\n{err}"}
 
     rows = []
+    scope_api_name = None
+    scope_definition_name = None
     for rec in records:
+        expression_set = rec.get("ExpressionSet") or {}
+        definition = expression_set.get("ExpressionSetDefinition") or {}
+        observed_api_name = expression_set.get("ApiName")
+        observed_definition_name = definition.get("DeveloperName")
+        scope_api_name = scope_api_name or observed_api_name
+        scope_definition_name = (
+            scope_definition_name or observed_definition_name)
+        if ((observed_api_name and observed_api_name != model)
+                or (observed_definition_name
+                    and observed_definition_name != model)):
+            return {"ok": False, "log": (
+                "Constraint-data scope changed while it was being queried. "
+                f"Selected model '{model}' resolved to ExpressionSet "
+                f"'{expression_set_id}', but Salesforce returned ApiName "
+                f"'{observed_api_name}' and definition DeveloperName "
+                f"'{observed_definition_name}'. Refresh versions and retry.")}
         ro = rec.get("ReferenceObject") or {}
         ref_type = (ro.get("attributes") or {}).get("type") or ""
         gkey = ro.get(kf)
@@ -1104,24 +1139,45 @@ def export_constraints(org, model, version_id,
         if not row["mappable"]:
             unmapped += 1
 
-    dup_stats = _flag_duplicates(rows)
+    used_tags, duplicate_tags_error = _cml_used_tags(
+        org, model, version["Id"])
+    if duplicate_tags_error:
+        for row in rows:
+            row["dups"] = []
+        dup_stats = {"exact": 0, "tag": 0, "ref": 0, "name": 0}
+    else:
+        dup_stats = _flag_duplicates_for_selected_cml(
+            rows, expression_set_id, used_tags)
     return {"ok": True, "org": org, "model": model,
             "versionId": version["Id"],
             "versionNumber": version.get("VersionNumber"),
             "versionStatus": version.get("Status"),
             "expressionSetId": expression_set_id,
+            "expressionSetApiName": scope_api_name or model,
+            "expressionSetDefinitionDeveloperName": (
+                scope_definition_name or model),
             "associationScope": "ExpressionSet",
             "associationScopeNote": (
                 "Association data is shared at the ExpressionSet level; it is "
                 "not version-specific."),
+            "duplicateScope": {
+                "model": model,
+                "versionId": version["Id"],
+                "expressionSetId": expression_set_id,
+                "note": (
+                    "Duplicate flags are calculated only for associations whose "
+                    "tags are used by this exact selected CML version, within "
+                    "its resolved parent ExpressionSet.")
+            },
+            "duplicateCheckError": duplicate_tags_error,
             "rows": rows,
             "keyField": kf,
             "stats": {"total": len(rows), "unmappable": unmapped,
                       "duplicates": dup_stats}}
 
 
-def _flag_duplicates(rows):
-    """Annotate each row with a `dups` list and return duplicate counts.
+def _flag_duplicates(rows, expression_set_id=None):
+    """Annotate duplicates inside one selected parent Expression Set only.
 
     Flags:
       exact - the same constraint (tag type + tag + ref type + Global_Key)
@@ -1134,7 +1190,14 @@ def _flag_duplicates(rows):
     """
     from collections import defaultdict
     by_exact, by_tag, by_ref, by_name = (defaultdict(list) for _ in range(4))
-    for i, r in enumerate(rows):
+    for r in rows:
+        r["dups"] = []
+    scoped = [
+        (i, r) for i, r in enumerate(rows)
+        if not expression_set_id
+        or r.get("expressionSetId") == expression_set_id
+    ]
+    for i, r in scoped:
         by_exact[r["key"]].append(i)
         by_tag[(r["tagType"], r["tag"])].append(i)
         if r["gkey"]:
@@ -1142,8 +1205,6 @@ def _flag_duplicates(rows):
         if r["refName"]:
             by_name[(r["refType"], r["refName"])].append(i)
 
-    for r in rows:
-        r["dups"] = []
     counts = {"exact": 0, "tag": 0, "ref": 0, "name": 0}
 
     for idxs in by_exact.values():
@@ -1169,6 +1230,18 @@ def _flag_duplicates(rows):
                 rows[i]["dups"].append("name")
             counts["name"] += len(idxs)
     return counts
+
+
+def _flag_duplicates_for_selected_cml(
+        rows, expression_set_id, used_tags):
+    """Flag only associations used by the exact CML selected by the user."""
+    for row in rows:
+        row["dups"] = []
+    selected_rows = [
+        row for row in rows
+        if _row_used_by_cml(row, used_tags)
+    ]
+    return _flag_duplicates(selected_rows, expression_set_id)
 
 
 def _target_key_candidates(target_org, needed, key_field):
@@ -1490,7 +1563,7 @@ def _prc_select_fields(org, kf):
     classification_key = _field_exists(org, "ProductClassification", kf)
     group_key = _field_exists(org, "ProductComponentGroup", kf)
     selling_model_key = _field_exists(org, "ProductSellingModel", kf)
-    fields = ["Id"]
+    fields = ["Id", "Name"]
     lookups = (
         ("ParentProductId", "ParentProduct.Name"),
         ("ChildProductId", "ChildProduct.Name"),
@@ -1546,6 +1619,7 @@ def _prc_detail_from_record(record, kf):
 
     detail = {
         "id": record.get("Id"),
+        "name": record.get("Name"),
         "parentId": record.get("ParentProductId"),
         "parentKey": parent.get(kf),
         "parentName": parent.get("Name"),
@@ -1576,7 +1650,13 @@ def _prc_detail_from_record(record, kf):
 
 def _prc_details(org, prc_ref_ids, kf):
     """Return authoritative PRC endpoint/details keyed by PRC Id."""
-    ids = sorted({x for x in prc_ref_ids if x and str(x).startswith("0dS")})
+    # Callers already selected rows whose polymorphic ReferenceObject type is
+    # ProductRelatedComponent. Auto-number display prefixes such as PRC-/ECO-
+    # are labels, not identity. Validate only the generic Salesforce Id shape.
+    ids = sorted({
+        str(x) for x in prc_ref_ids
+        if x and re.fullmatch(r"[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?", str(x))
+    })
     if not ids:
         return {}
     fields, _ = _prc_select_fields(org, kf)
@@ -1758,17 +1838,33 @@ def compare_constraints(source_org, target_org, model, source_version_id,
         for index, r in enumerate(source_rows[:paired]):
             target_row = target_rows[index]
             row = dict(r)
+            # Display names are live labels, not portable identity. Preserve
+            # both org values so a Salesforce auto-number/name-format change
+            # (for example PRC-* to ECO-*) is shown accurately without
+            # affecting matching.
+            row["sourceRefName"] = r.get("refName")
+            row["sourceRefCode"] = r.get("refCode")
+            row["targetRefName"] = target_row.get("refName")
+            row["targetRefCode"] = target_row.get("refCode")
+            row["referenceNamesDiffer"] = (
+                r.get("refName") != target_row.get("refName")
+                or r.get("refCode") != target_row.get("refCode")
+            )
             row["matchedEvidence"] = {
                 "portableKeyEqual": r.get("key") == target_row.get("key"),
                 "source": {
                     "constraintId": r.get("id"),
                     "expressionSetId": r.get("expressionSetId"),
                     "referenceId": r.get("refId"),
+                    "referenceName": r.get("refName"),
+                    "referenceCode": r.get("refCode"),
                 },
                 "target": {
                     "constraintId": target_row.get("id"),
                     "expressionSetId": target_row.get("expressionSetId"),
                     "referenceId": target_row.get("refId"),
+                    "referenceName": target_row.get("refName"),
+                    "referenceCode": target_row.get("refCode"),
                 },
             }
             matched.append(apply_dependency_preflight(row))
@@ -1878,10 +1974,20 @@ def compare_constraints(source_org, target_org, model, source_version_id,
         "source": {"org": source_org, "total": len(src["rows"]),
                    "versionId": source_version_id,
                    "expressionSetId": src.get("expressionSetId"),
+                   "expressionSetApiName": src.get("expressionSetApiName"),
+                   "expressionSetDefinitionDeveloperName": src.get(
+                       "expressionSetDefinitionDeveloperName"),
+                   "duplicateScope": src.get("duplicateScope"),
+                   "duplicateCheckError": src.get("duplicateCheckError"),
                    "duplicates": src["stats"]["duplicates"]},
         "target": {"org": target_org, "total": len(tgt["rows"]),
                    "versionId": target_version_id,
                    "expressionSetId": tgt.get("expressionSetId"),
+                   "expressionSetApiName": tgt.get("expressionSetApiName"),
+                   "expressionSetDefinitionDeveloperName": tgt.get(
+                       "expressionSetDefinitionDeveloperName"),
+                   "duplicateScope": tgt.get("duplicateScope"),
+                   "duplicateCheckError": tgt.get("duplicateCheckError"),
                    "duplicates": tgt["stats"]["duplicates"]},
         "matched": matched,
         "sourceOnly": source_only,
@@ -5426,6 +5532,7 @@ STATIC_ASSETS = {
         "favicon/web-app-manifest-192x192.png", "image/png"),
     "/favicon/web-app-manifest-512x512.png": (
         "favicon/web-app-manifest-512x512.png", "image/png"),
+    "/donate/upi-qr.png": ("donate/upi-qr.png", "image/png"),
     # Conventional browser fallback when no explicit <link> has been processed.
     "/favicon.ico": ("favicon/favicon.ico", "image/x-icon"),
 }
@@ -5551,7 +5658,7 @@ PAGE = r"""<!DOCTYPE html>
     --shadow:0 20px 60px rgba(0,0,0,.30);
   }
   * { box-sizing: border-box; }
-  html,body { max-width:100%; overflow-x:hidden; }
+  html,body { width:100%; height:100%; max-width:100%; overflow:hidden; }
   body {
     margin:0; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
     min-height:100vh;
@@ -5566,8 +5673,8 @@ PAGE = r"""<!DOCTYPE html>
   [hidden] { display:none !important; }
 
   /* ── App shell ────────────────────────────────────────────────── */
-  .app-shell { min-height:100vh; display:grid; grid-template-columns:244px minmax(0,1fr); }
-  .sidebar { position:sticky; top:0; height:100vh; display:flex; flex-direction:column;
+  .app-shell { height:100vh; min-height:0; display:grid; grid-template-columns:244px minmax(0,1fr); overflow:hidden; }
+  .sidebar { position:relative; height:100vh; min-height:0; display:flex; flex-direction:column;
     padding:22px 14px 16px; background:color-mix(in srgb,var(--panel) 92%,var(--bg));
     border-right:1px solid var(--line); z-index:20; overflow-y:auto; }
   .brand { display:flex; align-items:center; gap:11px; padding:0 8px 26px; color:var(--text); text-decoration:none; }
@@ -5595,10 +5702,39 @@ PAGE = r"""<!DOCTYPE html>
     border-radius:12px; background:transparent; color:var(--muted); text-decoration:none; font-size:13px;
     font-weight:650; cursor:pointer; transition:background .2s,color .2s,transform .2s; }
   .about-link:hover { color:var(--text); background:var(--gutter); transform:translateX(2px); }
+  .donate-link { color:var(--accent); }
+  .donate-wrap { width:100%; position:relative; }
+  .donate-options { display:grid; gap:5px; margin:3px 6px 8px 12px; padding-left:9px;
+    border-left:1px solid var(--line); }
+  .donate-options[hidden] { display:none; }
+  .donate-option { width:100%; display:flex; align-items:center; gap:9px; padding:8px 10px;
+    border:1px solid transparent; border-radius:9px; background:transparent; color:var(--text);
+    font-size:12px; font-weight:700; text-align:left; text-decoration:none; cursor:pointer; }
+  .donate-option:hover:not(:disabled) { border-color:var(--accent); background:var(--gutter); }
+  .donate-option:disabled { color:var(--muted); cursor:not-allowed; opacity:.58; }
+  .payment-icon { width:27px; height:22px; flex:0 0 27px; display:grid; place-items:center;
+    border:1px solid currentColor; border-radius:6px; font-size:8px; font-weight:900;
+    letter-spacing:-.03em; }
+  .razorpay-icon { font-size:14px; font-style:italic; }
   .sidebar .credit { padding:10px 12px 0; margin:0; font-size:10px; line-height:1.5; color:var(--muted); }
+  .donate-dialog { width:min(520px,calc(100vw - 28px)); max-width:100%; padding:0;
+    border:1px solid var(--line); border-radius:18px; background:var(--panel);
+    color:var(--text); }
+  .donate-dialog::backdrop { background:rgba(9,14,26,.68); }
+  .donate-dialog-body { padding:22px; }
+  .donate-dialog-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+  .donate-dialog h2 { margin:0; font-size:20px; }
+  .donate-dialog p { color:var(--muted); font-size:13px; }
+  .donate-dialog .disclaimer { padding:10px 12px; border-radius:10px; background:var(--gutter);
+    font-size:11px; line-height:1.55; }
+  .donate-qr { display:block; width:min(330px,100%); max-height:54vh; object-fit:contain;
+    margin:17px auto 0; border:1px solid var(--line); border-radius:12px; background:#fff; }
+  .donate-actions { display:flex; align-items:center; gap:9px; flex-wrap:wrap; margin-top:18px; }
+  .upi-note { margin:10px 0 0; font-size:11px !important; }
 
   /* ── Main area ────────────────────────────────────────────────── */
-  .app-main { min-width:0; display:flex; flex-direction:column; }
+  .app-main { min-width:0; min-height:0; height:100vh; display:flex; flex-direction:column;
+    overflow-y:auto; overflow-x:hidden; scrollbar-gutter:stable; }
   .topbar { display:flex; align-items:center; justify-content:space-between; gap:20px;
     padding:22px clamp(14px,2.2vw,36px) 18px; position:relative; overflow:hidden; min-height:100px; }
   .topbar::after { content:""; position:absolute; right:-80px; top:-130px; width:420px; height:260px;
@@ -5639,8 +5775,10 @@ PAGE = r"""<!DOCTYPE html>
   .card-title p { margin:3px 0 0; color:var(--muted); font-size:12px; }
 
   /* ── Connection strip ─────────────────────────────────────────── */
-  .conn-strip { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; align-items:end; }
-  .field { min-width:0; }
+  .conn-strip { display:flex; flex-wrap:wrap; gap:14px; align-items:flex-end; }
+  .conn-strip > .field { flex:1 1 220px; max-width:100%; }
+  .conn-strip > .field.model-field { flex:1 0 100%; width:100%; }
+  .field { min-width:0; max-width:100%; }
   label { display:block; font-size:11px; color:var(--muted); margin-bottom:5px;
     text-transform:uppercase; letter-spacing:.05em; font-weight:700; }
   select,input { width:100%; background:var(--input-bg); color:var(--text); border:1px solid var(--line);
@@ -5659,11 +5797,11 @@ PAGE = r"""<!DOCTYPE html>
   select[size] { padding:0; height:auto; border-radius:12px; }
   select[size] option { padding:7px 12px; border-bottom:1px solid var(--line); }
   select[size] option:checked { background:var(--accent); color:#fff; }
-  .combo-selected { display:flex; align-items:center; gap:10px; }
+  .combo-selected { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
   .selchip { flex:1; display:inline-flex; align-items:center; gap:8px; padding:9px 13px;
     border-radius:12px; background:linear-gradient(135deg,var(--accent),var(--accent-strong));
     color:#fff; font-weight:700; font-size:13px; min-width:0; }
-  .selchip .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .selchip .name { overflow:visible; text-overflow:clip; white-space:normal; overflow-wrap:anywhere; }
   .selchip::before { content:"✓"; font-weight:700; flex:none; }
   .meta { color:var(--muted); font-size:11px; }
 
@@ -5696,9 +5834,10 @@ PAGE = r"""<!DOCTYPE html>
 
   /* deploy group inline widget */
   .deploy-group { display:inline-flex; align-items:center; gap:8px; padding:4px 4px 4px 12px;
-    border:1px solid var(--line); border-radius:12px; background:var(--gutter); }
+    border:1px solid var(--line); border-radius:12px; background:var(--gutter);
+    flex:1 1 620px; flex-wrap:wrap; max-width:100%; }
   .deploy-group label { margin:0; text-transform:none; letter-spacing:0; font-size:12px; white-space:nowrap; }
-  .deploy-group select { width:auto; min-width:140px; padding:7px 10px; border-radius:9px; }
+  .deploy-group select { width:auto; min-width:min(140px,100%); max-width:100%; padding:7px 10px; border-radius:9px; }
 
   /* ── Status / conn ────────────────────────────────────────────── */
   .conn { display:none; margin:0 0 16px; padding:11px 16px; border-radius:12px; font-size:13px;
@@ -5934,17 +6073,27 @@ PAGE = r"""<!DOCTYPE html>
 
   /* ── Responsive ───────────────────────────────────────────────── */
   @media (max-width:1050px) {
-    .app-shell { display:block; }
-    .sidebar { position:sticky; top:0; height:auto; padding:9px 12px; flex-direction:row;
+    .app-shell { display:flex; flex-direction:column; height:100vh; }
+    .sidebar { position:relative; height:auto; min-height:auto; flex:0 0 auto;
+      padding:9px 12px; flex-direction:row;
       align-items:center; gap:12px; border-right:0; border-bottom:1px solid var(--line); }
+    .app-main { height:auto; min-height:0; flex:1 1 auto; overflow-y:auto; }
     .brand { padding:0; min-width:max-content; }
     .brand-mark { width:30px; height:30px; }
-    .brand small,.side-label,.sidebar-footer { display:none; }
+    .brand small,.side-label { display:none; }
     .side-menu { display:flex; flex:1; gap:4px; overflow-x:auto; scrollbar-width:none; }
     .side-menu::-webkit-scrollbar { display:none; }
     .side-nav { width:auto; min-width:max-content; padding:7px 10px; }
     .side-nav:hover { transform:none; }
     .side-nav.active { box-shadow:inset 0 -2px 0 var(--accent); }
+    .sidebar-footer { display:flex; flex:0 0 auto; align-items:center; gap:4px;
+      margin:0 0 0 auto; padding:0; border:0; }
+    .sidebar-footer .about-link { width:auto; min-width:max-content; padding:7px 9px; }
+    .sidebar-footer .credit { display:none; }
+    .donate-wrap { width:auto; }
+    .donate-options { position:absolute; z-index:40; top:calc(100% + 6px); right:0;
+      width:190px; margin:0; padding:7px; border:1px solid var(--line); border-radius:11px;
+      background:var(--panel); }
     .topbar { min-height:80px; }
     .conn-strip { grid-template-columns:1fr 1fr; }
     .logic-controls { grid-template-columns:1fr 1fr; }
@@ -6000,6 +6149,25 @@ PAGE = r"""<!DOCTYPE html>
       </button>
     </nav>
     <div class="sidebar-footer">
+      <div class="donate-wrap">
+        <button type="button" class="about-link donate-link" id="donateBtn"
+          aria-expanded="false" aria-controls="donateOptions">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 21s-7-4.35-9.33-8.28C.8 9.56 2.14 5.5 5.8 4.55 8 3.98 10.12 5 12 7c1.88-2 4-3.02 6.2-2.45 3.66.95 5 5.01 3.13 8.17C19 16.65 12 21 12 21z"/></svg></span>
+          <span>Donate</span>
+        </button>
+        <div class="donate-options" id="donateOptions" hidden>
+          <button type="button" class="donate-option" id="donateUpiBtn">
+            <span class="payment-icon upi-icon" aria-hidden="true">UPI</span>
+            <span>UPI</span>
+          </button>
+          <a class="donate-option" id="donateRazorpayBtn"
+            href="https://razorpay.me/@mpancholi" target="_blank"
+            rel="noopener noreferrer" title="Open secure Razorpay payment page">
+            <span class="payment-icon razorpay-icon" aria-hidden="true">R</span>
+            <span>Razorpay</span>
+          </a>
+        </div>
+      </div>
       <a class="about-link" href="https://www.linkedin.com/in/mrpancholi/" target="_blank" rel="noopener noreferrer">
         <span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg></span>
         <span>About</span>
@@ -6051,7 +6219,7 @@ PAGE = r"""<!DOCTYPE html>
             <label for="targetVersion">Target exact version (compare-with)</label>
             <select id="targetVersion"><option value="">None — select target org and source version</option></select>
           </div>
-          <div class="field">
+          <div class="field model-field">
             <label for="model">CML <span id="cmlCount" class="meta"></span></label>
             <div class="combo" id="combo">
               <input id="cmlFilter" placeholder="Type to filter CMLs…" autocomplete="off" spellcheck="false" />
@@ -6314,6 +6482,29 @@ PAGE = r"""<!DOCTYPE html>
   </main>
 </div><!-- .app-shell -->
 
+<dialog class="donate-dialog" id="donateDialog" aria-labelledby="donateTitle">
+  <div class="donate-dialog-body">
+    <div class="donate-dialog-head">
+      <div>
+        <div class="eyebrow">Optional contribution</div>
+        <h2 id="donateTitle">UPI</h2>
+      </div>
+      <button type="button" class="ghost" id="donateCloseBtn" aria-label="Close donation dialog">Close</button>
+    </div>
+    <img class="donate-qr" src="/donate/upi-qr.png" alt="UPI payment QR code" />
+    <p class="disclaimer">Contributions do not purchase support, features, priority
+      service, or warranty. This project is not affiliated with or endorsed by Salesforce.</p>
+    <div class="donate-actions">
+      <a class="btn btn-primary" id="upiDonateLink"
+        href="upi://pay?pa=mpancholi17%40ybl&amp;pn=Mritunjaya%20Pancholi&amp;tn=Support%20CML%20Tool&amp;cu=INR">
+        Open UPI
+      </a>
+      <button type="button" class="ghost" id="copyUpiBtn" data-upi="mpancholi17@ybl">Copy UPI ID</button>
+    </div>
+    <p class="upi-note">Scan the QR code or open UPI. On desktop, copy the UPI ID.</p>
+  </div>
+</dialog>
+
 <script>
   const $ = (id) => document.getElementById(id);
   const CSRF_TOKEN = "__CML_CSRF_TOKEN__";
@@ -6366,6 +6557,9 @@ PAGE = r"""<!DOCTYPE html>
   const logicSearch = $("logicSearch"), logicKindFilter = $("logicKindFilter");
   const logicList = $("logicList"), logicDetail = $("logicDetail");
   const logicVisibleCount = $("logicVisibleCount");
+  const donateBtn = $("donateBtn"), donateOptions = $("donateOptions");
+  const donateUpiBtn = $("donateUpiBtn"), donateDialog = $("donateDialog");
+  const donateCloseBtn = $("donateCloseBtn"), copyUpiBtn = $("copyUpiBtn");
   let allModels = [];
   let reconnecting = false;
   let dataRows = [];        // current rows shown in the data table
@@ -6378,6 +6572,81 @@ PAGE = r"""<!DOCTYPE html>
   const selectedVersionLabel = (m) => m
     ? `${m.name} · V${m.version} · ${m.status || "Unknown"} · ${m.versionId}`
     : "";
+
+  // Size native picklists from their current option text. Containers wrap, so
+  // a long exact-version label gets room instead of forcing button truncation.
+  function fitPicklist(select) {
+    if (!select) return;
+    const texts = Array.from(select.options || []).map(option =>
+      (option.textContent || "").trim());
+    const selectedText = select.selectedOptions?.[0]?.textContent?.trim() || "";
+    select.title = selectedText;
+    if (select.hasAttribute("size")) {
+      select.style.width = "100%";
+      select.style.maxWidth = "100%";
+      return;
+    }
+    const longest = Math.max(10, selectedText.length, ...texts.map(text => text.length));
+    const desiredCh = Math.max(16, Math.min(96, longest + 5));
+    select.style.width = `min(100%, ${desiredCh}ch)`;
+    select.style.maxWidth = "100%";
+    const field = select.closest(".field");
+    if (field && field.parentElement?.classList.contains("conn-strip")) {
+      const labelLength = (field.querySelector("label")?.textContent || "").trim().length;
+      const fieldCh = Math.max(desiredCh, Math.min(96, labelLength + 4));
+      field.style.flexBasis = `min(100%, ${fieldCh}ch)`;
+    }
+  }
+  function fitAllPicklists() {
+    document.querySelectorAll("select").forEach(fitPicklist);
+  }
+  document.querySelectorAll("select").forEach(select => {
+    new MutationObserver(() => fitPicklist(select)).observe(
+      select, { childList:true, subtree:true });
+    select.addEventListener("change", () => fitPicklist(select));
+  });
+  window.addEventListener("resize", fitAllPicklists);
+  fitAllPicklists();
+
+  // ---- Optional project support ----
+  donateBtn.onclick = () => {
+    const willOpen = donateOptions.hidden;
+    donateOptions.hidden = !willOpen;
+    donateBtn.setAttribute("aria-expanded", String(willOpen));
+  };
+  donateUpiBtn.onclick = () => {
+    donateOptions.hidden = true;
+    donateBtn.setAttribute("aria-expanded", "false");
+    if (typeof donateDialog.showModal === "function") donateDialog.showModal();
+    else donateDialog.setAttribute("open", "");
+  };
+  donateCloseBtn.onclick = () => donateDialog.close();
+  donateDialog.addEventListener("click", event => {
+    if (event.target === donateDialog) donateDialog.close();
+  });
+  document.addEventListener("click", event => {
+    if (!event.target.closest(".donate-wrap")) {
+      donateOptions.hidden = true;
+      donateBtn.setAttribute("aria-expanded", "false");
+    }
+  });
+  copyUpiBtn.onclick = async () => {
+    const upi = copyUpiBtn.dataset.upi || "";
+    try {
+      await navigator.clipboard.writeText(upi);
+    } catch (_) {
+      const helper = document.createElement("textarea");
+      helper.value = upi;
+      helper.style.position = "fixed";
+      helper.style.opacity = "0";
+      document.body.appendChild(helper);
+      helper.select();
+      document.execCommand("copy");
+      helper.remove();
+    }
+    copyUpiBtn.textContent = "UPI ID copied";
+    setTimeout(() => { copyUpiBtn.textContent = "Copy UPI ID"; }, 1400);
+  };
 
   // ---- CML editor line-number gutter ----
   function updateEditorLineNumbers() {
@@ -6573,15 +6842,28 @@ PAGE = r"""<!DOCTYPE html>
       || (m.versionId || "").toLowerCase().includes(f));
     if (!list.length) {
       model.innerHTML = `<option value="">${allModels.length ? "No CMLs match your filter" : "No CMLs found in this org"}</option>`;
+      model.size = 2;
     } else {
-      model.innerHTML = list.map(m => {
+      const optionHtml = m => {
         const tag = `  [V${m.version} · ${m.status || "Unknown"}]`;
         return `<option value="${m.versionId}">${m.name}${tag} · ${m.versionId}</option>`;
-      }).join("");
-      model.insertAdjacentHTML("afterbegin", '<option value="">None — select an exact version</option>');
+      };
+      const active = list.filter(m =>
+        String(m.status || "").trim().toLowerCase() === "active");
+      const inactive = list.filter(m =>
+        String(m.status || "").trim().toLowerCase() !== "active");
+      model.innerHTML = '<option value="">None — select an exact version</option>'
+        + (active.length
+          ? `<optgroup label="Active CML versions">${active.map(optionHtml).join("")}</optgroup>`
+          : "")
+        + (inactive.length
+          ? `<optgroup label="Inactive / other CML versions">${inactive.map(optionHtml).join("")}</optgroup>`
+          : "");
+      model.size = Math.min(10, Math.max(3, list.length + 1));
       model.value = "";
     }
     cmlCount.textContent = allModels.length ? `(${list.length} of ${allModels.length})` : "";
+    fitPicklist(model);
   }
 
   async function loadModels() {
@@ -7655,17 +7937,47 @@ PAGE = r"""<!DOCTYPE html>
   }
 
   const DUP_LABEL = { exact: "Exact duplicate", tag: "Duplicate tag", ref: "Duplicate reference", name: "Ambiguous name" };
+  const DUP_HELP = {
+    exact: "Same complete association identity repeats within this selected parent Expression Set.",
+    tag: "Same tag type and tag repeats within this selected parent Expression Set; references may still differ.",
+    ref: "Same reference identity is used more than once within this selected parent Expression Set.",
+    name: "Same display name maps to different portable keys within this selected parent Expression Set."
+  };
   function dupBadges(r) {
     if (!r.dups || !r.dups.length) return "";
-    return r.dups.map(d => `<span class="badge b-dup" title="${esc(DUP_LABEL[d] || d)}">${esc(DUP_LABEL[d] || d)}</span>`).join("");
+    return r.dups.map(d => `<span class="badge b-dup" title="${esc(DUP_HELP[d] || DUP_LABEL[d] || d)}">${esc(DUP_LABEL[d] || d)}</span>`).join("");
   }
 
   // Which rows can be acted on in a compare deploy.
   function isAdd(r) { return r._status === "add"; }     // ready to insert in target
   function isDel(r) { return r._status === "extra"; }   // exists only in target
 
+  function referenceLabel(name, code, fallback) {
+    const base = name || fallback || "(unnamed record)";
+    return base + (code ? ` (${code})` : "");
+  }
+
+  function referenceRecordText(r) {
+    const source = referenceLabel(r.sourceRefName, r.sourceRefCode, r.refId);
+    const target = referenceLabel(r.targetRefName, r.targetRefCode, r.matchedEvidence?.target?.referenceId);
+    if (r._status === "match" && (r.sourceRefName || r.targetRefName)) {
+      if (source === target) return source;
+      return `${r._sourceOrg || "Source"}: ${source} | ${r._targetOrg || "Target"}: ${target}`;
+    }
+    return referenceLabel(r.refName, r.refCode, r.refId);
+  }
+
+  function referenceRecordHtml(r) {
+    const source = referenceLabel(r.sourceRefName, r.sourceRefCode, r.refId);
+    const target = referenceLabel(r.targetRefName, r.targetRefCode, r.matchedEvidence?.target?.referenceId);
+    if (r._status === "match" && (r.sourceRefName || r.targetRefName) && source !== target) {
+      return `<span><strong>${esc(r._sourceOrg || "Source")}:</strong> ${esc(source)}</span>`
+        + `<span class="block-note"><strong>${esc(r._targetOrg || "Target")}:</strong> ${esc(target)}</span>`;
+    }
+    return esc(referenceRecordText(r));
+  }
+
   function dataRowHtml(r, withStatus) {
-    const code = r.refCode ? ` <span class="gkey">(${esc(r.refCode)})</span>` : "";
     const gk = r.mappable ? `<span class="gkey">${esc(r.gkey)}</span>`
                           : '<span class="badge b-unmappable">missing</span>';
     const blockNote = r.blockNote ? `<span class="block-note">${esc(r.blockNote)}</span>` : "";
@@ -7683,7 +7995,7 @@ PAGE = r"""<!DOCTYPE html>
       + `<td class="col-reftype"><span class="badge b-type">${esc(shortType(r.refType))}</span></td>`
       + `<td class="col-tagtype">${esc(r.tagType)}</td>`
       + `<td class="col-tag">${esc(r.tag)}</td>`
-      + `<td class="col-ref">${esc(r.refName)}${code}${dupBadges(r)}</td>`
+      + `<td class="col-ref">${referenceRecordHtml(r)}${dupBadges(r)}</td>`
       + `<td class="col-key">${gk}</td>`
       + "</tr>";
   }
@@ -7772,7 +8084,7 @@ PAGE = r"""<!DOCTYPE html>
         shortType(r.refType),
         r.tagType || "",
         r.tag || "",
-        (r.refName || "") + (r.refCode ? " (" + r.refCode + ")" : ""),
+        referenceRecordText(r),
         r.mappable ? (r.gkey || "") : "missing",
       ];
       if (withStatus) {
@@ -7814,12 +8126,26 @@ PAGE = r"""<!DOCTYPE html>
         dataRows = data.rows.map((r, i) => ({ ...r, _status: "", _i: i, _selected: false }));
         deployBar.classList.add("show");
         results.classList.remove("show");
-        renderDataChips({ single: true, total: data.stats.total, unmappable: data.stats.unmappable, dups: data.stats.duplicates, org: orgSel.value });
+        renderDataChips({
+          single: true, total: data.stats.total,
+          unmappable: data.stats.unmappable, dups: data.stats.duplicates,
+          duplicateScope: data.duplicateScope,
+          duplicateCheckError: data.duplicateCheckError,
+          apiName: data.expressionSetApiName,
+          definitionName: data.expressionSetDefinitionDeveloperName,
+          org: orgSel.value
+        });
         renderDataTable();
         dataBox.classList.add("show");
         dataBox.scrollIntoView({ behavior: "smooth", block: "nearest" });
         const warn = data.stats.unmappable ? ` (${data.stats.unmappable} without ${currentKeyField})` : "";
-        setStatus("ok", `Loaded ${data.stats.total} constraint rows from ${orgSel.value}${warn}.\n${data.associationScopeNote}`, dSt());
+        const duplicateNote = data.duplicateCheckError
+          ? `\nDuplicate check was unavailable because the selected CML could not be read: ${data.duplicateCheckError}`
+          : "\nDuplicate flags were checked only against tags used by the exact selected CML.";
+        setStatus("ok", `Loaded ${data.stats.total} constraint rows from ${orgSel.value}${warn}.`
+          + `\nScope verified: ExpressionSet.ApiName ${data.expressionSetApiName}`
+          + ` · Definition ${data.expressionSetDefinitionDeveloperName}.`
+          + `\n${data.associationScopeNote}${duplicateNote}`, dSt());
       } else {
         setStatus("err", data.log || "Could not load data.", dSt());
       }
@@ -7857,7 +8183,12 @@ PAGE = r"""<!DOCTYPE html>
         }));
         (data.stale || []).forEach(r => rows.push({ ...r, _status: "stale" }));
         // Adds default ON; deletes default OFF (deletion is riskier — opt in).
-        rows.forEach((r, i) => { r._i = i; r._selected = (r._status === "add"); });
+        rows.forEach((r, i) => {
+          r._i = i;
+          r._selected = (r._status === "add");
+          r._sourceOrg = data.source.org;
+          r._targetOrg = data.target.org;
+        });
         dataRows = rows;
         results.classList.remove("show");
         renderDataChips({ single: false, s: data.stats, src: data.source, tgt: data.target });
@@ -7887,10 +8218,13 @@ PAGE = r"""<!DOCTYPE html>
   function renderDataChips(o) {
     if (o.single) {
       const dn = dupSum(o.dups);
+      const scope = o.duplicateScope?.expressionSetId || "selected parent";
       dataChips.innerHTML =
         `<span class="chip ok">${o.total} rows · ${o.org}</span>`
+        + `<span class="chip" title="ExpressionSet.ApiName and definition DeveloperName">${esc(o.apiName || "")}</span>`
         + (o.unmappable ? `<span class="chip warn">${o.unmappable} without ${currentKeyField}</span>` : "")
-        + (dn ? `<span class="chip warn">${dn} duplicate rows</span>` : "");
+        + (o.duplicateCheckError ? `<span class="chip warn">Duplicate check unavailable</span>` : "")
+        + (dn ? `<span class="chip warn" title="Checked only within Expression Set ${esc(scope)}">${dn} duplicate flags · selected model only</span>` : "");
       return;
     }
     const s = o.s;
@@ -7909,7 +8243,9 @@ PAGE = r"""<!DOCTYPE html>
       + (s.stale ? `<span class="chip warn">${s.stale} stale (excluded from deploy)</span>` : "")
       + (s.blocked ? `<span class="chip warn">${s.blocked} blocked by catalog dependencies</span>` : "")
       + (s.unmappable ? `<span class="chip warn">${s.unmappable} unmappable</span>` : "")
-      + ((sd + td) ? `<span class="chip warn">${sd + td} duplicate rows (src ${sd} / tgt ${td})</span>` : "");
+      + ((o.src.duplicateCheckError || o.tgt.duplicateCheckError)
+        ? `<span class="chip warn">Duplicate check unavailable for one selected CML</span>` : "")
+      + ((sd + td) ? `<span class="chip warn" title="Each org is checked independently inside the exact selected version's resolved parent Expression Set">${sd + td} duplicate flags (selected source ${sd} / selected target ${td})</span>` : "");
   }
 
   // ---- Deploy selected constraint data to the target ----
