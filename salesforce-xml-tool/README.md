@@ -174,6 +174,15 @@ Each card shows:
 Toggle **Night / Day mode** any time with the button in the top-right (the Merge
 screenshot above shows dark mode).
 
+### Optional project support
+
+The navigation includes **Donate** above **About**. Clicking it reveals hidden
+**UPI** and **Razorpay** choices. UPI displays the packaged payment QR, opens a
+generic UPI link, and provides a copyable UPI ID. Razorpay opens the verified
+hosted payment page in a separate tab. Contributions are voluntary and do not
+purchase support, features, priority service, or warranty. Bank account and
+IFSC details are not published by the tool.
+
 ---
 
 ## Project structure
