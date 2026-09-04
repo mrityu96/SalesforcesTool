@@ -85,12 +85,40 @@ PAGE = r"""<!DOCTYPE html>
   .nav-icon svg { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.8;
     stroke-linecap:round; stroke-linejoin:round; }
   .sidebar-footer { margin-top:auto; border-top:1px solid var(--line); padding-top:12px; }
+  .donate-link { color:var(--accent); }
+  .donate-wrap { width:100%; position:relative; }
+  .donate-options { display:grid; gap:5px; margin:3px 6px 8px 12px; padding-left:9px;
+    border-left:1px solid var(--line); }
+  .donate-options[hidden] { display:none; }
+  .donate-option { width:100%; display:flex; align-items:center; gap:9px; padding:8px 10px;
+    border:1px solid transparent; border-radius:9px; background:transparent; color:var(--text);
+    font-size:12px; font-weight:700; text-align:left; text-decoration:none; cursor:pointer; }
+  .donate-option:hover { border-color:var(--accent); background:var(--gutter); }
+  .payment-icon { width:27px; height:22px; flex:0 0 27px; display:grid; place-items:center;
+    border:1px solid currentColor; border-radius:6px; font-size:8px; font-weight:900;
+    letter-spacing:-.03em; }
+  .razorpay-icon { font-size:14px; font-style:italic; }
   .sidebar .credit { padding:12px 12px 0; margin:0; font-size:10px; line-height:1.5; }
   .sidebar .credit a { color:var(--text); font-weight:750; text-decoration:none; }
   .sidebar .credit a:hover { color:var(--accent); }
   .linkedin-link { display:flex; align-items:center; gap:7px; margin:7px 12px 0; color:var(--accent);
     text-decoration:none; font-size:11px; font-weight:700; }
   .linkedin-link svg { width:14px; height:14px; fill:currentColor; }
+  .donate-dialog { width:min(520px,calc(100vw - 28px)); max-width:100%; padding:0;
+    border:1px solid var(--line); border-radius:18px; background:var(--panel); color:var(--text); }
+  .donate-dialog::backdrop { background:rgba(9,14,26,.68); }
+  .donate-dialog-body { padding:22px; }
+  .donate-dialog-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+  .donate-dialog h2 { margin:0; font-size:20px; }
+  .donate-dialog .disclaimer { padding:10px 12px; border-radius:10px; background:var(--gutter);
+    color:var(--muted); font-size:11px; line-height:1.55; }
+  .donate-qr { display:block; width:min(330px,100%); max-height:54vh; object-fit:contain;
+    margin:17px auto 0; border:1px solid var(--line); border-radius:12px; background:#fff; }
+  .donate-actions { display:flex; align-items:center; gap:9px; flex-wrap:wrap; margin-top:18px; }
+  .donate-primary { display:inline-flex; align-items:center; min-height:40px; padding:9px 18px;
+    border-radius:10px; background:var(--accent); color:var(--on-accent); text-decoration:none;
+    font-size:13px; font-weight:750; }
+  .upi-note { margin:10px 0 0; color:var(--muted); font-size:11px; }
   .app-main { min-width:0; }
   .wrap { width:100%; max-width:none; margin:0; padding:0 clamp(14px,2.2vw,36px) 64px; }
   .topbar { min-height:88px; display:flex; align-items:center; justify-content:space-between; gap:20px;
@@ -959,13 +987,21 @@ PAGE = r"""<!DOCTYPE html>
       gap:12px; border-right:0; border-bottom:1px solid var(--line); }
     .brand { padding:0; min-width:max-content; }
     .brand-mark { width:32px; height:32px; border-radius:10px; }
-    .brand small,.side-label,.sidebar-footer { display:none; }
+    .brand small,.side-label { display:none; }
     .side-menu-divider { display:none; }
     .side-menu { display:flex; flex:1; gap:4px; overflow-x:auto; scrollbar-width:none; }
     .side-menu::-webkit-scrollbar { display:none; }
     .side-nav { width:auto; min-width:max-content; padding:8px 10px; }
     .side-nav:hover { transform:none; }
     .side-nav.active { box-shadow:inset 0 -2px 0 var(--accent); }
+    .sidebar-footer { display:flex; flex:0 0 auto; align-items:center; gap:4px;
+      margin:0 0 0 auto; padding:0; border:0; }
+    .sidebar-footer .about-link { width:auto; min-width:max-content; padding:7px 9px; }
+    .sidebar-footer .credit,.sidebar-footer .linkedin-link { display:none; }
+    .donate-wrap { width:auto; }
+    .donate-options { position:absolute; z-index:40; top:calc(100% + 6px); right:0;
+      width:190px; margin:0; padding:7px; border:1px solid var(--line); border-radius:11px;
+      background:var(--panel); }
     .tabs { display:none; }
     .topbar { min-height:104px; }
     .fab-down { left:14px; }
@@ -1030,6 +1066,25 @@ PAGE = r"""<!DOCTYPE html>
         <button class="side-nav" data-mode="cdfix"><span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 3v6M12 15v6M3 12h6M15 12h6"/><circle cx="12" cy="12" r="3"/><circle cx="12" cy="3" r="1"/><circle cx="12" cy="21" r="1"/><circle cx="3" cy="12" r="1"/><circle cx="21" cy="12" r="1"/></svg></span><span>Context Definition Fix</span></button>
       </nav>
       <div class="sidebar-footer">
+        <div class="donate-wrap">
+          <button type="button" class="about-link donate-link" id="donateBtn"
+            aria-expanded="false" aria-controls="donateOptions">
+            <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 21s-7-4.35-9.33-8.28C.8 9.56 2.14 5.5 5.8 4.55 8 3.98 10.12 5 12 7c1.88-2 4-3.02 6.2-2.45 3.66.95 5 5.01 3.13 8.17C19 16.65 12 21 12 21z"/></svg></span>
+            <span>Donate</span>
+          </button>
+          <div class="donate-options" id="donateOptions" hidden>
+            <button type="button" class="donate-option" id="donateUpiBtn">
+              <span class="payment-icon upi-icon" aria-hidden="true">UPI</span>
+              <span>UPI</span>
+            </button>
+            <a class="donate-option" id="donateRazorpayBtn"
+              href="https://razorpay.me/@mpancholi" target="_blank"
+              rel="noopener noreferrer" title="Open secure Razorpay payment page">
+              <span class="payment-icon razorpay-icon" aria-hidden="true">R</span>
+              <span>Razorpay</span>
+            </a>
+          </div>
+        </div>
         <a class="about-link" href="https://www.linkedin.com/in/mrpancholi/" target="_blank" rel="noopener noreferrer">
           <span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg></span><span>About</span>
         </a>
@@ -1464,8 +1519,74 @@ PAGE = r"""<!DOCTYPE html>
     </main>
   </div>
 
+<dialog class="donate-dialog" id="donateDialog" aria-labelledby="donateTitle">
+  <div class="donate-dialog-body">
+    <div class="donate-dialog-head">
+      <div>
+        <div class="eyebrow">Optional contribution</div>
+        <h2 id="donateTitle">UPI</h2>
+      </div>
+      <button type="button" class="ghost" id="donateCloseBtn" aria-label="Close donation dialog">Close</button>
+    </div>
+    <img class="donate-qr" src="/donate/upi-qr.png" alt="UPI payment QR code" />
+    <p class="disclaimer">Contributions do not purchase support, features, priority
+      service, or warranty. This project is not affiliated with or endorsed by Salesforce.</p>
+    <div class="donate-actions">
+      <a class="donate-primary" id="upiDonateLink"
+        href="upi://pay?pa=mpancholi17%40ybl&amp;pn=Mritunjaya%20Pancholi&amp;tn=Support%20XML%20Tool&amp;cu=INR">
+        Open UPI
+      </a>
+      <button type="button" class="ghost" id="copyUpiBtn" data-upi="mpancholi17@ybl">Copy UPI ID</button>
+    </div>
+    <p class="upi-note">Scan the QR code or open UPI. On desktop, copy the UPI ID.</p>
+  </div>
+</dialog>
+
 <script>
   const $ = (id) => document.getElementById(id);
+
+  // ── Optional project support ──────────────────────────────────────────────
+  const donateBtn = $("donateBtn"), donateOptions = $("donateOptions");
+  const donateUpiBtn = $("donateUpiBtn"), donateDialog = $("donateDialog");
+  const donateCloseBtn = $("donateCloseBtn"), copyUpiBtn = $("copyUpiBtn");
+  donateBtn.onclick = () => {
+    const willOpen = donateOptions.hidden;
+    donateOptions.hidden = !willOpen;
+    donateBtn.setAttribute("aria-expanded", String(willOpen));
+  };
+  donateUpiBtn.onclick = () => {
+    donateOptions.hidden = true;
+    donateBtn.setAttribute("aria-expanded", "false");
+    if (typeof donateDialog.showModal === "function") donateDialog.showModal();
+    else donateDialog.setAttribute("open", "");
+  };
+  donateCloseBtn.onclick = () => donateDialog.close();
+  donateDialog.addEventListener("click", event => {
+    if (event.target === donateDialog) donateDialog.close();
+  });
+  document.addEventListener("click", event => {
+    if (!event.target.closest(".donate-wrap")) {
+      donateOptions.hidden = true;
+      donateBtn.setAttribute("aria-expanded", "false");
+    }
+  });
+  copyUpiBtn.onclick = async () => {
+    const upi = copyUpiBtn.dataset.upi || "";
+    try {
+      await navigator.clipboard.writeText(upi);
+    } catch (_) {
+      const helper = document.createElement("textarea");
+      helper.value = upi;
+      helper.style.position = "fixed";
+      helper.style.opacity = "0";
+      document.body.appendChild(helper);
+      helper.select();
+      document.execCommand("copy");
+      helper.remove();
+    }
+    copyUpiBtn.textContent = "UPI ID copied";
+    setTimeout(() => { copyUpiBtn.textContent = "Copy UPI ID"; }, 1400);
+  };
 
   // ── Consistent Lucide-style button icons ─────────────────────────────────
   const ICON_PATHS = {
