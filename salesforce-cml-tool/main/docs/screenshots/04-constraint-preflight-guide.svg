@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#f5f7ff"/><stop offset="1" stop-color="#f0fbf8"/></linearGradient>
+    <filter id="s"><feDropShadow dy="8" stdDeviation="12" flood-opacity=".12"/></filter>
+    <marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0 0L12 6L0 12Z" fill="#e65f40"/></marker>
+    <style>.ui{font-family:Inter,Arial;fill:#1d2945}.h{font-size:25px;font-weight:800}.muted{fill:#71809a}.sm{font-size:13px}.b{font-size:14px;font-weight:750}.cell{font-size:12px}.call{font-family:Inter,Arial;font-size:17px;font-weight:800;fill:#71301f}.sub{font-family:Inter,Arial;font-size:14px;fill:#754739}</style>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/><rect x="38" y="34" width="1524" height="824" rx="24" fill="white" filter="url(#s)"/>
+  <rect x="38" y="34" width="235" height="824" rx="24" fill="#111a33"/><text x="70" y="84" font-family="Inter,Arial" font-size="22" font-weight="850" fill="white">CML Studio</text>
+  <text x="78" y="170" font-family="Inter,Arial" font-size="16" fill="#aeb9d1">v  Fetch &amp; Deploy</text><text x="78" y="223" font-family="Inter,Arial" font-size="16" fill="#aeb9d1">&lt;-&gt;  Compare</text><text x="78" y="276" font-family="Inter,Arial" font-size="16" fill="#aeb9d1">OK  Best Practices</text>
+  <rect x="56" y="305" width="198" height="48" rx="12" fill="#159f9a"/><text x="78" y="335" font-family="Inter,Arial" font-size="16" font-weight="700" fill="white">#  Constraint Data</text>
+    <text x="78" y="400" font-family="Inter,Arial" font-size="16" fill="#aeb9d1">?  Guide Me on Tool</text>
+<text x="315" y="76" class="ui h">Constraint Data</text><text x="315" y="99" class="ui muted" font-size="14">Compare CML associations and validate catalog dependencies without changing catalog records.</text>
+  <rect x="315" y="124" width="1205" height="52" rx="11" fill="#eef6ff" stroke="#bfd4ed"/><text x="337" y="155" class="ui sm" font-weight="750" fill="#315f92">SAFE BOUNDARY  |  Catalog records are read-only. Only CML content and ExpressionSetConstraintObj associations can be written.</text>
+  <text x="315" y="207" class="ui sm" font-weight="750">MATCH RECORDS BY</text><rect x="315" y="217" width="265" height="43" rx="9" fill="#f7f9fd" stroke="#cfd7e5"/><text x="337" y="244" class="ui b">Global_Key__c</text>
+  <rect x="603" y="215" width="120" height="46" rx="9" fill="#6558e8"/><text x="626" y="244" font-family="Inter,Arial" font-size="14" font-weight="760" fill="white">View data</text>
+  <rect x="737" y="215" width="145" height="46" rx="9" fill="#6d55dc"/><text x="760" y="244" font-family="Inter,Arial" font-size="14" font-weight="760" fill="white">Compare data</text>
+  <rect x="905" y="215" width="615" height="46" rx="9" fill="#f6f7fb" stroke="#dbe1ea"/><text x="928" y="243" class="ui sm">Source tigerDev  |  Target migDev  |  PCM_Constraint_Model</text>
+  <rect x="315" y="280" width="1205" height="54" rx="10" fill="#fbfaf7" stroke="#ead9bd"/>
+  <rect x="337" y="294" width="112" height="28" rx="14" fill="#eaf8f2"/><text x="356" y="313" class="ui sm" font-weight="750" fill="#24765e">116 matched</text>
+  <rect x="463" y="294" width="220" height="28" rx="14" fill="#fff0dc"/><text x="482" y="313" class="ui sm" font-weight="750" fill="#9a611d">32 catalog dependency issues</text>
+  <rect x="696" y="294" width="174" height="28" rx="14" fill="#fde9e7"/><text x="715" y="313" class="ui sm" font-weight="750" fill="#a8433b">3 blocked types</text>
+  <text x="1255" y="313" class="ui sm">Show: Blocked / unmappable v</text>
+
+  <rect x="315" y="350" width="1205" height="350" rx="12" fill="#fff" stroke="#d9e0ea"/>
+  <rect x="315" y="350" width="1205" height="42" rx="12" fill="#f3f5f9"/>
+  <text x="333" y="376" class="ui sm" font-weight="800">STATUS</text><text x="585" y="376" class="ui sm" font-weight="800">REF TYPE</text><text x="715" y="376" class="ui sm" font-weight="800">TAG</text><text x="930" y="376" class="ui sm" font-weight="800">REFERENCE RECORD</text><text x="1265" y="376" class="ui sm" font-weight="800">GLOBAL KEY</text>
+  <rect x="327" y="407" width="235" height="30" rx="15" fill="#fde9e7"/><text x="343" y="427" class="ui cell" font-weight="800" fill="#a8433b">BLOCKED  |  CATALOG DEPENDENCY</text>
+  <text x="585" y="427" class="ui cell">Classification</text><text x="715" y="427" class="ui cell" font-weight="750">StarterTVProductClassification</text><text x="930" y="427" class="ui cell">Starter TV Product Classification</text><text x="1265" y="427" class="ui cell">a632a59e...</text>
+  <rect x="327" y="449" width="1170" height="126" rx="9" fill="#fff5f1" stroke="#efb29c"/>
+  <text x="348" y="476" class="ui b" fill="#9b452f">Why it is blocked</text>
+  <text x="348" y="502" class="ui cell">" Missing products: 'Starter TV Spike' and 'Starter TV Spike Clone'</text>
+  <text x="348" y="526" class="ui cell">" Existing but not assigned through BasedOnId: 'Starter TV' and 'Starter TV Deprecetated'</text>
+  <text x="348" y="550" class="ui cell">" Missing classification attributes: Purchase Term, Cloud PVR Included, ChannelsUpdatedStamp</text>
+  <rect x="327" y="594" width="235" height="30" rx="15" fill="#fde9e7"/><text x="343" y="614" class="ui cell" font-weight="800" fill="#a8433b">BLOCKED  |  CATALOG DEPENDENCY</text>
+  <text x="585" y="614" class="ui cell">Related Comp.</text><text x="715" y="614" class="ui cell" font-weight="750">pod</text><text x="930" y="614" class="ui cell">GigabitFibe15InternetPlan -> Pod</text><text x="1265" y="614" class="ui cell">semantic identity</text>
+  <text x="348" y="658" class="ui cell" fill="#9b452f">Missing target ProductRelatedComponent. Deploy through the catalog process, then compare again.</text>
+  <rect x="315" y="720" width="1205" height="57" rx="11" fill="#f6f7fb" stroke="#d9e0ea"/><text x="338" y="754" class="ui b">No deployable differences were found.</text><rect x="1270" y="730" width="225" height="38" rx="9" fill="#cdd4df"/><text x="1299" y="754" font-family="Inter,Arial" font-size="13" font-weight="750" fill="#6c778a">Deploy selected to target</text>
+
+  <rect x="1025" y="790" width="495" height="68" rx="14" fill="#fff2ed" stroke="#ee9b79"/><text x="1047" y="817" class="call">3. Blocked means 'fix catalog elsewhere'</text><text x="1047" y="840" class="sub">The button stays disabled; the tool does not edit Product records.</text><path d="M1180 790C1160 718 1000 582 945 543" fill="none" stroke="#e65f40" stroke-width="3" marker-end="url(#a)"/>
+  <rect x="293" y="790" width="565" height="68" rx="14" fill="#fff2ed" stroke="#ee9b79"/><text x="315" y="817" class="call">2. Expand the reason to see every missing dependency</text><text x="315" y="840" class="sub">Copy visible rows to Excel for the catalog deployment team.</text><path d="M610 790C650 690 690 560 705 511" fill="none" stroke="#e65f40" stroke-width="3" marker-end="url(#a)"/>
+  <rect x="1025" y="45" width="495" height="64" rx="14" fill="#fff2ed" stroke="#ee9b79"/><text x="1047" y="72" class="call">1. 'Matched' ESCO rows can still be blocked</text><text x="1047" y="95" class="sub">The preflight also checks products and classification attributes.</text><path d="M1220 109C1090 150 780 282 655 305" fill="none" stroke="#e65f40" stroke-width="3" marker-end="url(#a)"/>
+</svg>

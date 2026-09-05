@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#f4f7ff"/><stop offset="1" stop-color="#edfdf7"/></linearGradient>
+    <filter id="s"><feDropShadow dy="8" stdDeviation="12" flood-opacity=".12"/></filter>
+    <marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0 0L12 6L0 12Z" fill="#e65f40"/></marker>
+    <style>.ui{font-family:Inter,Arial;fill:#1d2945}.h{font-size:25px;font-weight:800}.muted{fill:#71809a}.sm{font-size:13px}.b{font-size:14px;font-weight:750}.cell{font-size:12px}.call{font-family:Inter,Arial;font-size:17px;font-weight:800;fill:#71301f}.sub{font-family:Inter,Arial;font-size:14px;fill:#754739}</style>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/><rect x="38" y="34" width="1524" height="824" rx="24" fill="white" filter="url(#s)"/>
+  <rect x="38" y="34" width="235" height="824" rx="24" fill="#111a33"/><text x="70" y="84" font-family="Inter,Arial" font-size="22" font-weight="850" fill="white">CML Studio</text>
+  <text x="78" y="170" font-family="Inter,Arial" font-size="16" fill="#aeb9d1">v  Fetch &amp; Deploy</text><text x="78" y="223" font-family="Inter,Arial" font-size="16" fill="#aeb9d1">&lt;-&gt;  Compare</text><text x="78" y="276" font-family="Inter,Arial" font-size="16" fill="#aeb9d1">OK  Best Practices</text>
+  <rect x="56" y="305" width="198" height="48" rx="12" fill="#159f9a"/><text x="78" y="335" font-family="Inter,Arial" font-size="16" font-weight="700" fill="white">#  Constraint Data</text>
+    <text x="78" y="400" font-family="Inter,Arial" font-size="16" fill="#aeb9d1">?  Guide Me on Tool</text>
+<text x="315" y="76" class="ui h">Deploy CML Associations</text><text x="315" y="99" class="ui muted" font-size="14">Only rows that pass the live catalog preflight are selectable.</text>
+  <rect x="315" y="125" width="1205" height="62" rx="12" fill="#f6f7fb" stroke="#d9e0ea"/>
+  <text x="337" y="150" class="ui sm">Selected: <tspan font-weight="800">2 to add</tspan>  |  <tspan font-weight="800" fill="#a54a3c">0 to delete</tspan></text>
+  <text x="337" y="174" class="ui sm" fill="#687891">Deletes are permanent and remain unchecked until you explicitly select them.</text>
+  <rect x="1260" y="136" width="235" height="42" rx="9" fill="#16a77c"/><text x="1288" y="162" font-family="Inter,Arial" font-size="14" font-weight="760" fill="white">Deploy selected to target</text>
+
+  <rect x="315" y="207" width="1205" height="210" rx="12" fill="#fff" stroke="#d9e0ea"/>
+  <rect x="315" y="207" width="1205" height="42" rx="12" fill="#f3f5f9"/>
+  <text x="334" y="233" class="ui sm" font-weight="800">SELECT</text><text x="410" y="233" class="ui sm" font-weight="800">STATUS</text><text x="610" y="233" class="ui sm" font-weight="800">REF TYPE</text><text x="760" y="233" class="ui sm" font-weight="800">TAG</text><text x="1000" y="233" class="ui sm" font-weight="800">REFERENCE</text>
+  <rect x="338" y="270" width="18" height="18" rx="3" fill="#6558e8"/><path d="M342 278l4 4 7-9" fill="none" stroke="white" stroke-width="2"/>
+  <rect x="410" y="265" width="120" height="28" rx="14" fill="#e7f8f1"/><text x="432" y="284" class="ui cell" font-weight="800" fill="#23745c">ADD TO TARGET</text><text x="610" y="284" class="ui cell">Product</text><text x="760" y="284" class="ui cell">InternetPlan</text><text x="1000" y="284" class="ui cell">Gigabit Fibe 1.5</text>
+  <rect x="338" y="316" width="18" height="18" rx="3" fill="#6558e8"/><path d="M342 324l4 4 7-9" fill="none" stroke="white" stroke-width="2"/>
+  <rect x="410" y="311" width="120" height="28" rx="14" fill="#e7f8f1"/><text x="432" y="330" class="ui cell" font-weight="800" fill="#23745c">ADD TO TARGET</text><text x="610" y="330" class="ui cell">Related Comp.</text><text x="760" y="330" class="ui cell">modem</text><text x="1000" y="330" class="ui cell">Internet Plan -> Home Hub</text>
+  <rect x="338" y="362" width="18" height="18" rx="3" fill="#fff" stroke="#9ca9bd"/>
+  <rect x="410" y="357" width="130" height="28" rx="14" fill="#f0f2f6"/><text x="431" y="376" class="ui cell" font-weight="800" fill="#697589">ONLY IN TARGET</text><text x="610" y="376" class="ui cell">Product</text><text x="760" y="376" class="ui cell">LegacyPlan</text><text x="1000" y="376" class="ui cell">Legacy Internet Plan</text>
+
+  <rect x="315" y="441" width="1205" height="288" rx="14" fill="#fff" stroke="#cfe2db" stroke-width="2"/>
+  <text x="340" y="477" class="ui" font-size="19" font-weight="800">Deployment results  -  target migDev</text>
+  <rect x="340" y="495" width="95" height="29" rx="14" fill="#e7f8f1"/><text x="363" y="515" class="ui sm" font-weight="800" fill="#23745c">2 added</text><rect x="446" y="495" width="98" height="29" rx="14" fill="#f0f2f6"/><text x="468" y="515" class="ui sm" font-weight="800">0 deleted</text>
+  <rect x="340" y="545" width="1155" height="42" rx="9" fill="#effaf5"/><circle cx="364" cy="566" r="9" fill="#1aa77c"/><text x="384" y="571" class="ui b">Add Type  |  InternetPlan -> Gigabit Fibe 1.5</text>
+  <rect x="340" y="596" width="1155" height="42" rx="9" fill="#effaf5"/><circle cx="364" cy="617" r="9" fill="#1aa77c"/><text x="384" y="622" class="ui b">Add Port  |  modem -> Internet Plan -> Home Hub</text>
+  <text x="340" y="668" class="ui b">CML save and verification refresh</text><rect x="340" y="682" width="1155" height="31" rx="8" fill="#eef6ff"/><text x="356" y="703" class="ui sm" fill="#315f92">OK Target CML was restored unchanged and byte-verified. This does not compile, activate, or prove runtime behavior.</text>
+
+  <rect x="315" y="750" width="1205" height="50" rx="10" fill="#fff4e6" stroke="#e7c290"/><text x="338" y="780" class="ui sm" font-weight="750" fill="#8d5a1e">If a row fails: read the exact Salesforce error. 'Catalog dependency' means the referenced catalog record must be deployed outside this tool.</text>
+
+  <rect x="1060" y="812" width="460" height="50" rx="13" fill="#fff2ed" stroke="#ee9b79"/><text x="1081" y="842" class="call">3. Results show success or the exact error</text><path d="M1215 812C1180 760 1040 650 900 618" fill="none" stroke="#e65f40" stroke-width="3" marker-end="url(#a)"/>
+  <rect x="293" y="812" width="520" height="50" rx="13" fill="#fff2ed" stroke="#ee9b79"/><text x="315" y="842" class="call">2. Adds default on; deletes always require opt-in</text><path d="M555 812C540 660 460 424 347 373" fill="none" stroke="#e65f40" stroke-width="3" marker-end="url(#a)"/>
+  <rect x="1010" y="48" width="510" height="62" rx="14" fill="#fff2ed" stroke="#ee9b79"/><text x="1032" y="74" class="call">1. Review the count before confirming deployment</text><text x="1032" y="97" class="sub">The server repeats preflight immediately before every write.</text><path d="M1260 110L1370 140" fill="none" stroke="#e65f40" stroke-width="3" marker-end="url(#a)"/>
+</svg>

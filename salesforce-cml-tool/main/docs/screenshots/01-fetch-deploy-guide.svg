@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f4f7ff"/><stop offset="1" stop-color="#eefcf8"/></linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#6558e8"/><stop offset="1" stop-color="#13a89e"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="8" stdDeviation="12" flood-opacity=".12"/></filter>
+    <marker id="arrow" markerWidth="14" markerHeight="14" refX="11" refY="7" orient="auto"><path d="M0 0L14 7L0 14Z" fill="#2463eb"/></marker>
+    <style>
+      .ui{font-family:Inter,Arial,sans-serif;fill:#1c2742}.muted{fill:#71809d}.small{font-size:14px}.label{font-size:13px;font-weight:700;fill:#52617c}.title{font-size:25px;font-weight:800}.nav{font-size:16px;font-weight:650}.btn{font-size:15px;font-weight:750;fill:white}.code{font-family:ui-monospace,SFMono-Regular,monospace;font-size:14px;fill:#34415e}.call{font-family:Inter,Arial,sans-serif;font-size:17px;font-weight:800;fill:#173f9b}.callsub{font-family:Inter,Arial,sans-serif;font-size:14px;fill:#315aa9}
+    </style>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <rect x="42" y="35" width="1516" height="820" rx="24" fill="#fff" filter="url(#shadow)"/>
+  <rect x="42" y="35" width="245" height="820" rx="24" fill="#111a33"/>
+  <text x="76" y="86" font-family="Inter,Arial" font-size="22" font-weight="850" fill="white">CML Studio</text>
+  <text x="76" y="112" font-family="Inter,Arial" font-size="12" fill="#99a8c8">SALESFORCE REVENUE CLOUD</text>
+  <rect x="62" y="153" width="205" height="48" rx="12" fill="#6658e8"/><text x="87" y="183" class="nav" fill="white">v  Fetch &amp; Deploy</text>
+  <text x="87" y="241" class="nav" fill="#aeb9d1">&lt;-&gt;  Compare</text>
+  <text x="87" y="294" class="nav" fill="#aeb9d1">OK  Best Practices</text>
+  <text x="87" y="347" class="nav" fill="#aeb9d1">#  Constraint Data</text>
+  <text x="87" y="400" font-family="Inter,Arial" font-size="16" fill="#aeb9d1">?  Guide Me on Tool</text>
+  <text x="76" y="814" font-family="Inter,Arial" font-size="13" fill="#8f9dbc">Made with =&lt;3 by Mritunjaya Pancholi</text>
+
+  <rect x="287" y="35" width="1271" height="75" rx="24" fill="#fff"/>
+  <text x="330" y="74" class="ui title">Fetch &amp; Deploy</text>
+  <text x="330" y="96" class="ui muted small">Select a model, fetch editable CML, then deploy to an authorized org.</text>
+  <rect x="1416" y="56" width="103" height="34" rx="17" fill="#f0f3fa"/><text x="1438" y="78" class="ui small">Night mode</text>
+
+  <text x="330" y="126" class="ui label">SOURCE ORG</text>
+  <rect x="330" y="133" width="570" height="36" rx="10" fill="#f7f9fd" stroke="#cfd7e6"/>
+  <circle cx="353" cy="151" r="6" fill="#27b58a"/><text x="370" y="157" class="ui" font-size="15">tigerDev</text><text x="874" y="157" class="ui">v</text>
+  <text x="928" y="126" class="ui label">TARGET ORG (COMPARE-WITH)</text>
+  <rect x="928" y="133" width="589" height="36" rx="10" fill="#f7f9fd" stroke="#cfd7e6"/>
+  <circle cx="951" cy="151" r="6" fill="#4f8ee9"/><text x="968" y="157" class="ui" font-size="15">migDev</text><text x="1491" y="157" class="ui">v</text>
+  <text x="330" y="187" class="ui label">SOURCE CML EXACT VERSION</text>
+  <rect x="330" y="194" width="570" height="36" rx="10" fill="#eef0ff" stroke="#766ae9" stroke-width="2"/>
+  <text x="350" y="217" class="ui" font-size="14" font-weight="750">PCM_Constraint_Model · V1 · Source Runtime: Active</text>
+  <text x="928" y="187" class="ui label">TARGET EXACT VERSION (COMPARE-WITH)</text>
+  <rect x="928" y="194" width="589" height="36" rx="10" fill="#f7f9fd" stroke="#cfd7e6"/>
+  <text x="948" y="217" class="ui" font-size="14" font-weight="750">PCM_Constraint_Model · V1 · Target Runtime: Inactive</text>
+
+  <rect x="330" y="238" width="1187" height="514" rx="16" fill="#fff" stroke="#dbe1ec"/>
+  <rect x="358" y="255" width="31" height="31" rx="10" fill="#2463eb"/><text x="370" y="277" font-family="Inter,Arial" font-size="15" font-weight="800" fill="white">1</text>
+  <text x="402" y="277" class="ui title" font-size="21">CML Editor</text>
+  <text x="402" y="299" class="ui muted small">Fetch the selected source version, then review the exact content.</text>
+  <rect x="1210" y="251" width="175" height="44" rx="10" fill="#2463eb"/><text x="1244" y="279" class="btn">Fetch CML</text>
+  <rect x="1397" y="257" width="88" height="36" rx="9" fill="#fff" stroke="#ccd5e5"/><text x="1421" y="280" class="ui small" font-weight="700">Copy</text>
+  <rect x="358" y="320" width="1127" height="336" rx="11" fill="#10182d"/>
+  <rect x="358" y="320" width="48" height="336" rx="11" fill="#18223b"/>
+  <text x="377" y="354" class="code" fill="#7183a5">1</text><text x="424" y="354" class="code" fill="#b9c5e1">type LineItem {</text>
+  <text x="377" y="382" class="code" fill="#7183a5">2</text><text x="446" y="382" class="code" fill="#75d7c8">relation</text><text x="513" y="382" class="code" fill="#dce5fa"> product : ProductClassification;</text>
+  <text x="377" y="410" class="code" fill="#7183a5">3</text><text x="446" y="410" class="code" fill="#75d7c8">string</text><text x="498" y="410" class="code" fill="#dce5fa"> ActionType;</text>
+  <text x="377" y="438" class="code" fill="#7183a5">4</text><text x="424" y="438" class="code" fill="#b9c5e1">}</text>
+  <text x="377" y="482" class="code" fill="#7183a5">6</text><text x="424" y="482" class="code" fill="#b9c5e1">type ProductClassification : LineItem;</text>
+  <text x="377" y="526" class="code" fill="#7183a5">8</text><text x="424" y="526" class="code" fill="#b9c5e1">constraint(Product_guard) {</text>
+  <text x="377" y="554" class="code" fill="#7183a5">9</text><text x="446" y="554" class="code" fill="#f1b66c">ActionType</text><text x="527" y="554" class="code" fill="#dce5fa"> != "Cancel"</text>
+  <text x="377" y="582" class="code" fill="#7183a5">10</text><text x="424" y="582" class="code" fill="#b9c5e1">}</text>
+  <rect x="358" y="680" width="148" height="48" rx="10" fill="#eef3ff" stroke="#9db8f5"/><text x="378" y="710" class="ui small" font-weight="750" fill="#2455b5">Review exact CML</text>
+  <text x="536" y="694" class="ui label">DEPLOY TO ORG</text><rect x="536" y="702" width="180" height="42" rx="9" fill="#f7f9fd" stroke="#ccd5e5"/><text x="558" y="728" class="ui">migDev  v</text>
+  <text x="735" y="694" class="ui label">TARGET EXACT VERSION</text><rect x="735" y="702" width="350" height="42" rx="9" fill="#f7f9fd" stroke="#ccd5e5"/><text x="753" y="728" class="ui small">PCM_Constraint_Model · V1 · Runtime: Inactive</text>
+  <rect x="1103" y="696" width="155" height="48" rx="10" fill="#14a77d"/><text x="1128" y="726" class="btn">Deploy CML</text>
+  <rect x="1276" y="696" width="209" height="48" rx="10" fill="#eaf9f3"/><circle cx="1298" cy="720" r="8" fill="#20aa7f"/><text x="1317" y="725" class="ui small" fill="#20745f">Confirmation required</text>
+
+  <rect x="1088" y="116" width="432" height="76" rx="14" fill="#eef4ff" stroke="#7aa2f7" stroke-width="2"/><text x="1108" y="143" class="call">2. Fetch from the Step 1 header</text><text x="1108" y="166" class="callsub">The action now stays beside the CML Editor heading.</text>
+  <path d="M1320 192C1320 212 1302 228 1292 251" fill="none" stroke="#2463eb" stroke-width="4" marker-end="url(#arrow)"/>
+  <rect x="1056" y="775" width="464" height="78" rx="14" fill="#eef4ff" stroke="#7aa2f7" stroke-width="2"/><text x="1077" y="803" class="call">4. Select the target exact version and deploy</text><text x="1077" y="827" class="callsub">Target status is separate from source status; confirmation is required.</text>
+  <path d="M1160 775C1155 760 1160 746 1176 730" fill="none" stroke="#2463eb" stroke-width="4" marker-end="url(#arrow)"/>
+  <rect x="72" y="410" width="245" height="95" rx="14" fill="#eef4ff" stroke="#7aa2f7" stroke-width="2"/><text x="92" y="438" class="call">3. Review and edit</text><text x="92" y="462" class="callsub">The editor contains the exact CML</text><text x="92" y="484" class="callsub">that will be deployed.</text>
+  <path d="M317 454L390 454" fill="none" stroke="#2463eb" stroke-width="4" marker-end="url(#arrow)"/>
+  <rect x="330" y="775" width="520" height="78" rx="14" fill="#eef4ff" stroke="#7aa2f7" stroke-width="2"/><text x="351" y="803" class="call">1. Choose the source org and exact CML version</text><text x="351" y="827" class="callsub">Source Runtime status is labeled explicitly and may differ by org.</text>
+  <path d="M660 775C700 660 748 350 780 212" fill="none" stroke="#2463eb" stroke-width="4" marker-end="url(#arrow)"/>
+</svg>
