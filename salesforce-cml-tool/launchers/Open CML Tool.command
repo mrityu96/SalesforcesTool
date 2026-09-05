@@ -10,7 +10,8 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-cd "$PROJECT_ROOT" || exit 1
+LOG_DIR="${PROJECT_ROOT}/development/runtime/logs"
+cd "${PROJECT_ROOT}/main" || exit 1
 
 PORT="${CML_UI_PORT:-8787}"
 URL="http://127.0.0.1:${PORT}/"
@@ -51,9 +52,9 @@ if echo "$RUNNING_PING" | grep -q "cml-tool"; then
 fi
 
 # 3) Start the server in the background so it survives this window closing.
-mkdir -p logs
+mkdir -p "$LOG_DIR"
 echo "Starting CML Tool…"
-nohup "$PY" app/cml_tool.py --no-browser > logs/cml-ui.log 2>&1 &
+nohup "$PY" app/cml_tool.py --no-browser > "${LOG_DIR}/cml-ui.log" 2>&1 &
 disown 2>/dev/null
 
 # 4) Wait until it is ready, then open the browser.
@@ -72,6 +73,6 @@ done
 # 5) It did not start — show why.
 echo ""
 echo "ERROR: The CML Tool did not start within 20 seconds."
-echo "----- last lines of logs/cml-ui.log -----"
-tail -n 25 logs/cml-ui.log 2>/dev/null
+echo "----- last lines of development/runtime/logs/cml-ui.log -----"
+tail -n 25 "${LOG_DIR}/cml-ui.log" 2>/dev/null
 pause_and_exit 1
