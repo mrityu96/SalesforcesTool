@@ -14,21 +14,29 @@ It has five views and does six main jobs:
 | **Deploy** | Push CML (fetched or pasted) to an exact, explicitly selected target version — with ownership checks and a confirmation prompt so nothing happens by accident. Active versions are read-only in the tool. |
 | **Compare** | Select exact source and target versions, fetch both, and show a synced, line-numbered, side-by-side diff. Semantic mode overlays entity-level `Moved`, `Added`, `Removed`, `Modified`, and `Ambiguous` findings without replacing either pane. Source changes can be applied to a guarded target draft before deployment. |
 | **Check best practices** | Scan the CML in the editor against a built-in catalog of CML anti-patterns and recommended patterns, and get a **line-numbered report** with a quality score and a suggested fix for each finding. |
-| **Constraint Data Deploy** | View, compare, and **deploy** the **Product associations** behind a CML (`ExpressionSetConstraintObj` records), matched across orgs by a **foreign key you choose** (default `Global_Key__c`) instead of by record Id. Pick exactly which rows to add or delete with checkboxes. |
+| **Constraint Data Deploy** | View, compare, and **deploy** the **Product associations** behind a CML (`ExpressionSetConstraintObj` records), matched across orgs by a **foreign key you choose** instead of by record Id. Candidate fields are discovered from the selected orgs; pick exactly which rows to add or delete with checkboxes. |
 | **Guide Me on Tool** | Follow a static eight-step workflow that distinguishes read-only actions from Salesforce writes and explains deployment/recovery boundaries. Opening it makes no API request. |
 
 You select everything from dropdowns and lists, so there are **no typos** in org
-names or model API names.
+names or model API names. The connection strip also displays the Salesforce
+Org ID for the selected source and compare-target aliases.
+
+The full-width interface uses a blurred-glass header with one floating top
+navigation island, compact source/target workspaces, a sky-blue atmospheric
+gradient with layered mountain silhouettes, luminous dark-mode icons, and
+semantic status styling. The retired left sidebar is no longer part of the
+application.
 
 ## Guided UI walkthrough
 
-The screenshots below use **synthetic org, model, product, and key values**. No
-customer or production data is shown. Numbered arrows explain which control to
-use and what the status messages mean.
+The screenshots below are captures of the **current application interface**
+using synthetic org, model, product, and key values. No customer or production
+data is shown. Light and night views are both included to demonstrate the
+current visual theme.
 
 ### 1. Fetch, edit, and deploy CML
 
-![Annotated Fetch and Deploy screen](main/docs/screenshots/01-fetch-deploy-guide.svg)
+![Current Fetch and Deploy screen](main/docs/screenshots/01-fetch-deploy-latest.png)
 
 1. Choose the source org and exact source CML version. After selection, the
    model picker collapses so another version cannot be selected accidentally.
@@ -44,7 +52,7 @@ use and what the status messages mean.
 
 ### 2. Compare exact text or compare by meaning
 
-![Annotated semantic comparison screen](main/docs/screenshots/02-semantic-compare-guide.svg)
+![Current semantic comparison screen in night mode](main/docs/screenshots/02-semantic-compare-latest.png)
 
 1. The source is shown on the left and the target on the right.
 2. Turn on **Semantic** to ignore formatting, comments, and moved blocks. Leave
@@ -54,7 +62,7 @@ use and what the status messages mean.
 
 ### 3. Understand and correct best-practice findings
 
-![Annotated Best Practices report](main/docs/screenshots/03-best-practices-guide.svg)
+![Current Best Practices report](main/docs/screenshots/03-best-practices-latest.png)
 
 1. The quality score is maintainability guidance, not an activation result.
 2. Each finding explains the problem in plain language and points to its line.
@@ -63,7 +71,7 @@ use and what the status messages mean.
 
 ### 4. Diagnose missing catalog dependencies safely
 
-![Annotated catalog dependency preflight](main/docs/screenshots/04-constraint-preflight-guide.svg)
+![Current catalog dependency preflight in night mode](main/docs/screenshots/04-constraint-preflight-latest.png)
 
 1. A matched `ExpressionSetConstraintObj` can still be blocked when its
    classification, products, attributes, component group, or relationship is
@@ -75,7 +83,7 @@ use and what the status messages mean.
 
 ### 5. Select and deploy valid CML associations
 
-![Annotated association deployment results](main/docs/screenshots/05-association-deploy-results-guide.svg)
+![Current association deployment results in night mode](main/docs/screenshots/05-association-deploy-results-latest.png)
 
 1. Review the add/delete count before confirming. The server repeats dependency
    preflight immediately before writing.
@@ -96,7 +104,7 @@ exact deployment targeting, confirmed CML deployment, dependency-preflighted
 association deployment, and recovery. The guide makes read-only and Salesforce
 write actions visually distinct and opening it sends no API request.
 
-![Annotated Guide Me on Tool walkthrough](main/docs/screenshots/06-guide-me-on-tool.svg)
+![Current Guide Me on Tool walkthrough](main/docs/screenshots/06-guide-me-latest.png)
 
 ## Why it's safe
 
@@ -214,7 +222,7 @@ version selection; a stale browser selection is not accepted.
 3. Click **Compare source ↔ target**. The tool fetches the CML from both orgs
    and shows a two-pane diff: **source on the left, target on the right.**
 
-See the annotated [semantic comparison screenshot](main/docs/screenshots/02-semantic-compare-guide.svg).
+See the current [semantic comparison screenshot](main/docs/screenshots/02-semantic-compare-latest.png).
 
 The diff is built to be **colorblind-friendly** — it uses an orange / blue /
 purple palette plus text markers (`−`, `+`, `~`) so differences are clear
@@ -263,8 +271,8 @@ Toggle **Night / Day mode** any time with the button in the top-right.
 
 ### Optional project support
 
-The fixed navigation includes **Donate** above **About**. Clicking it reveals
-hidden **UPI** and **Razorpay** options. UPI displays a packaged payment QR,
+The compact header keeps **Donate** and **About** beside the Salesforce/CML
+branding. Clicking Donate reveals hidden **UPI** and **Razorpay** options. UPI displays a packaged payment QR,
 provides a generic UPI link, and allows desktop users to copy the UPI ID.
 Razorpay opens the verified hosted payment page in a separate browser tab.
 Payment is voluntary and does not purchase support, features, priority service,
@@ -272,7 +280,7 @@ or warranty. The tool does not publish bank account or IFSC details.
 
 ### Check best practices (CML linter)
 
-See the annotated [Best Practices screenshot](main/docs/screenshots/03-best-practices-guide.svg).
+See the current [Best Practices screenshot](main/docs/screenshots/03-best-practices-latest.png).
 
 Click **Check best practices** (above the editor) to scan the CML currently in
 the box — fetched or pasted — against a built-in catalog of CML anti-patterns
@@ -362,10 +370,14 @@ parent through
 
 #### Choose your foreign key
 
-- There's a **"Match records by (foreign key field)"** box. It defaults to
-  **`Global_Key__c`**, but you can type **any field API name** your org uses as a
-  stable cross-org identifier (e.g. an external Id, `ProductCode`,
-  `StockKeepingUnit`, or `Name` where the referenced object actually exposes it).
+- The **"Match records by (foreign key field)"** searchable dropdown is
+  initially empty. Its suggestions are loaded from live Salesforce object descriptions for the
+  selected source and target orgs. A field such as `Global_Key__c` is shown only
+  when it actually exists on the same supported reference-object type in every
+  selected org. You can still type another valid field API name manually.
+- `Name` is supported. Its value must be populated and correspond across both
+  orgs; duplicate target matches are blocked as ambiguous. Prefer a stable,
+  unique external ID when one is available.
 - The field only needs to exist on the reference objects you actually use. The
   tool checks each ESCO target (**Product2, ProductClassification,
   ProductRelatedComponent**) and uses the key only where
@@ -381,7 +393,7 @@ parent through
   linked record's name, and your chosen key value (the last column is labelled
   with the field you picked).
 
-See the annotated [constraint dependency preflight screenshot](main/docs/screenshots/04-constraint-preflight-guide.svg).
+See the current [constraint dependency preflight screenshot](main/docs/screenshots/04-constraint-preflight-latest.png).
 
 #### Step 2 — Compare source ↔ target
 
@@ -402,7 +414,7 @@ See the annotated [constraint dependency preflight screenshot](main/docs/screens
 | **Needs review — dependency key missing** | A related source Product or classification attribute has no value in the selected foreign-key field, so the tool cannot prove whether its target counterpart exists. This is an incomplete comparison, not proof that data is missing. |
 | **Blocked — ambiguous key** | The selected portable key matches more than one target record. Comparison blocks the row before selection and deployment repeats the check immediately before DML. Make the key unique in the target, then compare again. |
 | **Blocked — catalog dependency** | A required catalog record, relationship, product-to-classification assignment, or classification attribute is missing or ambiguous. Deploy that catalog data through its normal process, then compare again. |
-| **No \<key field\>** | The linked record has no value for your key field, so it **can't be matched** across orgs. |
+| **\<key field\> is blank** | The linked record has no value for your key field, so it **can't be matched** across orgs. |
 
 - Use the **Show** filter to focus on matched / to-add / extra / blocked /
   duplicate rows.
@@ -410,7 +422,7 @@ See the annotated [constraint dependency preflight screenshot](main/docs/screens
   reference IDs in the comparison response. This provides auditable evidence
   that equal portable identities matched even when Salesforce IDs differ.
 
-The annotated preflight screenshot above demonstrates matched associations that
+The preflight screenshot above demonstrates matched associations that
 are still blocked by deeper catalog dependencies.
 
 #### Spotting duplicates
@@ -419,10 +431,10 @@ Every row is checked for data-hygiene problems and tagged with a yellow badge:
 
 | Badge | Meaning |
 |---|---|
-| **Exact duplicate** | Same tag type + tag + reference + `Global_Key__c` appears more than once — truly redundant. |
+| **Exact duplicate** | Same tag type + tag + reference + selected key value appears more than once — truly redundant. |
 | **Duplicate tag** | The same tag type + tag is used by more than one association for a tag that exists in the exact CML selected by the user. The check stays inside that version's resolved parent Expression Set. |
 | **Duplicate reference** | The same record is linked by more than one row. |
-| **Ambiguous name** | One reference *name* maps to more than one `Global_Key__c` — a cross-org mapping hazard. |
+| **Ambiguous name** | One reference *name* maps to more than one selected key value — a cross-org mapping hazard. |
 
 - Pick **Duplicates only** in the Show filter to review them all at once.
 - Duplicate checks are performed independently for the exact selected source
@@ -459,7 +471,7 @@ Then:
 - A confirmation dialog spells out exactly how many rows will be **added** and
   **deleted**, and the production safety prompt requires the exact target alias.
 
-See the annotated [association deployment results screenshot](main/docs/screenshots/05-association-deploy-results-guide.svg).
+See the current [association deployment results screenshot](main/docs/screenshots/05-association-deploy-results-latest.png).
 
 - Each row is processed **individually** (`allOrNone=false`) — one failure never
   blocks the rest. Mixed results are clearly labelled **Partial deployment**.
@@ -523,7 +535,7 @@ salesforce-cml-tool/
 │   ├── donate/                # Packaged donation assets
 │   └── LICENSE
 └── development/               # Entire directory is ignored by Git
-    ├── tests/                 # 108 Python and 8 browser tests
+    ├── tests/                 # 112 Python and 11 browser tests
     ├── package.json
     ├── package-lock.json
     ├── playwright.config.js
@@ -629,10 +641,11 @@ the UI rather than treating the local server as a public integration API.
   or cloud analysis service is used for this operation.
 - **Constraint Data** queries `ExpressionSetConstraintObj` for the selected model
   and resolves each polymorphic `ReferenceObjectId` to its object type + your
-  chosen **foreign key field** (default `Global_Key__c`) via a single SOQL
+  chosen **foreign key field** via a single SOQL
   `TYPEOF` query. The key field is **validated** (plain identifier only, to keep
-  SOQL safe) and **probed per object**, so it's included only on the reference
-  objects that actually have it. Rows are matched across orgs on
+  SOQL safe), discovered through live object descriptions, and probed per
+  object, so it's included only on the reference objects that actually have it.
+  Rows are matched across orgs on
   `tag type + tag + reference type + <key value>`, and source-only rows are
   checked against the target to see whether their linked record already exists
   there.
@@ -645,7 +658,7 @@ the UI rather than treating the local server as a public integration API.
   `ExpressionSet.ExpressionSetDefinition.DeveloperName` as readable scope
   verification. A mismatch fails closed.
 - **Deploying constraint data** re-resolves each selected row in the target —
-  the model's Expression Set, and each reference record by `Global_Key__c` — then
+  the model's Expression Set, and each reference record by the selected key — then
   inserts/deletes via the REST **sObject Collections** API with `allOrNone=false`
   so results are reported per row. Inserts only ever set the four required fields
   (`ExpressionSetId`, `ReferenceObjectId`, `ConstraintModelTag`,
@@ -691,7 +704,7 @@ quoted comment-like text, declarations, annotations, inheritance, variable
 domains, relation cardinality and bodies, expression completeness,
 malformed-input recovery, synchronized editor line numbers, semantic merge
 controls, static Guide navigation, and zero-request Guide behavior.
-The verified suite currently contains **108 Python tests plus 8 browser tests**.
+The verified suite currently contains **112 Python tests plus 11 browser tests**.
 
 ### Browser regression tests
 
@@ -789,7 +802,7 @@ Each user must authorize their own orgs, in their own login session:
 sf org list                          # confirm what THIS user can see
 sf org login web --alias myOrg       # repeat for each org
 ```
-Then click **Reload list** — the dropdown fills automatically.
+Then refresh the CML Tool — the dropdown fills automatically.
 
 To see exactly what the tool detects (sf path, OS user, and how many saved
 logins exist), open `http://127.0.0.1:8787/api/debug` while the tool is running.
