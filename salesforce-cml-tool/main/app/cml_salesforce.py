@@ -111,6 +111,7 @@ def sf_run(args, repo_root, locate=find_sf, **kwargs):
     argv = [executable] + list(args)
     if os.name == "nt" and executable.lower().endswith((".cmd", ".bat")):
         argv = [os.environ.get("COMSPEC", "cmd.exe"), "/c"] + argv
+    process_env = kwargs.pop("env", None) or environment()
     return subprocess.run(
         argv,
         capture_output=True,
@@ -118,7 +119,7 @@ def sf_run(args, repo_root, locate=find_sf, **kwargs):
         encoding="utf-8",
         errors="replace",
         cwd=repo_root,
-        env=environment(),
+        env=process_env,
         timeout=CMD_TIMEOUT,
         **kwargs,
     )
@@ -170,7 +171,7 @@ def auth_help(org, raw):
         f"Salesforce rejected the saved login for '{org}'.\n"
         f"Details: {raw}\n\n"
         "This almost always means the org's saved session has expired or was "
-        "revoked. Re-authenticate in a terminal, then click “Reload list”:\n"
+        "revoked. Re-authenticate in a terminal, then refresh the CML Tool:\n"
         f"    sf org login web --target-org {org}\n\n"
         "If it still fails, log out and back in, then reload:\n"
         f"    sf org logout --no-prompt --target-org {org}\n"
