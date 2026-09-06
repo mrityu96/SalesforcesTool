@@ -17,32 +17,61 @@ PAGE = r"""<!DOCTYPE html>
 <style>
   :root {
     color-scheme: light;
-    --bg:#f7f8fc; --panel:#ffffff; --gutter:#f0f3fa; --input-bg:#fbfcff;
-    --line:#dce2ef; --text:#172033; --muted:#667085; --gutter-text:#8490a6; --comment:#9aa4b5;
-    --accent:#3b82f6; --accent-strong:#06b6d4; --green:#22c55e; --red:#ef4444;
-    --purple:#8b5cf6; --amber:#f59e0b; --teal:#06b6d4; --on-accent:#ffffff;
-    --radius:18px;
+    --surface-page:#f4f7fb; --surface-card:#ffffff; --surface-subtle:#f8fafc;
+    --surface-hover:#f1f5f9; --surface-control:#ffffff; --surface-nav:rgba(255,255,255,.82);
+    --border:#d9e2ec; --border-strong:#c7d2e0;
+    --text-primary:#172033; --text-secondary:#5b6b82; --text-muted:#7b889a;
+    --color-primary:#2563eb; --color-primary-hover:#1d4ed8; --color-primary-soft:#eff6ff;
+    --color-primary-border:#bfdbfe; --color-accent:#06b6d4; --color-accent-soft:#ecfeff;
+    --color-success:#059669; --color-success-soft:#ecfdf5;
+    --color-warning:#d97706; --color-warning-soft:#fff7ed;
+    --color-danger:#dc2626; --color-danger-soft:#fef2f2;
+    --radius-control:10px; --radius-card:16px; --radius-pill:999px;
+    --focus-ring:0 0 0 3px #dbeafe;
+    --shadow-card:0 4px 18px rgba(23,32,51,.06);
+    --shadow-floating:0 8px 28px rgba(23,32,51,.10);
+    --bg:var(--surface-page); --panel:var(--surface-card); --gutter:var(--surface-subtle);
+    --input-bg:var(--surface-control); --line:var(--border); --text:var(--text-primary);
+    --muted:var(--text-secondary); --gutter-text:var(--text-muted); --comment:#8b98aa;
+    --accent:var(--color-primary); --accent-strong:var(--color-accent);
+    --green:var(--color-success); --red:var(--color-danger); --purple:#7c3aed;
+    --amber:var(--color-warning); --teal:var(--color-accent); --on-accent:#ffffff;
+    --radius:var(--radius-card);
     --ok-bg:color-mix(in srgb,var(--green) 11%,var(--panel)); --ok-text:#08734f;
     --err-bg:color-mix(in srgb,var(--red) 10%,var(--panel)); --err-text:#b4233f;
-    --info-bg:color-mix(in srgb,var(--accent) 9%,var(--panel)); --info-text:#3f40bd;
+    --info-bg:var(--color-primary-soft); --info-text:#1e40af;
     --teal-bg:color-mix(in srgb,var(--teal) 10%,var(--panel)); --teal-text:#07657c;
     --chg-bg:color-mix(in srgb,var(--purple) 14%,var(--panel));
     --del-bg:color-mix(in srgb,var(--red) 12%,var(--panel));
     --ins-bg:color-mix(in srgb,var(--teal) 13%,var(--panel));
     --chg-line:var(--purple); --del-line:var(--red); --ins-line:var(--teal);
-    --shadow:0 16px 44px rgba(29,39,70,.08);
+    --shadow:var(--shadow-card);
   }
   html[data-theme="dark"] {
     color-scheme: dark;
-    --bg:#090e1a; --panel:#11182a; --gutter:#171f34; --input-bg:#0c1323;
-    --line:#303b57; --text:#f4f7ff; --muted:#b5bfd3; --gutter-text:#7f8ba5; --comment:#929db2;
-    --accent:#60a5fa; --accent-strong:#22d3ee; --green:#4ade80; --red:#f87171;
-    --purple:#a78bfa; --amber:#fbbf24; --teal:#22d3ee;
+    --surface-page:#08101f; --surface-card:#101a2d; --surface-subtle:#152137;
+    --surface-hover:#1b2942; --surface-control:#0c1628; --surface-nav:rgba(16,26,45,.86);
+    --border:#2d3b55; --border-strong:#40506c;
+    --text-primary:#f3f7ff; --text-secondary:#b5c0d3; --text-muted:#8290a8;
+    --color-primary:#60a5fa; --color-primary-hover:#93c5fd; --color-primary-soft:#12294a;
+    --color-primary-border:#315f91; --color-accent:#22d3ee; --color-accent-soft:#10303b;
+    --color-success:#34d399; --color-success-soft:#102d27;
+    --color-warning:#fbbf24; --color-warning-soft:#332712;
+    --color-danger:#fb7185; --color-danger-soft:#351822;
+    --focus-ring:0 0 0 3px rgba(96,165,250,.25);
+    --shadow-card:0 5px 22px rgba(0,0,0,.22);
+    --shadow-floating:0 12px 34px rgba(0,0,0,.38);
+    --bg:var(--surface-page); --panel:var(--surface-card); --gutter:var(--surface-subtle);
+    --input-bg:var(--surface-control); --line:var(--border); --text:var(--text-primary);
+    --muted:var(--text-secondary); --gutter-text:var(--text-muted); --comment:#929db2;
+    --accent:var(--color-primary); --accent-strong:var(--color-accent);
+    --green:var(--color-success); --red:var(--color-danger);
+    --purple:#a78bfa; --amber:var(--color-warning); --teal:var(--color-accent);
     --ok-bg:color-mix(in srgb,var(--green) 13%,var(--panel)); --ok-text:#a7f3d0;
     --err-bg:color-mix(in srgb,var(--red) 13%,var(--panel)); --err-text:#fecdd3;
     --info-bg:color-mix(in srgb,var(--accent) 13%,var(--panel)); --info-text:#d9dcff;
     --teal-bg:color-mix(in srgb,var(--teal) 12%,var(--panel)); --teal-text:#a5f3fc;
-    --shadow:0 20px 60px rgba(0,0,0,.30);
+    --shadow:var(--shadow-card);
   }
   * { box-sizing: border-box; }
   html,body { width:100%; height:100%; max-width:100%; overflow:hidden; }
@@ -50,49 +79,107 @@ PAGE = r"""<!DOCTYPE html>
     margin:0; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
     min-height:100vh;
     background:
-      radial-gradient(circle at 8% 0%,color-mix(in srgb,var(--accent) 8%,transparent),transparent 28rem),
-      radial-gradient(circle at 92% 5%,color-mix(in srgb,var(--teal) 7%,transparent),transparent 30rem),
-      var(--bg);
+      radial-gradient(900px 500px at 84% 2%,rgba(56,189,248,.24),transparent 64%),
+      radial-gradient(720px 460px at 8% 12%,rgba(96,165,250,.16),transparent 66%),
+      linear-gradient(180deg,#dff2ff 0%,#eaf7ff 46%,#d8edf9 100%);
     color:var(--text); line-height:1.5;
     transition:background-color .2s ease,color .2s ease;
   }
+  html[data-theme="dark"] body {
+    background:
+      radial-gradient(900px 500px at 84% 2%,rgba(14,165,233,.16),transparent 64%),
+      radial-gradient(720px 460px at 8% 12%,rgba(37,99,235,.12),transparent 66%),
+      linear-gradient(180deg,#071a33 0%,#0a203d 48%,#071426 100%);
+  }
+  body::before,body::after { content:""; position:fixed; left:-5%; right:-5%;
+    pointer-events:none; z-index:0; }
+  body::before { top:0; height:222px; filter:blur(5px); transform:scale(1.02);
+    transform-origin:center top;
+    background:linear-gradient(180deg,rgba(186,230,253,.32),rgba(96,165,250,.19));
+    clip-path:polygon(0 100%,0 80%,7% 72%,14% 55%,21% 69%,30% 39%,39% 65%,49% 46%,58% 68%,68% 35%,77% 61%,87% 31%,94% 52%,100% 43%,100% 100%); }
+  body::after {
+    bottom:-3%; height:clamp(140px,20vh,200px);
+    background:linear-gradient(165deg,rgba(100,116,139,.13),rgba(56,189,248,.09));
+    clip-path:polygon(0 84%,8% 67%,16% 79%,25% 56%,34% 76%,43% 62%,52% 82%,62% 55%,71% 75%,80% 49%,89% 72%,100% 57%,100% 100%,0 100%); }
+  html[data-theme="dark"] body::after {
+    background:linear-gradient(165deg,rgba(71,85,105,.22),rgba(14,116,144,.13)); }
+  html[data-theme="dark"] body::before {
+    filter:blur(6px);
+    background:linear-gradient(180deg,rgba(31,91,153,.62),rgba(8,42,84,.38)); }
   button,input,select,textarea { font:inherit; }
   [hidden] { display:none !important; }
+  .sr-only { position:absolute !important; width:1px !important; height:1px !important; padding:0 !important;
+    margin:-1px !important; overflow:hidden !important; clip:rect(0,0,0,0) !important;
+    white-space:nowrap !important; border:0 !important; }
 
-  /* ── App shell ────────────────────────────────────────────────── */
-  .app-shell { height:100vh; min-height:0; display:grid; grid-template-columns:244px minmax(0,1fr); overflow:hidden; }
-  .sidebar { position:relative; height:100vh; min-height:0; display:flex; flex-direction:column;
-    padding:22px 14px 16px; background:color-mix(in srgb,var(--panel) 92%,var(--bg));
-    border-right:1px solid var(--line); z-index:20; overflow-y:auto; }
-  .brand { display:flex; align-items:center; gap:11px; padding:0 8px 26px; color:var(--text); text-decoration:none; }
-  .brand-mark { width:36px; height:36px; flex:0 0 36px; display:grid; place-items:center; border-radius:12px;
+  /* ── App shell and compact header ─────────────────────────────── */
+  .app-shell { position:relative; z-index:1; height:100vh; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
+  .app-shell::before,.app-shell::after { content:""; position:fixed; left:-1%; right:-1%; bottom:-2px;
+    pointer-events:none; z-index:0; transform:translateZ(0); }
+  .app-shell::before { height:clamp(90px,16vh,160px); background:rgba(14,116,144,.14);
+    clip-path:polygon(0 100%,0 82%,1% 82%,2.2% 52%,3.4% 82%,5% 82%,6.6% 25%,8.2% 82%,11% 82%,12.3% 58%,13.6% 82%,17% 82%,18.8% 38%,20.6% 82%,24% 82%,25.3% 63%,26.6% 82%,31% 82%,32.7% 30%,34.4% 82%,39% 82%,40.4% 55%,41.8% 82%,47% 82%,48.8% 22%,50.6% 82%,56% 82%,57.4% 59%,58.8% 82%,64% 82%,65.8% 34%,67.6% 82%,73% 82%,74.4% 61%,75.8% 82%,81% 82%,82.8% 27%,84.6% 82%,89% 82%,90.5% 54%,92% 82%,96% 82%,97.4% 36%,98.8% 82%,100% 82%,100% 100%); }
+  .app-shell::after { height:clamp(74px,13vh,132px); background:rgba(15,92,112,.18);
+    clip-path:polygon(0 100%,0 88%,
+      2.2% 88%,3.1% 73%,2.8% 73%,3.6% 58%,3.3% 58%,4% 34%,4.7% 58%,4.4% 58%,5.2% 73%,4.9% 73%,5.8% 88%,
+      10.8% 88%,11.7% 72%,11.4% 72%,12.2% 57%,11.9% 57%,12.7% 40%,13.5% 57%,13.2% 57%,14% 72%,13.7% 72%,14.6% 88%,
+      20% 88%,21% 69%,20.6% 69%,21.6% 50%,21.2% 50%,22.1% 25%,23% 50%,22.6% 50%,23.6% 69%,23.2% 69%,24.2% 88%,
+      39% 88%,40% 71%,39.6% 71%,40.6% 54%,40.2% 54%,41.1% 32%,42% 54%,41.6% 54%,42.6% 71%,42.2% 71%,43.2% 88%,
+      61% 88%,62% 68%,61.6% 68%,62.6% 48%,62.2% 48%,63.1% 20%,64% 48%,63.6% 48%,64.6% 68%,64.2% 68%,65.2% 88%,
+      82% 88%,83% 70%,82.6% 70%,83.6% 52%,83.2% 52%,84.1% 29%,85% 52%,84.6% 52%,85.6% 70%,85.2% 70%,86.2% 88%,
+      93% 88%,94% 72%,93.6% 72%,94.6% 57%,94.2% 57%,95.1% 39%,96% 57%,95.6% 57%,96.6% 72%,96.2% 72%,97.2% 88%,
+      100% 88%,100% 100%); }
+  html[data-theme="dark"] .app-shell::before { background:rgba(14,116,144,.20); }
+  html[data-theme="dark"] .app-shell::after { background:rgba(8,70,88,.30); }
+  .app-header { min-height:76px; padding:10px clamp(16px,2.5vw,40px); display:grid;
+    grid-template-columns:minmax(370px,1fr) auto minmax(190px,1fr); align-items:center; gap:20px;
+    border-bottom:0; background:color-mix(in srgb,#e0f2fe 46%,transparent);
+    box-shadow:inset 0 -1px 0 rgba(255,255,255,.34),0 8px 30px rgba(30,64,175,.06);
+    backdrop-filter:blur(22px) saturate(145%); -webkit-backdrop-filter:blur(22px) saturate(145%); z-index:40; }
+  html[data-theme="dark"] .app-header { background:rgba(7,26,51,.46);
+    box-shadow:inset 0 -1px 0 rgba(125,211,252,.14),0 10px 34px rgba(0,0,0,.14); }
+  .brand-cluster { min-width:0; display:flex; align-items:center; gap:14px; }
+  .brand { display:flex; align-items:center; gap:10px; color:var(--text); text-decoration:none; min-width:0; }
+  .brand-mark { width:38px; height:38px; flex:0 0 38px; display:grid; place-items:center; border-radius:11px;
     background:linear-gradient(135deg,var(--accent),var(--accent-strong));
-    box-shadow:0 8px 22px color-mix(in srgb,var(--accent) 24%,transparent); }
+    box-shadow:0 7px 18px color-mix(in srgb,var(--accent) 22%,transparent); }
   .brand-mark svg { width:22px; fill:var(--on-accent); }
-  .brand strong,.brand small { display:block; line-height:1.2; }
-  .brand strong { font-size:13px; }
-  .brand small { margin-top:3px; color:var(--muted); font-size:11px; font-weight:600; }
-  .side-label { color:var(--muted); font-size:10px; font-weight:800; letter-spacing:.12em;
-    text-transform:uppercase; padding:0 12px 8px; }
-  .side-menu { display:grid; min-width:0; gap:5px; }
-  .side-nav { width:100%; border:0; display:flex; align-items:center; gap:10px; padding:10px 12px;
-    border-radius:12px; background:transparent; color:var(--muted); font-size:13px; font-weight:650;
-    text-align:left; cursor:pointer; transition:background .2s,color .2s,transform .2s; }
-  .side-nav:hover { color:var(--text); background:var(--gutter); transform:translateX(2px); }
-  .side-nav.active { color:var(--accent); background:color-mix(in srgb,var(--accent) 11%,var(--panel));
-    box-shadow:inset 3px 0 0 var(--accent); }
-  .nav-icon { width:21px; height:21px; display:grid; place-items:center; flex:0 0 21px; }
-  .nav-icon svg { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.8;
+  .brand-copy { min-width:0; line-height:1.12; }
+  .brand-copy strong,.credit { display:block; }
+  .brand-copy strong { font-size:15px; font-weight:780; line-height:1.1; white-space:nowrap; }
+  .credit { margin:4px 0 0; color:var(--text-muted); font-size:10.5px; line-height:1.15; white-space:nowrap; }
+  .credit .heart { width:11px; height:11px; vertical-align:-1px; fill:var(--accent); stroke:var(--accent);
+    stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .header-links { display:flex; align-items:center; gap:5px; margin-left:4px; }
+  .header-link { border:0; background:transparent; color:var(--text-secondary); padding:6px 5px;
+    display:inline-flex; align-items:center; gap:7px; font-size:14px; font-weight:650;
+    text-decoration:none; cursor:pointer; white-space:nowrap; }
+  .donate-link,.about-link,.donate-link span,.about-link span { font-size:14px; line-height:18px; }
+  .header-link svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.9;
     stroke-linecap:round; stroke-linejoin:round; }
-  .sidebar-footer { margin-top:auto; border-top:1px solid var(--line); padding-top:12px; }
-  .about-link { width:100%; border:0; display:flex; align-items:center; gap:10px; padding:10px 12px;
-    border-radius:12px; background:transparent; color:var(--muted); text-decoration:none; font-size:13px;
-    font-weight:650; cursor:pointer; transition:background .2s,color .2s,transform .2s; }
-  .about-link:hover { color:var(--text); background:var(--gutter); transform:translateX(2px); }
+  .about-link svg { color:#0ea5e9; }
+  .header-link:hover { color:var(--accent); }
+  .header-link + .header-link::before { content:"·"; color:var(--text-muted); margin-right:8px; }
+  .nav-island { min-width:0; min-height:50px; justify-self:center; padding:5px; border:1px solid color-mix(in srgb,var(--line) 72%,transparent);
+    border-radius:16px; background:var(--surface-nav); box-shadow:var(--shadow-floating);
+    backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }
+  .side-menu,.tabs { display:flex; align-items:center; gap:6px; min-width:0; margin:0; padding:0; }
+  .side-nav,.tab { width:auto; min-height:40px; border:0; display:flex; align-items:center; gap:8px; padding:9px 14px;
+    border-radius:10px; background:transparent; color:var(--text-secondary); font-size:13.5px;
+    font-weight:700; white-space:nowrap; cursor:pointer; transition:background .16s,color .16s,box-shadow .16s; }
+  .side-nav:hover,.tab:hover { color:var(--text); background:var(--color-primary-soft); }
+  .side-nav.active,.tab.active { color:#fff; background:linear-gradient(135deg,#3b82f6,#06b6d4);
+    box-shadow:0 5px 14px color-mix(in srgb,var(--accent) 25%,transparent); }
+  .nav-icon { width:19px; height:19px; display:grid; place-items:center; flex:0 0 19px; }
+  .nav-icon svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.9;
+    stroke-linecap:round; stroke-linejoin:round; }
+  .about-link { border:0; background:transparent; color:var(--text-muted); text-decoration:none;
+    font-size:14px; line-height:18px; font-weight:650; cursor:pointer; }
+  .about-link:hover { color:var(--accent); }
   .donate-link { color:var(--accent); }
-  .donate-wrap { width:100%; position:relative; }
-  .donate-options { display:grid; gap:5px; margin:3px 6px 8px 12px; padding-left:9px;
-    border-left:1px solid var(--line); }
+  .donate-wrap { position:relative; }
+  .donate-options { position:absolute; z-index:60; top:calc(100% + 8px); left:0; width:190px;
+    display:grid; gap:5px; padding:7px; border:1px solid var(--line); border-radius:12px;
+    background:var(--panel); box-shadow:var(--shadow-floating); }
   .donate-options[hidden] { display:none; }
   .donate-option { width:100%; display:flex; align-items:center; gap:9px; padding:8px 10px;
     border:1px solid transparent; border-radius:9px; background:transparent; color:var(--text);
@@ -103,7 +190,6 @@ PAGE = r"""<!DOCTYPE html>
     border:1px solid currentColor; border-radius:6px; font-size:8px; font-weight:900;
     letter-spacing:-.03em; }
   .razorpay-icon { font-size:14px; font-style:italic; }
-  .sidebar .credit { padding:10px 12px 0; margin:0; font-size:10px; line-height:1.5; color:var(--muted); }
   .donate-dialog { width:min(520px,calc(100vw - 28px)); max-width:100%; padding:0;
     border:1px solid var(--line); border-radius:18px; background:var(--panel);
     color:var(--text); }
@@ -120,59 +206,116 @@ PAGE = r"""<!DOCTYPE html>
   .upi-note { margin:10px 0 0; font-size:11px !important; }
 
   /* ── Main area ────────────────────────────────────────────────── */
-  .app-main { min-width:0; min-height:0; height:100vh; display:flex; flex-direction:column;
+  .app-main { position:relative; z-index:1; min-width:0; min-height:0; flex:1 1 auto; display:flex; flex-direction:column;
     overflow-y:auto; overflow-x:hidden; scrollbar-gutter:stable; }
-  .topbar { display:flex; align-items:center; justify-content:space-between; gap:20px;
-    padding:22px clamp(14px,2.2vw,36px) 18px; position:relative; overflow:hidden; min-height:100px; }
-  .topbar::after { content:""; position:absolute; right:-80px; top:-130px; width:420px; height:260px;
-    pointer-events:none; background:radial-gradient(circle,color-mix(in srgb,var(--teal) 18%,transparent),transparent 68%); }
-  .topbar > * { position:relative; z-index:1; }
+  .app-main::before,.app-main::after { content:""; position:absolute; top:-76px; left:-4%; right:-4%;
+    height:250px; pointer-events:none; z-index:0; transform:translateZ(0); }
+  .app-main::before {
+    background:linear-gradient(180deg,rgba(125,211,252,.22),rgba(59,130,246,.12));
+    filter:blur(3px);
+    clip-path:polygon(0 100%,0 88%,8% 74%,16% 81%,25% 57%,34% 77%,44% 48%,54% 78%,64% 59%,73% 80%,83% 45%,92% 70%,100% 55%,100% 100%); }
+  .app-main::after {
+    top:-60px; height:268px;
+    background:linear-gradient(180deg,rgba(56,189,248,.15),rgba(37,99,235,.09));
+    filter:blur(1.5px);
+    clip-path:polygon(0 100%,0 94%,7% 80%,15% 88%,23% 66%,31% 85%,40% 58%,49% 87%,58% 69%,67% 89%,76% 62%,85% 84%,93% 64%,100% 77%,100% 100%); }
+  html[data-theme="dark"] .app-main::before {
+    background:linear-gradient(180deg,rgba(20,78,138,.43),rgba(7,40,78,.34)); }
+  html[data-theme="dark"] .app-main::after {
+    background:linear-gradient(180deg,rgba(12,66,119,.42),rgba(5,31,63,.45)); }
+  .topbar,.wrap { position:relative; z-index:1; }
+  .topbar { display:flex; align-items:flex-end; justify-content:space-between; gap:20px;
+    padding:11px clamp(18px,1.7vw,24px) 10px; position:relative; min-height:48px; }
   .eyebrow { color:var(--muted); font-size:10px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; margin-bottom:4px; }
   h1 { font-size:clamp(22px,2vw,30px); letter-spacing:-.03em; margin:0 0 3px; }
   .sub { color:var(--muted); font-size:13px; margin:0; }
-  .top-actions { display:flex; align-items:center; gap:10px; flex-shrink:0; }
-  .local-badge { display:inline-flex; align-items:center; gap:7px; padding:8px 11px;
-    border:1px solid var(--line); border-radius:12px;
-    background:color-mix(in srgb,var(--panel) 88%,transparent); color:var(--muted); font-size:11px; font-weight:700; }
+  .top-actions { justify-self:end; display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-shrink:0; }
+  .local-badge { display:inline-flex; align-items:center; gap:7px; padding:6px 4px;
+    color:var(--text-secondary); font-size:10px; font-weight:700; white-space:nowrap; }
   .live-dot { width:7px; height:7px; border-radius:50%; background:var(--green);
     box-shadow:0 0 0 4px color-mix(in srgb,var(--green) 14%,transparent); }
-  .wrap { padding:0 clamp(14px,2.2vw,36px) 64px; }
-
-  /* ── Tabs ─────────────────────────────────────────────────────── */
-  .tabs { display:inline-flex; max-width:100%; gap:5px; background:var(--gutter); border:1px solid var(--line);
-    border-radius:14px; padding:5px; margin-bottom:18px; flex-wrap:wrap; }
-  .tab { border:none; background:transparent; color:var(--muted); font-weight:600; font-size:13px;
-    padding:8px 16px; border-radius:10px; cursor:pointer; transition:background .2s,color .2s; }
-  .tab:hover { background:color-mix(in srgb,var(--accent) 10%,transparent); color:var(--text); }
-  .tab.active { background:var(--accent); color:var(--on-accent);
-    box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 28%,transparent); }
+  .theme-toggle { min-width:0; padding:6px 8px; border-color:transparent; background:transparent; }
+  .theme-toggle svg { width:17px; height:17px; fill:none; stroke:currentColor; stroke-width:1.9;
+    stroke-linecap:round; stroke-linejoin:round; }
+  html[data-theme="dark"] .header-link svg,
+  html[data-theme="dark"] .nav-icon,
+  html[data-theme="dark"] .theme-toggle svg,
+  html[data-theme="dark"] .workspace-icon svg,
+  html[data-theme="dark"] .label-with-icon svg,
+  html[data-theme="dark"] .control-icon {
+    color:#7dd3fc;
+    filter:drop-shadow(0 0 5px rgba(56,189,248,.62)); }
+  html[data-theme="dark"] .side-nav.active .nav-icon { color:#e0f2fe;
+    filter:drop-shadow(0 0 6px rgba(125,211,252,.82)); }
+  .wrap { width:100%; padding:0 clamp(18px,1.7vw,24px) 64px; }
 
   /* ── Panels ───────────────────────────────────────────────────── */
   .view-panel { display:none; }
   .view-panel.active { display:block; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
-    padding:clamp(14px,1.5vw,24px); box-shadow:var(--shadow); margin-bottom:18px; }
+  .card { background:color-mix(in srgb,var(--panel) 94%,transparent); border:1px solid color-mix(in srgb,var(--line) 76%,transparent); border-radius:var(--radius);
+    padding:clamp(16px,1.5vw,24px); box-shadow:var(--shadow); margin-bottom:18px; }
   .card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px;
     padding-bottom:16px; margin-bottom:18px; border-bottom:1px solid var(--line); }
   .card-title { display:flex; align-items:flex-start; gap:11px; min-width:0; }
-  .step-dot { width:27px; height:27px; flex:0 0 27px; display:grid; place-items:center; border-radius:9px;
+  .step-dot { width:30px; height:30px; flex:0 0 30px; display:grid; place-items:center; border-radius:9px;
     background:linear-gradient(135deg,var(--accent),var(--accent-strong)); color:var(--on-accent);
     font-size:12px; font-weight:800; box-shadow:0 7px 16px color-mix(in srgb,var(--accent) 22%,transparent); }
-  .card-title h2 { margin:0; font-size:15px; letter-spacing:-.01em; }
-  .card-title p { margin:3px 0 0; color:var(--muted); font-size:12px; }
+  .card-title h2 { margin:0; font-size:18px; letter-spacing:-.015em; }
+  .card-title p { margin:3px 0 0; color:var(--muted); font-size:12.5px; }
 
   /* ── Connection strip ─────────────────────────────────────────── */
+  .connection-card { position:relative; z-index:30; padding:0; border:0; background:transparent; box-shadow:none; }
   .conn-strip { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr);
-    gap:14px; align-items:start; }
+    gap:12px; align-items:start; }
   .conn-strip > .field { max-width:100%; }
   .conn-strip > .reload-field { grid-column:1 / -1; justify-self:start; }
+  .org-workspace { min-width:0; display:flex; flex-direction:column; gap:8px; padding:14px;
+    border:1px solid color-mix(in srgb,var(--line) 76%,transparent); border-radius:var(--radius-card);
+    background:color-mix(in srgb,var(--panel) 94%,transparent); box-shadow:var(--shadow-card);
+    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); }
+  .org-workspace:has(.version-picker.open),.org-workspace:has(.org-picker.open) { z-index:2; }
+  .workspace-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .workspace-title { min-width:0; display:flex; align-items:center; gap:9px; }
+  .workspace-icon { width:36px; height:36px; flex:0 0 36px; display:grid; place-items:center;
+    border-radius:10px; color:var(--accent); background:var(--color-primary-soft); }
+  .target-workspace .workspace-icon { color:var(--purple); background:color-mix(in srgb,var(--purple) 10%,var(--panel)); }
+  .workspace-icon svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.9; }
+  .workspace-title strong { display:block; font-size:16px; line-height:1.25; letter-spacing:-.01em; text-transform:none; }
+  .workspace-title span { display:block; color:var(--text-muted); font-size:11px; }
+  .workspace-org-id { flex:none; color:var(--text-secondary); font:500 12px "JetBrains Mono",ui-monospace,monospace; }
   .field { min-width:0; max-width:100%; }
-  label { display:block; font-size:11px; color:var(--muted); margin-bottom:5px;
-    text-transform:uppercase; letter-spacing:.05em; font-weight:700; }
+  label { display:block; font-size:11px; color:var(--text-secondary); margin-bottom:6px;
+    text-transform:uppercase; letter-spacing:.055em; font-weight:750; }
+  .label-with-icon { display:flex; align-items:center; gap:6px; }
+  .label-with-icon svg,.control-icon { width:16px; height:16px; flex:none; fill:none;
+    stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
   select,input { width:100%; background:var(--input-bg); color:var(--text); border:1px solid var(--line);
-    border-radius:12px; padding:9px 13px; font-size:13px; outline:none;
-    transition:border-color .16s,box-shadow .16s; }
-  select:focus,input:focus { border-color:var(--accent); box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 16%,transparent); }
+    border-radius:var(--radius-control); min-height:46px; padding:10px 15px; font-size:14px; outline:none;
+    transition:border-color .16s,box-shadow .16s,background .16s; }
+  select:hover,input:hover { border-color:var(--border-strong); }
+  select:focus,input:focus { border-color:var(--accent); box-shadow:var(--focus-ring); }
+  select:disabled,input:disabled { opacity:.62; cursor:not-allowed; background:var(--surface-subtle); }
+  .org-picker { position:relative; width:100%; }
+  .org-trigger { width:100%; min-height:46px; padding:9px 13px; border:1px solid var(--line);
+    border-radius:var(--radius-control); background:var(--input-bg); color:var(--text);
+    display:flex; align-items:center; gap:9px; text-align:left; cursor:pointer; }
+  .org-trigger:hover { border-color:var(--border-strong); }
+  .org-trigger:focus-visible,.org-picker.open .org-trigger { border-color:var(--accent);
+    box-shadow:var(--focus-ring); outline:none; }
+  .org-trigger:disabled { opacity:.62; cursor:not-allowed; background:var(--surface-subtle); }
+  .org-trigger svg,.org-option svg { width:17px; height:17px; flex:none; fill:none; stroke:var(--accent);
+    stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
+  .org-trigger-copy { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
+  .org-menu { position:absolute; z-index:56; top:calc(100% + 7px); left:0; right:0; max-height:280px;
+    overflow:auto; padding:7px; border:1px solid var(--line); border-radius:12px;
+    background:var(--panel); box-shadow:0 12px 30px rgba(23,32,51,.16); }
+  .org-option { width:100%; padding:9px 10px; border:0; border-radius:9px; color:var(--text);
+    background:transparent; display:flex; align-items:center; gap:9px; text-align:left; cursor:pointer; }
+  .org-option:hover,.org-option.selected { background:var(--color-primary-soft); }
+  .org-option-copy { min-width:0; }
+  .org-option-name { display:block; font-size:13px; font-weight:700; }
+  .org-option-meta { display:block; color:var(--text-muted); font-size:10.5px; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; }
   textarea { width:100%; background:var(--input-bg); color:var(--text); border:1px solid var(--line);
     border-radius:14px; padding:10px 13px; font-size:12.5px; outline:none;
     font-family:"JetBrains Mono","Fira Code",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
@@ -180,43 +323,76 @@ PAGE = r"""<!DOCTYPE html>
     transition:border-color .16s,box-shadow .16s; }
   textarea:focus { border-color:var(--accent); box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 16%,transparent); }
 
-  /* combo / model picker */
-  .combo { display:flex; flex-direction:column; gap:6px; }
+  /* searchable exact-version picker */
+  .combo { display:block; }
   select[size] { padding:0; height:auto; border-radius:12px; }
   select[size] option { padding:7px 12px; border-bottom:1px solid var(--line); }
   select[size] option:checked { background:var(--accent); color:#fff; }
-  .combo-selected { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-  .selchip { flex:1; display:inline-flex; align-items:center; gap:8px; padding:9px 13px;
-    border-radius:12px; background:linear-gradient(135deg,var(--accent),var(--accent-strong));
-    color:#fff; font-weight:700; font-size:13px; min-width:0; }
-  .selchip .name { overflow:visible; text-overflow:clip; white-space:normal; overflow-wrap:anywhere; }
-  .selchip::before { content:"✓"; font-weight:700; flex:none; }
-  .meta { color:var(--muted); font-size:11px; }
+  .version-picker { position:relative; width:100%; }
+  .version-trigger { width:100%; min-height:46px; padding:9px 13px; border:1px solid var(--line);
+    border-radius:var(--radius-control); background:var(--input-bg); color:var(--text);
+    display:flex; align-items:center; gap:9px; text-align:left; cursor:pointer; }
+  .version-trigger:hover { border-color:var(--border-strong); }
+  .version-trigger:focus-visible,.version-picker.open .version-trigger { border-color:var(--accent);
+    box-shadow:var(--focus-ring); outline:none; }
+  .version-trigger:disabled { opacity:.62; cursor:not-allowed; background:var(--surface-subtle); }
+  .version-trigger > svg { width:17px; height:17px; flex:none; fill:none; stroke:var(--accent);
+    stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
+  .version-trigger-copy { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    font-size:14px; }
+  .version-chevron { color:var(--text-muted); transition:transform .16s; }
+  .version-picker.open .version-chevron { transform:rotate(180deg); }
+  .version-menu { position:absolute; z-index:55; top:calc(100% + 7px); left:0; right:0; padding:7px;
+    border:1px solid var(--line); border-radius:12px; background:var(--panel);
+    box-shadow:0 12px 30px rgba(23,32,51,.16); }
+  .version-search-wrap { position:relative; margin-bottom:6px; }
+  .version-search-wrap > svg { position:absolute; left:12px; top:50%; width:16px; height:16px;
+    transform:translateY(-50%); fill:none; stroke:var(--text-muted); stroke-width:1.9; }
+  .version-search { min-height:40px; padding-left:37px; }
+  .version-options { max-height:300px; overflow:auto; display:grid; gap:3px; }
+  .version-option { width:100%; padding:9px 10px; border:0; border-radius:9px; color:var(--text);
+    background:transparent; display:flex; align-items:center; justify-content:space-between; gap:10px;
+    text-align:left; cursor:pointer; }
+  .version-option:hover,.version-option.active { background:color-mix(in srgb,var(--accent) 7%,var(--panel)); }
+  .version-option.selected { background:var(--color-primary-soft); }
+  .version-option-copy { min-width:0; }
+  .version-option-name { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    font-size:13px; font-weight:700; }
+  .version-option-meta { display:block; color:var(--text-muted); font-size:11px; margin-top:2px; }
+  .version-empty { padding:14px 10px; color:var(--text-muted); font-size:12px; text-align:center; }
+  .combo-selected { display:none !important; }
+  .runtime-badge { flex:none; display:inline-flex; align-items:center; gap:4px; padding:3px 8px;
+    border:1px solid currentColor; border-radius:var(--radius-pill); font-size:9.5px; font-weight:800; }
+  .runtime-badge.active { color:var(--ok-text); background:var(--ok-bg); }
+  .runtime-badge.inactive { color:var(--text-secondary); background:var(--surface-subtle); }
+  .meta { color:var(--muted); font-size:11.5px; }
 
   /* ── Buttons ──────────────────────────────────────────────────── */
   button { font-family:inherit; }
   .btn-row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:14px; }
-  .btn { border:none; border-radius:12px; padding:9px 20px; font-size:13px; font-weight:700;
-    cursor:pointer; transition:transform .14s,filter .14s,box-shadow .14s;
-    width:auto; white-space:nowrap; }
-  .btn:disabled { opacity:.5; cursor:not-allowed; }
-  .btn:hover:not(:disabled) { transform:translateY(-1px); filter:brightness(1.08); }
-  .btn:active:not(:disabled) { transform:translateY(1px) scale(.97); filter:brightness(.92); }
-  .btn-primary { background:linear-gradient(135deg,var(--accent),var(--accent-strong)); color:var(--on-accent);
-    box-shadow:0 8px 20px color-mix(in srgb,var(--accent) 28%,transparent); }
-  .btn-green { background:linear-gradient(135deg,var(--green),color-mix(in srgb,var(--green) 75%,var(--text))); color:var(--on-accent);
-    box-shadow:0 8px 20px color-mix(in srgb,var(--green) 22%,transparent); }
-  .btn-purple { background:linear-gradient(135deg,var(--purple),color-mix(in srgb,var(--purple) 75%,var(--text))); color:var(--on-accent);
-    box-shadow:0 8px 20px color-mix(in srgb,var(--purple) 22%,transparent); }
-  .btn-danger { background:linear-gradient(135deg,var(--red),color-mix(in srgb,var(--red) 75%,var(--text))); color:var(--on-accent);
-    box-shadow:0 8px 20px color-mix(in srgb,var(--red) 22%,transparent); }
+  .btn { min-height:44px; border:1px solid transparent; border-radius:var(--radius-control);
+    padding:10px 18px; font-size:13.5px; font-weight:700;
+    cursor:pointer; transition:transform .16s ease,background .16s ease,border-color .16s ease,box-shadow .16s ease;
+    width:auto; white-space:nowrap; display:inline-flex; align-items:center; justify-content:center; gap:8px; }
+  .btn svg { width:17px; height:17px; flex:none; }
+  .btn:disabled { opacity:.46; cursor:not-allowed; box-shadow:none; }
+  .btn:hover:not(:disabled) { transform:translateY(-1px); box-shadow:0 8px 18px rgba(37,99,235,.20); }
+  .btn:active:not(:disabled) { box-shadow:none; }
+  .btn-primary { background:linear-gradient(135deg,#3b82f6,#06b6d4); color:var(--on-accent);
+    box-shadow:0 5px 14px color-mix(in srgb,var(--accent) 23%,transparent); }
+  .btn-green { background:linear-gradient(135deg,#059669,#14b8a6); color:#fff;
+    box-shadow:0 5px 14px color-mix(in srgb,var(--green) 20%,transparent); }
+  .btn-purple { background:linear-gradient(135deg,var(--purple),#9333ea); color:#fff;
+    box-shadow:0 5px 14px color-mix(in srgb,var(--purple) 20%,transparent); }
+  .btn-danger { background:linear-gradient(135deg,#dc2626,#f97316); color:#fff;
+    box-shadow:0 5px 14px color-mix(in srgb,var(--red) 20%,transparent); }
   .ghost { background:var(--panel); border:1px solid var(--line); color:var(--text);
-    font-weight:650; border-radius:10px; padding:8px 14px; font-size:12px; cursor:pointer;
-    transition:transform .14s,background .14s,border-color .14s,color .14s;
+    display:inline-flex; align-items:center; justify-content:center; gap:7px; font-weight:650;
+    border-radius:var(--radius-control); min-height:36px; padding:7px 12px; font-size:11px; cursor:pointer;
+    transition:background .16s,border-color .16s,color .16s;
     width:auto; white-space:nowrap; }
   .ghost:hover { background:color-mix(in srgb,var(--accent) 9%,var(--panel)); border-color:var(--accent); color:var(--accent); }
-  .ghost:active { transform:scale(.96); }
-  button:focus-visible { outline:3px solid color-mix(in srgb,var(--accent) 35%,transparent); outline-offset:3px; }
+  button:focus-visible { outline:3px solid color-mix(in srgb,var(--accent) 35%,transparent); outline-offset:2px; }
   .linklike { background:none; border:none; color:var(--accent); font-weight:600; cursor:pointer;
     padding:4px 6px; font-size:12px; border-radius:6px; }
   .linklike:hover { background:color-mix(in srgb,var(--accent) 10%,transparent); }
@@ -225,17 +401,21 @@ PAGE = r"""<!DOCTYPE html>
   /* Desktop CML actions */
   .cml-actions { margin-top:18px; }
   .fetch-header-action { flex:none; align-self:center; }
-  .deploy-panel { display:grid; grid-template-columns:minmax(210px,.8fr) minmax(300px,1.35fr) max-content;
-    gap:14px; align-items:end; padding:14px; border:1px solid var(--line);
-    border-radius:16px; background:var(--gutter); min-width:0; }
+  .deploy-panel { display:grid; grid-template-columns:minmax(250px,1fr) minmax(300px,1fr) max-content;
+    gap:14px; align-items:start; padding:14px; border:1px solid var(--line);
+    border-radius:var(--radius-card); background:var(--surface-subtle); min-width:0; }
   .deploy-panel .field select { width:100% !important; min-height:44px; }
-  .deploy-action-stack { display:flex; flex-direction:column; align-items:stretch; gap:9px; }
-  .cml-main-action { min-width:176px; min-height:56px; padding:14px 26px; font-size:15px;
+  .deploy-panel > .field > label { min-height:17px; }
+  .deploy-action-stack { display:flex; flex-direction:column; align-items:stretch; gap:9px; padding-top:23px; }
+  .cml-main-action { min-width:166px; min-height:46px; padding:11px 22px; font-size:13px;
     display:inline-flex; align-items:center; justify-content:center; gap:9px; }
-  .cml-main-action svg { width:19px; height:19px; flex:none; }
-  .restore-action { min-width:176px; min-height:52px; padding:12px 20px; font-size:14px;
+  .cml-main-action svg { width:17px; height:17px; flex:none; }
+  .restore-action { min-width:166px; min-height:38px; padding:8px 14px; font-size:11px;
     display:inline-flex; align-items:center; justify-content:center; gap:9px; }
-  .restore-action svg { width:18px; height:18px; flex:none; }
+  .restore-action svg { width:15px; height:15px; flex:none; }
+  .restore-action { color:var(--color-danger); border-color:color-mix(in srgb,var(--red) 35%,var(--line)); }
+  .restore-action:hover { color:var(--color-danger); border-color:var(--color-danger);
+    background:var(--color-danger-soft); }
 
   /* ── Status / conn ────────────────────────────────────────────── */
   .conn { display:none; margin:0 0 16px; padding:11px 16px; border-radius:12px; font-size:13px;
@@ -280,7 +460,40 @@ PAGE = r"""<!DOCTYPE html>
   .editor-wrap textarea::placeholder { color:var(--muted); -webkit-text-fill-color:var(--muted); }
   .editor-wrap textarea::selection { background:color-mix(in srgb,var(--accent) 28%,transparent); }
   .editor-wrap textarea:focus { border:none; box-shadow:none; }
-  .key-field-compact { flex:0 1 170px !important; width:170px; max-width:170px !important; }
+  .key-field-compact { flex:0 1 270px !important; width:270px; max-width:270px !important; }
+  .key-field-picker { position:relative; width:100%; }
+  .key-field-picker input { width:100%; min-height:42px; padding:8px 40px 8px 13px; font-size:13.5px; }
+  .key-field-picker:focus-within input { border-color:var(--accent);
+    box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 12%,transparent); }
+  .key-field-toggle { position:absolute; top:50%; right:8px; width:28px; height:28px;
+    padding:0; border:0; border-radius:8px; transform:translateY(-50%);
+    display:grid; place-items:center; color:var(--muted); background:transparent; cursor:pointer; }
+  .key-field-toggle:hover { color:var(--text); background:var(--gutter); }
+  .key-field-toggle svg { width:15px; height:15px; transition:transform .16s ease; }
+  .key-field-picker.open .key-field-toggle svg { transform:rotate(180deg); }
+  .key-field-menu { position:absolute; z-index:30; top:calc(100% + 7px); left:0; right:0;
+    max-height:270px; overflow:auto; padding:6px; border:1px solid var(--line);
+    border-radius:14px; background:var(--panel); box-shadow:0 18px 45px rgba(15,23,42,.18);
+    animation:keyMenuIn .14s ease-out; }
+  @keyframes keyMenuIn { from { opacity:0; transform:translateY(-4px); }
+    to { opacity:1; transform:translateY(0); } }
+  .key-field-option { width:100%; border:0; border-radius:10px; padding:9px 10px;
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    color:var(--text); background:transparent; text-align:left; cursor:pointer; }
+  .key-field-option:hover,.key-field-option.active { background:color-mix(in srgb,var(--accent) 10%,var(--panel)); }
+  .key-field-option.selected { background:color-mix(in srgb,var(--green) 11%,var(--panel)); }
+  .key-field-option-main { min-width:0; display:flex; flex-direction:column; gap:2px; }
+  .key-field-option-name { overflow:hidden; text-overflow:ellipsis; font-size:12px;
+    font-weight:700; font-family:"JetBrains Mono",ui-monospace,monospace; }
+  .key-field-option-scope { overflow:hidden; text-overflow:ellipsis; color:var(--muted);
+    font-size:10px; white-space:nowrap; }
+  .key-field-option-mark { flex:none; color:var(--green); font-size:14px; font-weight:800; }
+  .key-field-empty { padding:14px 10px; color:var(--muted); font-size:11px; text-align:center; }
+  #keyFieldHelp { max-width:270px; margin:5px 0 0; color:var(--text-muted);
+    font-size:10.5px; line-height:1.38; }
+  @media (max-width:720px) {
+    .key-field-compact { flex:1 1 100% !important; width:100%; max-width:none !important; }
+  }
 
   /* ── Diff view ────────────────────────────────────────────────── */
   .diff { margin-top:22px; display:none; }
@@ -383,34 +596,64 @@ PAGE = r"""<!DOCTYPE html>
   .lint-copy { font-size:11px; padding:2px 8px; }
 
   /* ── Constraint data ──────────────────────────────────────────── */
+  .safety-alert { display:flex; align-items:flex-start; gap:10px; margin-bottom:14px; padding:10px 12px;
+    border:1px solid var(--color-primary-border); border-radius:var(--radius-control); background:var(--info-bg);
+    color:var(--info-text); }
+  .safety-alert-icon { width:18px; height:18px; flex:0 0 18px; display:grid; place-items:center;
+    margin-top:1px; border-radius:50%; background:var(--accent); color:#fff; font-size:11px; font-weight:850; }
+  .safety-alert p { margin:0; font-size:10.5px; line-height:1.5; }
+  .safety-alert p + p { margin-top:4px; color:var(--text-secondary); }
+  .data-action-row { display:flex; align-items:flex-end; justify-content:space-between; gap:18px;
+    margin-bottom:14px; }
+  .data-action-row > .btn-row { margin-left:auto !important; }
+  .data-workspace-card { padding:18px; }
+  .data-workspace-card .card-head { padding-bottom:10px; margin-bottom:10px; }
+  .data-workspace-card .safety-alert { margin-bottom:10px; padding:8px 10px; }
+  .data-workspace-card .data-action-row { margin-bottom:9px; }
+  .data-workspace-card .deploy-bar { margin-top:8px; padding:8px 10px; }
   .chips { display:flex; gap:8px; flex-wrap:wrap; }
-  .chip { font-size:12px; font-weight:600; padding:4px 12px; border-radius:999px; border:1px solid var(--line); color:var(--muted); }
+  .chip { font-size:11.5px; font-weight:700; padding:4px 10px; border-radius:var(--radius-pill);
+    border:1px solid var(--line); color:var(--muted); background:var(--surface-subtle); }
+  .chip.neutral { color:var(--text-secondary); font-weight:650;
+    border-color:color-mix(in srgb,var(--line) 65%,transparent);
+    background:color-mix(in srgb,var(--surface-subtle) 55%,transparent); }
   .chip.ok { background:var(--ok-bg); color:var(--ok-text); border-color:var(--green); }
   .chip.add { background:var(--ins-bg); color:var(--ins-line); border-color:var(--ins-line); }
   .chip.extra { background:var(--del-bg); color:var(--del-line); border-color:var(--del-line); }
   .chip.warn { background:var(--err-bg); color:var(--err-text); border-color:var(--red); }
+  .chip.cml-diff { background:var(--color-warning-soft); color:var(--color-warning);
+    border-color:color-mix(in srgb,var(--color-warning) 68%,transparent); }
+  .chip.dup { background:color-mix(in srgb,#f97316 12%,var(--panel)); color:#c2410c;
+    border-color:color-mix(in srgb,#f97316 68%,transparent); }
+  html[data-theme="dark"] .chip.dup { color:#fdba74; }
   .data { margin-top:14px; display:none; }
   .data.show { display:block; }
   .data-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
   .data-filter { font-size:12px; color:var(--muted); display:inline-flex; align-items:center; gap:6px; }
   .data-filter select { width:auto; padding:6px 10px; border-radius:9px; }
-  .table-scroll { overflow:auto; max-height:560px; border:1px solid var(--line); border-radius:14px; }
-  table.data-table { border-collapse:collapse; width:100%; font-size:12.5px; table-layout:auto; }
-  .data-table th,.data-table td { padding:8px 12px; text-align:left; border-bottom:1px solid var(--line); vertical-align:top; word-break:break-word; }
-  .data-table th { position:sticky; top:0; background:var(--gutter); color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; z-index:1; white-space:nowrap; }
-  .data-table tbody tr:hover { background:var(--gutter); }
+  .table-scroll { overflow:auto; max-height:560px; border:1px solid var(--line); border-radius:var(--radius-control); }
+  table.data-table { border-collapse:separate; border-spacing:0; width:100%; min-width:900px; font-size:12px; table-layout:fixed; }
+  .data-table th,.data-table td { padding:7px 11px; text-align:left; border-bottom:1px solid var(--line); vertical-align:top; word-break:break-word; }
+  .data-table th + th,.data-table td + td {
+    border-left:1px solid color-mix(in srgb,var(--line) 72%,transparent); }
+  .data-table th { position:sticky; top:0; background:var(--surface-subtle); color:var(--text-secondary);
+    font-size:9.5px; text-transform:uppercase; letter-spacing:.055em; z-index:1; white-space:nowrap; }
+  .data-table tbody tr { transition:background .14s; }
+  .data-table tbody tr:hover { background:var(--surface-hover); }
   /* narrow columns — short content, no wrap needed */
-  .data-table td.col-sel,.data-table th.col-sel { width:32px; text-align:center; white-space:nowrap; }
+  .data-table td.col-sel,.data-table th.col-sel { width:62px; text-align:center; white-space:nowrap; }
   .data-table td.col-reftype,.data-table th.col-reftype { width:110px; white-space:nowrap; }
   .data-table td.col-tagtype,.data-table th.col-tagtype { width:80px; white-space:nowrap; }
   /* wide columns — allow wrap so full value is always visible */
-  .data-table td.col-status,.data-table th.col-status { min-width:160px; }
-  .data-table td.col-tag,.data-table th.col-tag { min-width:120px; }
-  .data-table td.col-ref,.data-table th.col-ref { min-width:180px; }
-  .data-table td.col-key,.data-table th.col-key { min-width:140px; font-family:"JetBrains Mono","SF Mono",Menlo,Consolas,monospace; font-size:11px; color:var(--muted); word-break:break-all; }
+  .data-table td.col-status,.data-table th.col-status { width:156px; }
+  .data-table td.col-status .badge { max-width:100%; white-space:normal; line-height:1.25; }
+  .data-table td.col-tag,.data-table th.col-tag { width:170px; }
+  .data-table td.col-ref,.data-table th.col-ref { width:230px; }
+  .data-table td.col-key,.data-table th.col-key { width:190px; font-family:"JetBrains Mono","SF Mono",Menlo,Consolas,monospace; font-size:11px; color:var(--muted); word-break:break-all; }
   .data-table .gkey { font-family:"JetBrains Mono","SF Mono",Menlo,Consolas,monospace; font-size:11px; color:var(--muted); word-break:break-all; }
   .data-table td.col-sel input[type=checkbox] { width:auto; cursor:pointer; accent-color:var(--accent); }
-  .badge { display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; border-radius:6px; }
+  .badge { display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:750;
+    padding:3px 8px; border-radius:var(--radius-pill); }
   .b-match { background:var(--ok-bg); color:var(--ok-text); }
   .b-add { background:var(--ins-bg); color:var(--ins-line); }
   .b-extra { background:var(--del-bg); color:var(--del-line); }
@@ -418,8 +661,8 @@ PAGE = r"""<!DOCTYPE html>
   .b-type { background:var(--info-bg); color:var(--info-text); }
   .b-dup { background:color-mix(in srgb,var(--amber) 18%,var(--panel)); color:var(--amber); border:1px solid var(--amber); margin-left:6px; }
   .block-note { display:block; margin-top:4px; font-size:11px; color:var(--muted); font-style:italic; white-space:normal; }
-  .deploy-bar { display:none; margin-top:14px; padding:13px 16px; border-radius:14px;
-    background:var(--info-bg); border:1px solid var(--accent); align-items:center;
+  .deploy-bar { display:none; margin-top:14px; padding:10px 12px; border-radius:var(--radius-control);
+    background:var(--color-primary-soft); border:1px solid var(--accent); align-items:center;
     justify-content:space-between; gap:12px; flex-wrap:wrap; }
   .deploy-bar.show { display:flex; }
   .deploy-bar .sel-summary { font-size:13px; color:var(--text); }
@@ -443,12 +686,12 @@ PAGE = r"""<!DOCTYPE html>
   .guide-badge { display:inline-flex; align-items:center; padding:5px 10px; border-radius:999px;
     font-size:11px; font-weight:850; white-space:nowrap; border:1px solid currentColor; }
   .guide-badge.read { color:var(--ok-text); background:var(--ok-bg); }
-  .guide-badge.write { color:var(--err-text); background:var(--err-bg); }
+  .guide-badge.write { color:var(--color-warning); background:var(--color-warning-soft); }
   .guide-steps { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
   .guide-step { display:grid; grid-template-columns:38px minmax(0,1fr); gap:12px; padding:15px;
     border:1px solid var(--line); border-radius:14px; background:var(--input-bg); }
   .guide-number { width:36px; height:36px; display:grid; place-items:center; border-radius:11px;
-    color:var(--on-accent); font-weight:900; background:linear-gradient(135deg,var(--accent),var(--purple)); }
+    color:var(--on-accent); font-weight:900; background:var(--accent); }
   .guide-step h3 { margin:1px 0 5px; font-size:14px; }
   .guide-step p { margin:0; color:var(--muted); font-size:12.5px; line-height:1.55; }
   .guide-boundaries { margin-top:16px; padding:15px 17px; border:2px solid var(--amber);
@@ -457,88 +700,87 @@ PAGE = r"""<!DOCTYPE html>
   .guide-boundaries ul { margin:0; padding-left:20px; color:var(--text); font-size:12.5px; line-height:1.65; }
 
   /* ── Responsive ───────────────────────────────────────────────── */
-  @media (max-width:1050px) {
-    .app-shell { display:flex; flex-direction:column; height:100vh; }
-    .sidebar { position:relative; height:auto; min-height:auto; flex:0 0 auto;
-      padding:9px 12px; flex-direction:row;
-      align-items:center; gap:12px; border-right:0; border-bottom:1px solid var(--line); }
-    .app-main { height:auto; min-height:0; flex:1 1 auto; overflow-y:auto; }
-    .brand { padding:0; min-width:max-content; }
-    .brand-mark { width:30px; height:30px; }
-    .brand small,.side-label { display:none; }
-    .side-menu { display:flex; flex:1; gap:4px; overflow-x:auto; scrollbar-width:none; }
-    .side-menu::-webkit-scrollbar { display:none; }
-    .side-nav { width:auto; min-width:max-content; padding:7px 10px; }
-    .side-nav:hover { transform:none; }
-    .side-nav.active { box-shadow:inset 0 -2px 0 var(--accent); }
-    .sidebar-footer { display:flex; flex:0 0 auto; align-items:center; gap:4px;
-      margin:0 0 0 auto; padding:0; border:0; }
-    .sidebar-footer .about-link { width:auto; min-width:max-content; padding:7px 9px; }
-    .sidebar-footer .credit { display:none; }
-    .donate-wrap { width:auto; }
-    .donate-options { position:absolute; z-index:40; top:calc(100% + 6px); right:0;
-      width:190px; margin:0; padding:7px; border:1px solid var(--line); border-radius:11px;
-      background:var(--panel); }
-    .topbar { min-height:80px; }
-    .conn-strip { grid-template-columns:1fr 1fr; }
+  @media (max-width:1180px) {
+    .app-header { grid-template-columns:minmax(350px,1fr) auto minmax(170px,1fr); gap:10px; }
     .guide-steps { grid-template-columns:1fr; }
   }
+  @media (max-width:1120px) {
+    .app-header { min-height:116px; grid-template-columns:1fr auto; grid-template-rows:auto auto;
+      padding:9px 16px; }
+    .brand-cluster { grid-column:1; grid-row:1; }
+    .top-actions { grid-column:2; grid-row:1; }
+    .nav-island { grid-column:1 / -1; grid-row:2; max-width:100%; overflow-x:auto;
+      justify-self:stretch; scrollbar-width:none; }
+    .nav-island::-webkit-scrollbar { display:none; }
+    .tabs { width:max-content; min-width:100%; justify-content:center; }
+    .deploy-panel { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+    .deploy-action-stack { grid-column:1 / -1; flex-direction:row; padding-top:0; }
+  }
+  @media (max-width:900px) {
+    body::before { height:140px; opacity:.58; }
+    body::after { height:145px; opacity:.72; }
+    .app-shell::before { height:100px; opacity:.72; }
+    .app-shell::after { height:82px; opacity:.76; }
+  }
   @media (max-width:700px) {
-    .topbar { flex-direction:column; align-items:flex-start; gap:8px; }
-    .top-actions { width:100%; justify-content:space-between; }
+    .app-header { min-height:104px; }
+    .brand-mark { width:34px; height:34px; flex-basis:34px; }
+    .credit,.local-badge { display:none; }
+    .header-links { gap:0; margin-left:0; }
+    .header-link { padding:6px; }
+    .header-link span { display:none; }
+    .header-link + .header-link::before { display:none; }
+    .top-actions { gap:4px; }
+    .topbar { min-height:46px; padding-top:10px; }
     .card-head { flex-wrap:wrap; }
     .fetch-header-action { width:100%; }
     .conn-strip { grid-template-columns:1fr; }
+    .org-workspace { padding:14px; }
+    .workspace-head { align-items:flex-start; }
+    .workspace-org-id { white-space:normal; text-align:right; overflow-wrap:anywhere; }
+    .data-action-row { align-items:stretch; flex-direction:column; }
+    .data-action-row > .field { width:100% !important; max-width:none !important; }
+    .data-action-row > .btn-row { margin-left:0 !important; }
     .diff-panes { grid-template-columns:1fr; }
     .merge-rail { display:none; }
-    .tabs { width:100%; }
-    .tab { flex:1; }
+    .tabs { justify-content:flex-start; }
+    .side-nav,.tab { min-width:max-content; }
     .deploy-group { flex-wrap:wrap; }
     .guide-hero { flex-direction:column; }
+    .deploy-panel { grid-template-columns:1fr; }
+    .deploy-action-stack { grid-column:auto; flex-direction:column; }
+  }
+  @media (max-width:460px) {
+    .brand-copy strong { font-size:11px; }
+    .brand-copy small { font-size:10px; }
+    #appver { display:none; }
+  }
+  @media (prefers-reduced-motion:reduce) {
+    *,*::before,*::after { animation-duration:.01ms !important; animation-iteration-count:1 !important;
+      scroll-behavior:auto !important; transition-duration:.01ms !important; }
   }
 </style>
 </head>
 <body>
 <div class="app-shell">
-
-  <!-- ═══════════ SIDEBAR ═══════════ -->
-  <aside class="sidebar" aria-label="Primary navigation">
-    <a class="brand" href="#" onclick="return false;">
-      <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>
-      </span>
-      <span><strong>Salesforce</strong><small>CML Tool</small></span>
-    </a>
-    <div class="side-label">Tools</div>
-    <nav class="side-menu" id="sideNav">
-      <button class="side-nav active" data-view="fetch">
-        <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></span>
-        <span>Fetch &amp; Deploy</span>
-      </button>
-      <button class="side-nav" data-view="compare">
-        <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M10 8l-3 4 3 4M14 8l3 4-3 4"/></svg></span>
-        <span>Compare</span>
-      </button>
-      <button class="side-nav" data-view="lint">
-        <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
-        <span>Best Practices</span>
-      </button>
-      <button class="side-nav" data-view="data">
-        <span class="nav-icon"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span>
-        <span>Constraint Data Deploy</span>
-      </button>
-      <button class="side-nav" data-view="guide">
-        <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M8 4h8M8 20h8M12 4v5M12 15v5M5 9h14v6H5z"/></svg></span>
-        <span>Guide Me on Tool</span>
-      </button>
-    </nav>
-    <div class="sidebar-footer">
+  <header class="app-header">
+    <div class="brand-cluster">
+      <a class="brand" href="#" onclick="return false;">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M7.4 18.3c-2.9 0-5.2-2-5.2-4.6 0-2.2 1.7-4.1 4-4.5C6.8 6.7 9 5 11.6 5c2.1 0 4 1.1 5 2.8.4-.1.8-.2 1.2-.2 2.3 0 4.1 1.8 4.1 4.1s-1.8 4.1-4.1 4.1c-.4 0-.7 0-1.1-.1-1 1.6-2.8 2.6-4.8 2.6H7.4z"/></svg>
+        </span>
+        <span class="brand-copy">
+          <strong>Salesforce CML Tool</strong>
+          <span class="credit">Made with <svg class="heart" viewBox="0 0 24 24" aria-label="care"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.7-7.5 1.1-1.1a5.5 5.5 0 0 0 0-7.8z"/></svg> by Mritunjaya Pancholi</span>
+        </span>
+      </a>
+      <div class="header-links">
       <div class="donate-wrap">
-        <button type="button" class="about-link donate-link" id="donateBtn"
-          aria-expanded="false" aria-controls="donateOptions">
-          <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M12 21s-7-4.35-9.33-8.28C.8 9.56 2.14 5.5 5.8 4.55 8 3.98 10.12 5 12 7c1.88-2 4-3.02 6.2-2.45 3.66.95 5 5.01 3.13 8.17C19 16.65 12 21 12 21z"/></svg></span>
-          <span>Donate</span>
-        </button>
+          <button type="button" class="header-link donate-link" id="donateBtn"
+            aria-expanded="false" aria-controls="donateOptions">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.7-7.5 1.1-1.1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+            <span>Donate</span>
+          </button>
         <div class="donate-options" id="donateOptions" hidden>
           <button type="button" class="donate-option" id="donateUpiBtn">
             <span class="payment-icon upi-icon" aria-hidden="true">UPI</span>
@@ -552,26 +794,55 @@ PAGE = r"""<!DOCTYPE html>
           </a>
         </div>
       </div>
-      <a class="about-link" href="https://www.linkedin.com/in/mrpancholi/" target="_blank" rel="noopener noreferrer">
-        <span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg></span>
-        <span>About</span>
-      </a>
-      <p class="credit">Made with 💙 by <strong>Mritunjaya Pancholi</strong></p>
+        <a class="header-link about-link" href="https://www.linkedin.com/in/mrpancholi/"
+           target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg>
+          <span>About</span>
+        </a>
+      </div>
     </div>
-  </aside>
+
+    <nav class="nav-island side-menu" id="sideNav" aria-label="Primary navigation">
+      <div class="tabs" id="tabRow" role="tablist">
+        <button class="side-nav tab active" data-view="fetch" role="tab" aria-selected="true">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></span>
+          <span>Fetch &amp; Deploy</span>
+        </button>
+        <button class="side-nav tab" data-view="data" role="tab" aria-selected="false">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span>
+          <span>Constraint Data Deploy</span>
+        </button>
+        <button class="side-nav tab" data-view="compare" role="tab" aria-selected="false">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M10 8l-3 4 3 4M14 8l3 4-3 4"/></svg></span>
+          <span>Compare</span>
+        </button>
+        <button class="side-nav tab" data-view="lint" role="tab" aria-selected="false">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+          <span>Best Practices</span>
+        </button>
+        <button class="side-nav tab" data-view="guide" role="tab" aria-selected="false">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22V5.5zM20 5.5A2.5 2.5 0 0 0 17.5 3H13v17h4.5A2.5 2.5 0 0 1 20 22V5.5z"/></svg></span>
+          <span>Guide Me</span>
+        </button>
+      </div>
+    </nav>
+
+      <div class="top-actions">
+        <span class="local-badge"><span class="live-dot"></span>Runs locally</span>
+        <span id="appver" style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',ui-monospace,monospace;opacity:.8;white-space:nowrap;" title="Running build"></span>
+        <button class="ghost theme-toggle" id="themeBtn" title="Toggle day/night">
+          <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 15.4A9 9 0 0 1 8.6 3.2 9 9 0 1 0 20.8 15.4Z"/></svg>
+          <span id="themeLabel">Night mode</span>
+        </button>
+      </div>
+  </header>
 
   <!-- ═══════════ MAIN ═══════════ -->
   <main class="app-main">
     <header class="topbar">
       <div>
-        <div class="eyebrow">Developer tools</div>
-        <h1 id="pageTitle">Fetch &amp; Deploy</h1>
+        <h1 class="sr-only" id="pageTitle">Fetch &amp; Deploy</h1>
         <p class="sub" id="pageSubtitle">Pick a source org — CMLs load automatically. Fetch, edit, and deploy to any org.</p>
-      </div>
-      <div class="top-actions">
-        <span class="local-badge"><span class="live-dot"></span>Runs locally</span>
-        <span id="appver" style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',ui-monospace,monospace;opacity:.8;white-space:nowrap;" title="Running build"></span>
-        <button class="ghost" id="themeBtn" title="Toggle day/night">Night mode</button>
       </div>
     </header>
 
@@ -579,45 +850,98 @@ PAGE = r"""<!DOCTYPE html>
       <!-- connection error banner -->
       <div class="conn" id="conn"></div>
 
-      <!-- ── Tabs (synced with sidebar) ── -->
-      <div class="tabs" id="tabRow" role="tablist">
-        <button class="tab active" data-view="fetch">Fetch &amp; Deploy</button>
-        <button class="tab" data-view="compare">Compare</button>
-        <button class="tab" data-view="lint">Best Practices</button>
-        <button class="tab" data-view="data">Constraint Data Deploy</button>
-        <button class="tab" data-view="guide">Guide Me on Tool</button>
-      </div>
-
-      <!-- ═══ CONNECTION STRIP (shared across all views, always visible) ═══ -->
-      <div class="card">
+      <!-- ═══ ORG WORKSPACES (omitted from the instructional Guide Me view) ═══ -->
+      <div class="card connection-card" id="connectionCard">
         <div class="conn-strip">
-          <div class="field">
-            <label for="org">Source org</label>
-            <select id="org"><option>Loading orgs…</option></select>
-          </div>
-          <div class="field">
-            <label for="targetOrg">Target org (compare-with)</label>
-            <select id="targetOrg"><option>Loading orgs…</option></select>
-          </div>
-          <div class="field model-field">
-            <label for="model">Source CML exact version <span id="cmlCount" class="meta"></span></label>
-            <div class="combo" id="combo">
-              <input id="cmlFilter" placeholder="Type to filter CMLs…" autocomplete="off" spellcheck="false" />
-              <select id="model" size="5"><option value="">Choose an org first…</option></select>
+          <section class="org-workspace source-workspace" aria-labelledby="sourceWorkspaceTitle">
+            <div class="workspace-head">
+              <div class="workspace-title">
+                <span class="workspace-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 21V8l8-5 8 5v13M8 21v-4h8v4M8 10h.01M12 10h.01M16 10h.01M8 13h.01M12 13h.01M16 13h.01"/></svg></span>
+                <span><strong id="sourceWorkspaceTitle">Source org</strong><span>Select the source org and exact CML version.</span></span>
+              </div>
+              <span class="workspace-org-id" id="sourceOrgId">Org ID: —</span>
             </div>
-            <div class="combo-selected" id="comboSelected" hidden>
-              <span class="selchip"><span class="name" id="selectedName"></span></span>
-              <button type="button" class="ghost" id="changeModelBtn">Change CML</button>
+            <div class="field">
+              <label for="org">Source org</label>
+              <div class="org-picker" id="sourceOrgPicker">
+                <button type="button" class="org-trigger" id="sourceOrgTrigger" aria-haspopup="listbox" aria-expanded="false" disabled>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V8l8-5 8 5v13M8 21v-4h8v4M8 10h.01M12 10h.01M16 10h.01M8 13h.01M12 13h.01M16 13h.01"/></svg>
+                  <span class="org-trigger-copy" id="sourceOrgDisplay">Loading orgs…</span>
+                  <svg class="version-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="org-menu" id="sourceOrgMenu" role="listbox" aria-label="Source orgs" hidden></div>
+                <select class="sr-only" id="org" tabindex="-1" aria-hidden="true"><option>Loading orgs…</option></select>
+              </div>
             </div>
-          </div>
-          <div class="field">
-            <label for="targetVersion">Target exact version (compare-with)</label>
-            <select id="targetVersion"><option value="">None — select target org and source version</option></select>
-            <span class="meta">Target-org runtime status can differ from the source.</span>
-          </div>
-          <div class="field reload-field">
-            <button class="ghost" id="reloadBtn">Reload list</button>
-          </div>
+            <div class="field model-field">
+              <label for="model" class="label-with-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l4 4v16H6zM14 2v5h5M9 12h7M9 16h7"/></svg>
+                <span>Source CML exact version <span id="cmlCount" class="meta"></span></span>
+              </label>
+              <div class="combo version-picker" id="combo">
+                <button type="button" class="version-trigger" id="sourceVersionTrigger"
+                  aria-haspopup="listbox" aria-expanded="false" disabled>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l4 4v16H6zM14 2v5h5M9 12h7M9 16h7"/></svg>
+                  <span class="version-trigger-copy" id="selectedName">Select a source org first…</span>
+                  <svg class="version-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="version-menu" id="sourceVersionMenu" hidden>
+                  <div class="version-search-wrap">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+                    <input class="version-search" id="cmlFilter" placeholder="Search CML versions…" autocomplete="off" spellcheck="false" />
+                  </div>
+                  <div class="version-options" id="sourceVersionOptions" role="listbox" aria-label="Source CML versions"></div>
+                </div>
+                <select class="sr-only" id="model" tabindex="-1" aria-hidden="true"><option value="">Choose an org first…</option></select>
+              </div>
+              <div class="combo-selected" id="comboSelected" hidden></div>
+            </div>
+          </section>
+
+          <section class="org-workspace target-workspace" aria-labelledby="targetWorkspaceTitle">
+            <div class="workspace-head">
+              <div class="workspace-title">
+                <span class="workspace-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 21V8l8-5 8 5v13M8 21v-4h8v4M8 10h.01M12 10h.01M16 10h.01M8 13h.01M12 13h.01M16 13h.01"/></svg></span>
+                <span><strong id="targetWorkspaceTitle">Target org (compare-with)</strong><span>Select the target org and exact CML version.</span></span>
+              </div>
+              <span class="workspace-org-id" id="targetOrgId">Org ID: —</span>
+            </div>
+            <div class="field">
+              <label for="targetOrg">Target org (compare-with)</label>
+              <div class="org-picker" id="targetOrgPicker">
+                <button type="button" class="org-trigger" id="targetOrgTrigger" aria-haspopup="listbox" aria-expanded="false" disabled>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V8l8-5 8 5v13M8 21v-4h8v4M8 10h.01M12 10h.01M16 10h.01M8 13h.01M12 13h.01M16 13h.01"/></svg>
+                  <span class="org-trigger-copy" id="targetOrgDisplay">Loading orgs…</span>
+                  <svg class="version-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="org-menu" id="targetOrgMenu" role="listbox" aria-label="Target orgs" hidden></div>
+                <select class="sr-only" id="targetOrg" tabindex="-1" aria-hidden="true"><option>Loading orgs…</option></select>
+              </div>
+            </div>
+            <div class="field">
+              <label for="targetVersion" class="label-with-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l4 4v16H6zM14 2v5h5M9 12h7M9 16h7"/></svg>
+                <span>Target exact version (compare-with)</span>
+              </label>
+              <div class="version-picker" id="targetVersionPicker">
+                <button type="button" class="version-trigger" id="targetVersionTrigger"
+                  aria-haspopup="listbox" aria-expanded="false" disabled>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l4 4v16H6zM14 2v5h5M9 12h7M9 16h7"/></svg>
+                  <span class="version-trigger-copy" id="targetVersionDisplay">Select target org and source version…</span>
+                  <svg class="version-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="version-menu" id="targetVersionMenu" hidden>
+                  <div class="version-search-wrap">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+                    <input class="version-search" id="targetVersionFilter" placeholder="Search CML versions…" autocomplete="off" spellcheck="false" />
+                  </div>
+                  <div class="version-options" id="targetVersionOptions" role="listbox" aria-label="Target CML versions"></div>
+                </div>
+                <select class="sr-only" id="targetVersion" tabindex="-1" aria-hidden="true"><option value="">None — select target org and source version</option></select>
+              </div>
+              <span class="meta">Target-org runtime status can differ from the source.</span>
+            </div>
+          </section>
         </div>
       </div>
 
@@ -661,7 +985,15 @@ PAGE = r"""<!DOCTYPE html>
             <div class="deploy-panel">
               <div class="field">
                 <label for="deployOrg">Deploy to org</label>
-                <select id="deployOrg"><option>Loading orgs…</option></select>
+                <div class="org-picker" id="deployOrgPicker">
+                  <button type="button" class="org-trigger" id="deployOrgTrigger" aria-haspopup="listbox" aria-expanded="false" disabled>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V8l8-5 8 5v13M8 21v-4h8v4M8 10h.01M12 10h.01M16 10h.01M8 13h.01M12 13h.01M16 13h.01"/></svg>
+                    <span class="org-trigger-copy" id="deployOrgDisplay">Loading orgs…</span>
+                    <svg class="version-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                  </button>
+                  <div class="org-menu" id="deployOrgMenu" role="listbox" aria-label="Deployment orgs" hidden></div>
+                  <select class="sr-only" id="deployOrg" tabindex="-1" aria-hidden="true"><option>Loading orgs…</option></select>
+                </div>
               </div>
               <div class="field">
                 <label for="deployVersion">Target exact CML version</label>
@@ -758,11 +1090,11 @@ PAGE = r"""<!DOCTYPE html>
             <div class="card-title">
               <span class="step-dot" style="background:linear-gradient(135deg,var(--green),var(--teal));">3</span>
               <div>
-                <h2>Best Practices</h2>
+                <h2>CML Quality Review</h2>
                 <p>Client-side CML linter — checks rules, scores quality, and provides paste-ready fixes.</p>
               </div>
             </div>
-            <button class="btn btn-green" id="lintPanelBtn">
+            <button class="ghost" id="lintPanelBtn">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Check best practices
             </button>
           </div>
@@ -774,39 +1106,46 @@ PAGE = r"""<!DOCTYPE html>
 
       <!-- ══════════════ VIEW: CONSTRAINT DATA ══════════════ -->
       <div class="view-panel" id="view-data">
-        <div class="card">
+        <div class="card data-workspace-card">
           <div class="card-head">
             <div class="card-title">
               <span class="step-dot" style="background:linear-gradient(135deg,var(--teal),var(--accent-strong));">4</span>
               <div>
-                <h2>Constraint Data Deploy</h2>
+                <h2>Product Association Workspace</h2>
                 <p>View, compare, and deploy ExpressionSetConstraintObj rows (Product associations).</p>
               </div>
             </div>
           </div>
 
-          <p class="sub" style="margin:0 0 14px;">Deploying CML code alone doesn't recreate Product associations. These rows are matched across orgs by a <strong>foreign key</strong> — a field whose value is stable across orgs — instead of by record Id.</p>
-          <p class="meta" style="margin:0 0 14px;"><strong>Safe deployment boundary:</strong> catalog records are read-only. The tool reports missing products, classifications, attributes, component groups, and relationships, but it only writes CML content and ExpressionSetConstraintObj associations.</p>
+          <div class="safety-alert" role="note">
+            <span class="safety-alert-icon" aria-hidden="true">i</span>
+            <div>
+              <p>Deploying CML code alone doesn't recreate Product associations. These rows are matched across orgs by a <strong>foreign key</strong> — a field whose value is stable across orgs — instead of by record Id.</p>
+              <p><strong>Safe deployment boundary:</strong> catalog records are read-only. The tool reports missing products, classifications, attributes, component groups, and relationships, but it only writes CML content and ExpressionSetConstraintObj associations.</p>
+            </div>
+          </div>
 
-          <div class="conn-strip" style="gap:14px;align-items:end;margin-bottom:16px;">
+          <div class="data-action-row">
             <div class="field key-field-compact">
               <label for="keyField">Match records by (foreign key field)</label>
-              <input id="keyField" list="keyFieldOpts" value="Global_Key__c" spellcheck="false" autocomplete="off"
-                     placeholder="Global_Key__c" title="API name of a field that identifies the same record across orgs" />
-              <datalist id="keyFieldOpts">
-                <option value="Global_Key__c"></option>
-                <option value="Name"></option>
-                <option value="ProductCode"></option>
-                <option value="ExternalId"></option>
-                <option value="External_Id__c"></option>
-                <option value="StockKeepingUnit"></option>
-              </datalist>
-              <p class="meta" style="margin:5px 0 0;"><code>Name</code> may be selected only when it is present and uniquely portable in both orgs; prefer a stable custom/external Id.</p>
+              <div class="key-field-picker" id="keyFieldPicker">
+                <input id="keyField" value="" spellcheck="false" autocomplete="off"
+                       role="combobox" aria-autocomplete="list" aria-expanded="false"
+                       aria-controls="keyFieldMenu" placeholder="Select orgs to discover fields"
+                       title="Search or enter a field API name that identifies the same record across orgs" />
+                <button type="button" class="key-field-toggle" id="keyFieldToggle"
+                        aria-label="Show detected foreign-key fields" tabindex="-1">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                       stroke-linecap="round" stroke-linejoin="round"><path d="m7 10 5 5 5-5"/></svg>
+                </button>
+                <div class="key-field-menu" id="keyFieldMenu" role="listbox" hidden></div>
+              </div>
+              <p class="meta" id="keyFieldHelp">Choose a unique external ID when possible. <code>Name</code> requires matching, unique values; duplicates are blocked.</p>
             </div>
             <div class="btn-row" style="margin-top:0;gap:8px;">
-              <button class="btn btn-primary" id="loadDataBtn">View data</button>
-              <button class="btn btn-purple" id="compareDataBtn">Compare data</button>
-              <button class="btn btn-danger" id="stopCompareDataBtn" hidden>Stop Comparison</button>
+              <button class="btn btn-primary" id="loadDataBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>View data</button>
+              <button class="btn btn-purple" id="compareDataBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 7h11l-3-3M18 17H7l3 3M18 7l-3 3M7 17l3-3"/></svg>Compare data</button>
+              <button class="btn btn-danger" id="stopCompareDataBtn" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>Stop Comparison</button>
             </div>
           </div>
 
@@ -817,7 +1156,7 @@ PAGE = r"""<!DOCTYPE html>
               <button class="linklike" id="selNoAdds" disabled>Clear adds</button>
               <button class="linklike" id="selAllDels" disabled>Select all deletes</button>
               <button class="linklike" id="selNoDels" disabled>Clear deletes</button>
-              <button class="btn btn-green" id="deployDataBtn" disabled>Deploy selected to target</button>
+              <button class="btn btn-green" id="deployDataBtn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m8 5 11 7-11 7z"/></svg>Deploy selected to target</button>
             </div>
           </div>
 
@@ -856,9 +1195,9 @@ PAGE = r"""<!DOCTYPE html>
       <!-- ══════════════ VIEW: TOOL GUIDE ══════════════ -->
       <div class="view-panel" id="view-guide">
         <div class="card">
-          <div class="guide-hero"><div><div class="eyebrow">Safe operating workflow</div><h2>Guide Me on Tool</h2>
+          <div class="guide-hero"><div><div class="eyebrow">Eight-step guide</div><h2>Safe operating workflow</h2>
             <p class="sub">Follow these steps in order to review exact versions and keep every Salesforce write deliberate.</p></div>
-            <div class="guide-badges"><span class="guide-badge read">Read-only</span><span class="guide-badge write">Writes Salesforce</span></div>
+            <div class="guide-badges"><span class="guide-badge read"><span aria-hidden="true">✓</span>&nbsp; Read-only</span><span class="guide-badge write"><span aria-hidden="true">!</span>&nbsp; Writes Salesforce</span></div>
           </div>
           <div class="guide-steps">
             <article class="guide-step" data-guide-step="1">
@@ -945,8 +1284,13 @@ PAGE = r"""<!DOCTYPE html>
     document.querySelectorAll(".view-panel").forEach(p => p.classList.remove("active"));
     const panel = $("view-" + view);
     if (panel) panel.classList.add("active");
-    document.querySelectorAll(".side-nav").forEach(b => b.classList.toggle("active", b.dataset.view === view));
-    document.querySelectorAll(".tab").forEach(b => b.classList.toggle("active", b.dataset.view === view));
+    const connectionCard = $("connectionCard");
+    if (connectionCard) connectionCard.hidden = view === "guide";
+    document.querySelectorAll(".side-nav,.tab").forEach(b => {
+      const active = b.dataset.view === view;
+      b.classList.toggle("active", active);
+      b.setAttribute("aria-selected", String(active));
+    });
     const m = PAGE_META[view] || {};
     if ($("pageTitle")) $("pageTitle").innerHTML = m.title || view;
     if ($("pageSubtitle")) $("pageSubtitle").textContent = (m.sub || "").replace(/&amp;/g,"&");
@@ -954,15 +1298,42 @@ PAGE = r"""<!DOCTYPE html>
   document.querySelectorAll(".side-nav,.tab").forEach(b => {
     b.addEventListener("click", () => switchView(b.dataset.view));
   });
+  const primaryNavButtons = Array.from(document.querySelectorAll("#sideNav [data-view]"));
+  primaryNavButtons.forEach((button, index) => {
+    button.addEventListener("keydown", event => {
+      let next = null;
+      if (event.key === "ArrowRight") next = (index + 1) % primaryNavButtons.length;
+      if (event.key === "ArrowLeft") next = (index - 1 + primaryNavButtons.length) % primaryNavButtons.length;
+      if (event.key === "Home") next = 0;
+      if (event.key === "End") next = primaryNavButtons.length - 1;
+      if (next !== null) {
+        event.preventDefault();
+        primaryNavButtons[next].focus();
+        switchView(primaryNavButtons[next].dataset.view);
+      }
+    });
+  });
 
   const orgSel = $("org"), targetSel = $("targetOrg"), targetVersionSel = $("targetVersion"), model = $("model"), content = $("content"), status = $("status");
+  const sourceOrgPicker = $("sourceOrgPicker"), sourceOrgTrigger = $("sourceOrgTrigger");
+  const sourceOrgDisplay = $("sourceOrgDisplay"), sourceOrgMenu = $("sourceOrgMenu");
+  const targetOrgPicker = $("targetOrgPicker"), targetOrgTrigger = $("targetOrgTrigger");
+  const targetOrgDisplay = $("targetOrgDisplay"), targetOrgMenu = $("targetOrgMenu");
+  const sourceOrgId = $("sourceOrgId"), targetOrgId = $("targetOrgId");
   const contentLineNumbers = $("contentLineNumbers"), contentHighlight = $("contentHighlight");
   const fetchBtn = $("fetchBtn"), deployBtn = $("deployBtn"), rollbackBtn = $("rollbackBtn"), compareBtn = $("compareBtn"), copyBtn = $("copyBtn");
   const lineCommentBtn = $("lineCommentBtn"), blockCommentBtn = $("blockCommentBtn");
-  const cmlFilter = $("cmlFilter"), reloadBtn = $("reloadBtn"), cmlCount = $("cmlCount");
-  const combo = $("combo"), comboSelected = $("comboSelected"), selectedName = $("selectedName"), changeModelBtn = $("changeModelBtn");
+  const cmlFilter = $("cmlFilter"), cmlCount = $("cmlCount");
+  const combo = $("combo"), comboSelected = $("comboSelected"), selectedName = $("selectedName");
+  const sourceVersionTrigger = $("sourceVersionTrigger"), sourceVersionMenu = $("sourceVersionMenu");
+  const sourceVersionOptions = $("sourceVersionOptions");
+  const targetVersionPicker = $("targetVersionPicker"), targetVersionTrigger = $("targetVersionTrigger");
+  const targetVersionDisplay = $("targetVersionDisplay"), targetVersionMenu = $("targetVersionMenu");
+  const targetVersionFilter = $("targetVersionFilter"), targetVersionOptions = $("targetVersionOptions");
   const deployOrgSel = $("deployOrg"), deployVersionSel = $("deployVersion");
-  const themeBtn = $("themeBtn"), conn = $("conn");
+  const deployOrgPicker = $("deployOrgPicker"), deployOrgTrigger = $("deployOrgTrigger");
+  const deployOrgDisplay = $("deployOrgDisplay"), deployOrgMenu = $("deployOrgMenu");
+  const themeBtn = $("themeBtn"), themeIcon = $("themeIcon"), themeLabel = $("themeLabel"), conn = $("conn");
   const diffBox = $("diff"), diffSummary = $("diffSummary"), onlyDiffs = $("onlyDiffs");
   const diffPanes = $("diffPanes"), srcTable = $("srcTable"), tgtTable = $("tgtTable"), mergeTable = $("mergeTable");
   const srcTitle = $("srcTitle"), tgtTitle = $("tgtTitle"), srcScroll = $("srcScroll"), tgtScroll = $("tgtScroll"), mergeScroll = $("mergeScroll");
@@ -976,7 +1347,9 @@ PAGE = r"""<!DOCTYPE html>
   let lastCompare = null;
   let activeMergeHunks = [];
   const loadDataBtn = $("loadDataBtn"), compareDataBtn = $("compareDataBtn"), stopCompareDataBtn = $("stopCompareDataBtn"), keyField = $("keyField");
-  const keyName = () => (keyField.value || "Global_Key__c").trim();
+  const keyFieldPicker = $("keyFieldPicker"), keyFieldMenu = $("keyFieldMenu");
+  const keyFieldToggle = $("keyFieldToggle"), keyFieldHelp = $("keyFieldHelp");
+  const keyName = () => (keyField.value || "").trim();
   const dataBox = $("data"), dataChips = $("dataChips"), dataTable = $("dataTable"), dataFilter = $("dataFilter");
   const deployBar = $("deployBar"), selSummary = $("selSummary"), deployDataBtn = $("deployDataBtn");
   const selAllAdds = $("selAllAdds"), selNoAdds = $("selNoAdds"), selAllDels = $("selAllDels"), selNoDels = $("selNoDels");
@@ -986,10 +1359,17 @@ PAGE = r"""<!DOCTYPE html>
   const donateUpiBtn = $("donateUpiBtn"), donateDialog = $("donateDialog");
   const donateCloseBtn = $("donateCloseBtn"), copyUpiBtn = $("copyUpiBtn");
   let allModels = [];
+  let targetModels = [];
+  const modelCache = new Map();
+  let modelLoadSequence = 0;
+  let targetModelLoadSequence = 0;
+  let allOrgs = [];
+  let keyFieldCandidates = [];
+  let activeKeyFieldOption = -1;
   let reconnecting = false;
   let dataRows = [];        // current rows shown in the data table
   let dataMode = "single";  // "single" (one org) or "compare"
-  let currentKeyField = "Global_Key__c";  // foreign key the shown data was matched on
+  let currentKeyField = "";  // foreign key the shown data was matched on
   let dataCompareController = null;
   let dataCompareOperationId = null;
   const selectedSourceVersion = () => allModels.find(m => m.versionId === model.value) || null;
@@ -999,7 +1379,7 @@ PAGE = r"""<!DOCTYPE html>
     return `${basis}: ${(m && m.status) || "Unknown"}`;
   };
   const selectedVersionLabel = (m) => m
-    ? `${m.name} · V${m.version} · Source ${versionStatusLabel(m)} · ${m.versionId}`
+    ? `${m.name} · V${m.version} · ${(m && m.status) || "Unknown"}`
     : "";
 
   // Size native picklists from their current option text. Containers wrap, so
@@ -1209,7 +1589,10 @@ PAGE = r"""<!DOCTYPE html>
   // ---- Theme (day/night) ----
   function applyThemeLabel() {
     const t = document.documentElement.getAttribute("data-theme") || "light";
-    themeBtn.textContent = t === "light" ? "Night mode" : "Day mode";
+    themeLabel.textContent = t === "light" ? "Night mode" : "Day mode";
+    themeIcon.innerHTML = t === "light"
+      ? '<path d="M20.8 15.4A9 9 0 0 1 8.6 3.2 9 9 0 1 0 20.8 15.4Z"/>'
+      : '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
   }
   themeBtn.onclick = () => {
     const cur = document.documentElement.getAttribute("data-theme") || "light";
@@ -1291,11 +1674,224 @@ PAGE = r"""<!DOCTYPE html>
     deployBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V3M7 8l5-5 5 5"/><path d="M5 21h14a2 2 0 0 0 2-2v-4M3 15v4a2 2 0 0 0 2 2"/></svg>Deploy CML';
     rollbackBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>Restore Backup CML';
     compareBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M10 8l-3 4 3 4M14 8l3 4-3 4"/></svg>Compare source ↔ target';
-    loadDataBtn.textContent = "View data";
-    compareDataBtn.textContent = "Compare data";
-    deployDataBtn.textContent = "Deploy selected to target";
+    loadDataBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>View data';
+    compareDataBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 7h11l-3-3M18 17H7l3 3M18 7l-3 3M7 17l3-3"/></svg>Compare data';
+    deployDataBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m8 5 11 7-11 7z"/></svg>Deploy selected to target';
     actionBtns.forEach(b => b.disabled = false);
     updateDeployBar();
+  }
+
+  function selectedOrgInfo(alias) {
+    return allOrgs.find(org => org.alias === alias) || null;
+  }
+
+  const ORG_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V8l8-5 8 5v13M8 21v-4h8v4M8 10h.01M12 10h.01M16 10h.01M8 13h.01M12 13h.01M16 13h.01"/></svg>';
+  const orgPickers = [
+    { select:orgSel, picker:sourceOrgPicker, trigger:sourceOrgTrigger, display:sourceOrgDisplay,
+      menu:sourceOrgMenu, placeholder:"Select a source org" },
+    { select:targetSel, picker:targetOrgPicker, trigger:targetOrgTrigger, display:targetOrgDisplay,
+      menu:targetOrgMenu, placeholder:"Select a target org" },
+    { select:deployOrgSel, picker:deployOrgPicker, trigger:deployOrgTrigger, display:deployOrgDisplay,
+      menu:deployOrgMenu, placeholder:"Select a deployment target" },
+  ];
+
+  function closeOrgPicker(config) {
+    config.menu.hidden = true;
+    config.picker.classList.remove("open");
+    config.trigger.setAttribute("aria-expanded", "false");
+  }
+
+  function renderOrgPicker(config) {
+    const selected = selectedOrgInfo(config.select.value);
+    config.display.textContent = selected ? selected.alias : config.placeholder;
+    config.trigger.disabled = !allOrgs.length;
+    config.menu.innerHTML = allOrgs.map(org => {
+      const isSelected = org.alias === config.select.value;
+      return `<button type="button" class="org-option${isSelected ? " selected" : ""}" role="option"`
+        + ` aria-selected="${isSelected}" data-value="${esc(org.alias)}">${ORG_ICON}`
+        + `<span class="org-option-copy"><span class="org-option-name">${esc(org.alias)}</span>`
+        + `<span class="org-option-meta">${esc(org.username || "Salesforce org")}</span></span></button>`;
+    }).join("");
+  }
+
+  function openOrgPicker(config) {
+    if (config.trigger.disabled) return;
+    orgPickers.forEach(closeOrgPicker);
+    renderOrgPicker(config);
+    config.menu.hidden = false;
+    config.picker.classList.add("open");
+    config.trigger.setAttribute("aria-expanded", "true");
+  }
+
+  orgPickers.forEach(config => {
+    config.trigger.addEventListener("click", () =>
+      config.menu.hidden ? openOrgPicker(config) : closeOrgPicker(config));
+    config.menu.addEventListener("click", event => {
+      const option = event.target.closest(".org-option");
+      if (!option) return;
+      config.select.value = option.dataset.value;
+      renderOrgPicker(config);
+      closeOrgPicker(config);
+      config.select.dispatchEvent(new Event("change", { bubbles:true }));
+      config.trigger.focus();
+    });
+    config.select.addEventListener("change", () => renderOrgPicker(config));
+  });
+  document.addEventListener("mousedown", event => {
+    orgPickers.forEach(config => {
+      if (!config.picker.contains(event.target)) closeOrgPicker(config);
+    });
+  });
+
+  function renderSelectedOrgIds() {
+    const source = selectedOrgInfo(orgSel.value);
+    const target = selectedOrgInfo(targetSel.value);
+    sourceOrgId.textContent = `Org ID: ${(source && source.orgId) || "—"}`;
+    targetOrgId.textContent = `Org ID: ${(target && target.orgId) || "—"}`;
+  }
+
+  function renderKeyFieldMenu(filter = "") {
+    const needle = filter.trim().toLowerCase();
+    const fields = keyFieldCandidates.filter(field =>
+      !needle
+      || field.name.toLowerCase().includes(needle)
+      || (field.label || "").toLowerCase().includes(needle)
+      || (field.objectTypes || []).some(type => type.toLowerCase().includes(needle))
+    );
+    activeKeyFieldOption = -1;
+    keyFieldMenu.innerHTML = fields.length ? fields.map(field => {
+      const scope = field.allReferenceTypes
+        ? "Available on all supported reference objects"
+        : `Available on ${(field.objectTypes || []).join(", ")}`;
+      const selected = field.name === keyName();
+      return `<button type="button" class="key-field-option${selected ? " selected" : ""}"`
+        + ` role="option" aria-selected="${selected}" data-value="${esc(field.name)}">`
+        + `<span class="key-field-option-main"><span class="key-field-option-name">${esc(field.name)}</span>`
+        + `<span class="key-field-option-scope">${esc(scope)}</span></span>`
+        + (selected ? '<span class="key-field-option-mark" aria-hidden="true">✓</span>' : "")
+        + "</button>";
+    }).join("") : `<div class="key-field-empty">${
+      keyFieldCandidates.length
+        ? "No detected fields match your search. You can still enter a valid API name."
+        : "Select orgs to discover available fields."
+    }</div>`;
+  }
+
+  function openKeyFieldMenu(filter = "") {
+    renderKeyFieldMenu(filter);
+    keyFieldMenu.hidden = false;
+    keyFieldPicker.classList.add("open");
+    keyField.setAttribute("aria-expanded", "true");
+  }
+
+  function closeKeyFieldMenu() {
+    keyFieldMenu.hidden = true;
+    keyFieldPicker.classList.remove("open");
+    keyField.setAttribute("aria-expanded", "false");
+    activeKeyFieldOption = -1;
+  }
+
+  function selectKeyField(value) {
+    keyField.value = value;
+    closeKeyFieldMenu();
+    keyField.focus();
+    keyField.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function moveKeyFieldHighlight(direction) {
+    const options = Array.from(keyFieldMenu.querySelectorAll(".key-field-option"));
+    if (!options.length) return;
+    activeKeyFieldOption = activeKeyFieldOption < 0
+      ? (direction > 0 ? 0 : options.length - 1)
+      : (activeKeyFieldOption + direction + options.length) % options.length;
+    options.forEach((option, index) =>
+      option.classList.toggle("active", index === activeKeyFieldOption));
+    options[activeKeyFieldOption].scrollIntoView({ block: "nearest" });
+  }
+
+  keyField.addEventListener("focus", () => openKeyFieldMenu());
+  keyField.addEventListener("input", () => {
+    openKeyFieldMenu(keyName());
+  });
+  keyField.addEventListener("keydown", event => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (keyFieldMenu.hidden) openKeyFieldMenu();
+      else moveKeyFieldHighlight(event.key === "ArrowDown" ? 1 : -1);
+    } else if (event.key === "Enter" && !keyFieldMenu.hidden) {
+      const options = keyFieldMenu.querySelectorAll(".key-field-option");
+      const selected = options[activeKeyFieldOption];
+      if (selected) {
+        event.preventDefault();
+        selectKeyField(selected.dataset.value);
+      }
+    } else if (event.key === "Escape") {
+      closeKeyFieldMenu();
+    }
+  });
+  keyFieldToggle.addEventListener("click", () => {
+    if (keyFieldMenu.hidden) {
+      keyField.focus();
+      openKeyFieldMenu();
+    } else {
+      closeKeyFieldMenu();
+    }
+  });
+  keyFieldMenu.addEventListener("mousedown", event => event.preventDefault());
+  keyFieldMenu.addEventListener("click", event => {
+    const option = event.target.closest(".key-field-option");
+    if (option) selectKeyField(option.dataset.value);
+  });
+  document.addEventListener("mousedown", event => {
+    if (!keyFieldPicker.contains(event.target)) closeKeyFieldMenu();
+  });
+
+  let keyFieldLoadSequence = 0;
+  async function loadKeyFields() {
+    const source = orgSel.value;
+    const target = targetSel.value;
+    const sequence = ++keyFieldLoadSequence;
+    if (!source) {
+      keyFieldCandidates = [];
+      renderKeyFieldMenu();
+      keyField.value = "";
+      keyField.placeholder = "Select a source org first";
+      keyFieldHelp.innerHTML = "Choose a unique external ID when possible. <code>Name</code> requires matching, unique values; duplicates are blocked.";
+      return;
+    }
+    keyField.placeholder = "Loading fields from selected orgs…";
+    try {
+      const query = `sourceOrg=${encodeURIComponent(source)}`
+        + (target ? `&targetOrg=${encodeURIComponent(target)}` : "");
+      const data = await apiGet(`/api/key-fields?${query}`);
+      if (sequence !== keyFieldLoadSequence) return;
+      if (!data.ok) {
+        keyFieldCandidates = [];
+        renderKeyFieldMenu();
+        keyField.placeholder = "Type a field API name";
+        keyFieldHelp.textContent = data.log || "Field discovery was unavailable; enter a field API name manually.";
+        return;
+      }
+      const previous = keyName();
+      const fields = data.fields || [];
+      keyFieldCandidates = fields;
+      const available = new Set(fields.map(field => field.name));
+      if (previous && !available.has(previous)) keyField.value = "";
+      renderKeyFieldMenu();
+      keyField.placeholder = fields.length
+        ? "Choose a detected field"
+        : "No shared candidate fields detected";
+      const compared = target ? `${source} and ${target}` : source;
+      keyFieldHelp.innerHTML = fields.length
+        ? `${fields.length} candidate field${fields.length === 1 ? "" : "s"} loaded from ${esc(compared)}. Prefer a unique external ID. <code>Name</code> requires matching, unique values; duplicates are blocked.`
+        : `No filterable business-key candidates were shared by the supported reference objects in ${esc(compared)}.`;
+    } catch (e) {
+      if (sequence !== keyFieldLoadSequence) return;
+      keyFieldCandidates = [];
+      renderKeyFieldMenu();
+      keyField.placeholder = "Type a field API name";
+      keyFieldHelp.textContent = "Could not discover fields: " + e;
+    }
   }
 
   async function loadOrgs() {
@@ -1312,9 +1908,10 @@ PAGE = r"""<!DOCTYPE html>
           "No Salesforce orgs are authorized for THIS user on THIS computer.\n"
           + "Org logins are stored per operating-system user, so each person must log in on their own account:\n\n"
           + "    sf org login web --alias <name>\n\n"
-          + "Then click \u201cReload list\u201d. Open http://127.0.0.1:" + location.port + "/api/debug to see details (sf path, OS user, saved logins).");
+          + "Then refresh the CML Tool. Open http://127.0.0.1:" + location.port + "/api/debug to see details (sf path, OS user, saved logins).");
         return;
       }
+      allOrgs = orgs;
       const opts = orgs.map(o => `<option value="${o.alias}">${o.alias}${o.username ? "  —  " + o.username : ""}</option>`).join("");
       orgSel.innerHTML = '<option value="">None — select a source org</option>' + opts;
       targetSel.innerHTML = '<option value="">None — select a target org</option>' + opts;
@@ -1324,6 +1921,9 @@ PAGE = r"""<!DOCTYPE html>
       deployOrgSel.value = "";
       targetVersionSel.innerHTML = '<option value="">None — select target org and source version</option>';
       deployVersionSel.innerHTML = '<option value="">None — select deployment target and source version</option>';
+      orgPickers.forEach(renderOrgPicker);
+      renderSelectedOrgIds();
+      loadKeyFields();
       loadModels();
     } catch (e) {
       if (e && e.conn) { handleDisconnect(); return; }
@@ -1332,33 +1932,50 @@ PAGE = r"""<!DOCTYPE html>
     }
   }
 
-  // Collapse the picklist down to just the chosen CML once one is picked, and
-  // let the user re-open the full list with "Change CML".
+  // Floating, searchable exact-version controls. Native selects remain the
+  // source of truth so existing guarded workflows keep their exact IDs.
+  function openVersionPicker(picker, trigger, menu, search) {
+    if (trigger.disabled) return;
+    menu.hidden = false;
+    picker.classList.add("open");
+    trigger.setAttribute("aria-expanded", "true");
+    requestAnimationFrame(() => search.focus());
+  }
+  function closeVersionPicker(picker, trigger, menu) {
+    menu.hidden = true;
+    picker.classList.remove("open");
+    trigger.setAttribute("aria-expanded", "false");
+  }
   function collapseModelView() {
-    if (!model.value) return;
-    selectedName.textContent = selectedVersionLabel(selectedSourceVersion());
-    combo.hidden = true;
-    comboSelected.hidden = false;
+    const selected = selectedSourceVersion();
+    selectedName.textContent = selected ? selectedVersionLabel(selected) : "Select exact CML version";
+    closeVersionPicker(combo, sourceVersionTrigger, sourceVersionMenu);
   }
   function expandModelView() {
-    comboSelected.hidden = true;
-    combo.hidden = false;
-    try { cmlFilter.focus(); } catch (e) {}
+    openVersionPicker(combo, sourceVersionTrigger, sourceVersionMenu, cmlFilter);
   }
   model.addEventListener("change", () => {
-    if (model.value) collapseModelView();
+    collapseModelView();
+    renderModels();
     loadTargetVersions(targetSel, targetVersionSel, "compare");
     loadTargetVersions(deployOrgSel, deployVersionSel, "deployment");
   });
-  model.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && model.value) { e.preventDefault(); collapseModelView(); }
-  });
-  changeModelBtn.onclick = expandModelView;
+  sourceVersionTrigger.onclick = () => sourceVersionMenu.hidden ? expandModelView()
+    : closeVersionPicker(combo, sourceVersionTrigger, sourceVersionMenu);
+  targetVersionTrigger.onclick = () => targetVersionMenu.hidden
+    ? openVersionPicker(targetVersionPicker, targetVersionTrigger, targetVersionMenu, targetVersionFilter)
+    : closeVersionPicker(targetVersionPicker, targetVersionTrigger, targetVersionMenu);
+
+  function versionOptionHtml(item, selectedId) {
+    const active = String(item.status || "").trim().toLowerCase() === "active";
+    return `<button type="button" class="version-option${item.versionId === selectedId ? " selected" : ""}"`
+      + ` role="option" aria-selected="${item.versionId === selectedId}" data-value="${esc(item.versionId)}">`
+      + `<span class="version-option-copy"><span class="version-option-name">${esc(item.name)} · V${esc(item.version)}</span>`
+      + `<span class="version-option-meta">${esc(versionStatusLabel(item))}</span></span>`
+      + `<span class="runtime-badge ${active ? "active" : "inactive"}">${active ? "Active" : "Inactive"}</span></button>`;
+  }
 
   function renderModels() {
-    expandModelView();
-    targetVersionSel.innerHTML = '<option value="">None — select target org and source version</option>';
-    deployVersionSel.innerHTML = '<option value="">None — select deployment target and source version</option>';
     const f = cmlFilter.value.trim().toLowerCase();
     const list = allModels.filter(m =>
       !f || m.name.toLowerCase().includes(f)
@@ -1366,17 +1983,12 @@ PAGE = r"""<!DOCTYPE html>
       || String(m.version || "").includes(f)
       || (m.status || "").toLowerCase().includes(f)
       || (m.versionId || "").toLowerCase().includes(f));
-    if (!list.length) {
-      model.innerHTML = `<option value="">${allModels.length ? "No CMLs match your filter" : "No CMLs found in this org"}</option>`;
-      model.size = 2;
-    } else {
-      const optionHtml = m => {
-        const tag = `  [V${m.version} · ${versionStatusLabel(m)}]`;
-        return `<option value="${m.versionId}">${m.name}${tag} · ${m.versionId}</option>`;
-      };
-      const active = list.filter(m =>
+    if (allModels.length) {
+      const selectedValue = model.value;
+      const optionHtml = m => `<option value="${m.versionId}">${m.name} · V${m.version} · ${m.status || "Unknown"}</option>`;
+      const active = allModels.filter(m =>
         String(m.status || "").trim().toLowerCase() === "active");
-      const inactive = list.filter(m =>
+      const inactive = allModels.filter(m =>
         String(m.status || "").trim().toLowerCase() !== "active");
       model.innerHTML = '<option value="">None — select an exact version</option>'
         + (active.length
@@ -1385,38 +1997,70 @@ PAGE = r"""<!DOCTYPE html>
         + (inactive.length
           ? `<optgroup label="Inactive / other CML versions">${inactive.map(optionHtml).join("")}</optgroup>`
           : "");
-      model.size = Math.min(10, Math.max(3, list.length + 1));
-      model.value = "";
+      model.value = selectedValue;
     }
+    sourceVersionOptions.innerHTML = list.length
+      ? list.map(item => versionOptionHtml(item, model.value)).join("")
+      : `<div class="version-empty">${allModels.length ? "No CML versions match your search." : "No CML versions found in this org."}</div>`;
     cmlCount.textContent = allModels.length ? `(${list.length} of ${allModels.length})` : "";
-    fitPicklist(model);
   }
 
-  async function loadModels() {
+  async function getOrgModels(org, refresh = false) {
+    if (refresh) modelCache.delete(org);
+    if (!modelCache.has(org)) {
+      const request = apiGet("/api/models?org=" + encodeURIComponent(org))
+        .then(data => {
+          if (data.error) modelCache.delete(org);
+          return data;
+        })
+        .catch(error => {
+          modelCache.delete(org);
+          throw error;
+        });
+      modelCache.set(org, request);
+    }
+    return modelCache.get(org);
+  }
+
+  async function loadModels(refresh = false) {
     const org = orgSel.value;
+    const sequence = ++modelLoadSequence;
+    closeVersionPicker(combo, sourceVersionTrigger, sourceVersionMenu);
     if (!org) {
-      expandModelView();
       allModels = [];
       cmlCount.textContent = "";
       cmlFilter.value = "";
       model.innerHTML = '<option value="">Choose a source org first…</option>';
+      model.value = "";
+      selectedName.textContent = "Select a source org first…";
+      sourceVersionTrigger.disabled = true;
+      sourceVersionOptions.innerHTML = "";
       targetVersionSel.innerHTML = '<option value="">None — select target org and source version</option>';
       deployVersionSel.innerHTML = '<option value="">None — select deployment target and source version</option>';
       return;
     }
-    expandModelView();
+    sourceVersionTrigger.disabled = true;
+    selectedName.textContent = "Loading CML versions…";
     allModels = [];
     cmlCount.textContent = "";
     model.innerHTML = '<option value="">Loading CMLs…</option>';
     try {
-      const data = await apiGet("/api/models?org=" + encodeURIComponent(org));
+      const data = await getOrgModels(org, refresh);
+      if (sequence !== modelLoadSequence) return;
       if (data.error) {
         model.innerHTML = '<option value="">(could not load CMLs)</option>';
+        model.value = "";
+        selectedName.textContent = "Unable to load CML versions — reselect the source org";
+        sourceVersionTrigger.disabled = false;
         setStatus("err", "Could not load CMLs from " + org + ":\n" + data.error);
         return;
       }
       allModels = data.models || [];
+      model.value = "";
+      cmlFilter.value = "";
       renderModels();
+      sourceVersionTrigger.disabled = !allModels.length;
+      selectedName.textContent = allModels.length ? "Select exact CML version" : "No CML versions found";
       if (data.runtimeStatusWarning) {
         setStatus(
           "info",
@@ -1427,30 +2071,54 @@ PAGE = r"""<!DOCTYPE html>
       deployVersionSel.innerHTML = '<option value="">None — select deployment target and source version</option>';
       if (!allModels.length) setStatus("info", "No CMLs (Expression Set versions) were found in " + org + ".");
     } catch (e) {
+      if (sequence !== modelLoadSequence) return;
       if (e && e.conn) { handleDisconnect(); return; }
-      model.innerHTML = '<option value="">(could not load CMLs)</option>';
+      model.value = "";
+      selectedName.textContent = "Unable to load CML versions — reselect the source org";
+      sourceVersionTrigger.disabled = false;
       setStatus("err", "Could not load CMLs: " + e);
     }
   }
 
   async function loadTargetVersions(orgControl, versionControl, purpose) {
+    const isCompareTarget = versionControl === targetVersionSel;
+    const sequence = isCompareTarget ? ++targetModelLoadSequence : null;
     versionControl.innerHTML = `<option value="">None — select exact ${purpose} version</option>`;
     const org = orgControl.value;
     const modelName = selectedModelName();
+    if (isCompareTarget) {
+      targetModels = [];
+      targetVersionDisplay.textContent = !org
+        ? "Select a target org first…"
+        : "Select a source CML version first…";
+      targetVersionTrigger.disabled = true;
+      closeVersionPicker(targetVersionPicker, targetVersionTrigger, targetVersionMenu);
+      renderTargetVersions();
+    }
     if (!org || !modelName) return;
+    if (isCompareTarget) targetVersionDisplay.textContent = "Loading CML versions…";
     versionControl.innerHTML = '<option value="">Loading exact versions…</option>';
     try {
-      const data = await apiGet("/api/models?org=" + encodeURIComponent(org));
+      const data = await getOrgModels(org);
+      if (isCompareTarget && sequence !== targetModelLoadSequence) return;
       if (data.error) {
         versionControl.innerHTML = '<option value="">(could not load exact versions)</option>';
+        if (isCompareTarget) targetVersionDisplay.textContent = "Unable to load CML versions";
         setStatus("err", `Could not load ${purpose} versions from ${org}:\n${data.error}`);
         return;
       }
       const versions = (data.models || []).filter(m => m.name === modelName);
+      if (isCompareTarget) targetModels = versions;
       const targetRole = purpose === "compare" ? "Compare target" : "Deployment target";
       versionControl.innerHTML = `<option value="">None — select exact ${purpose} version</option>`
-        + versions.map(m => `<option value="${m.versionId}">${m.name} · V${m.version} · ${targetRole} ${versionStatusLabel(m)} · ${m.versionId}</option>`).join("");
+        + versions.map(m => `<option value="${m.versionId}">${m.name} · V${m.version} · ${m.status || "Unknown"}</option>`).join("");
       versionControl.value = "";
+      if (isCompareTarget) {
+        targetVersionFilter.value = "";
+        targetVersionDisplay.textContent = versions.length ? "Select exact CML version" : "No matching CML versions found";
+        targetVersionTrigger.disabled = !versions.length;
+        renderTargetVersions();
+      }
       if (data.runtimeStatusWarning) {
         setStatus(
           "info",
@@ -1458,25 +2126,79 @@ PAGE = r"""<!DOCTYPE html>
           + "definition-version status.\n" + data.runtimeStatusWarning);
       }
     } catch (e) {
+      if (isCompareTarget && sequence !== targetModelLoadSequence) return;
       if (e && e.conn) handleDisconnect();
       else setStatus("err", `Could not load ${purpose} versions: ${e}`);
     }
   }
 
+  function renderTargetVersions() {
+    const needle = targetVersionFilter.value.trim().toLowerCase();
+    const versions = targetModels.filter(item =>
+      !needle || item.name.toLowerCase().includes(needle)
+      || String(item.version || "").includes(needle)
+      || (item.status || "").toLowerCase().includes(needle));
+    targetVersionOptions.innerHTML = versions.length
+      ? versions.map(item => versionOptionHtml(item, targetVersionSel.value)).join("")
+      : `<div class="version-empty">${targetModels.length ? "No CML versions match your search." : "No matching CML versions found."}</div>`;
+  }
+
   orgSel.onchange = () => {
     targetVersionSel.innerHTML = '<option value="">None — select target org and source version</option>';
     deployVersionSel.innerHTML = '<option value="">None — select deployment target and source version</option>';
+    renderSelectedOrgIds();
+    loadKeyFields();
     loadModels();
   };
-  targetSel.onchange = () => loadTargetVersions(targetSel, targetVersionSel, "compare");
+  targetSel.onchange = () => {
+    renderSelectedOrgIds();
+    loadKeyFields();
+    loadTargetVersions(targetSel, targetVersionSel, "compare");
+  };
   deployOrgSel.onchange = () => loadTargetVersions(deployOrgSel, deployVersionSel, "deployment");
-  reloadBtn.onclick = loadModels;
   cmlFilter.oninput = renderModels;
+  targetVersionFilter.oninput = renderTargetVersions;
+  sourceVersionOptions.onclick = event => {
+    const option = event.target.closest(".version-option");
+    if (!option) return;
+    model.value = option.dataset.value;
+    model.dispatchEvent(new Event("change", { bubbles:true }));
+  };
+  targetVersionOptions.onclick = event => {
+    const option = event.target.closest(".version-option");
+    if (!option) return;
+    targetVersionSel.value = option.dataset.value;
+    const selected = targetModels.find(item => item.versionId === targetVersionSel.value);
+    targetVersionDisplay.textContent = selected ? selectedVersionLabel(selected) : "Select exact CML version";
+    renderTargetVersions();
+    closeVersionPicker(targetVersionPicker, targetVersionTrigger, targetVersionMenu);
+    targetVersionSel.dispatchEvent(new Event("change", { bubbles:true }));
+  };
+  targetVersionSel.addEventListener("change", () => {
+    const selected = targetModels.find(item => item.versionId === targetVersionSel.value);
+    targetVersionDisplay.textContent = selected ? selectedVersionLabel(selected) : "Select exact CML version";
+    renderTargetVersions();
+  });
+  [cmlFilter, targetVersionFilter].forEach(search => {
+    search.addEventListener("keydown", event => {
+      if (event.key !== "Escape") return;
+      const isSource = search === cmlFilter;
+      closeVersionPicker(
+        isSource ? combo : targetVersionPicker,
+        isSource ? sourceVersionTrigger : targetVersionTrigger,
+        isSource ? sourceVersionMenu : targetVersionMenu);
+      (isSource ? sourceVersionTrigger : targetVersionTrigger).focus();
+    });
+  });
+  document.addEventListener("mousedown", event => {
+    if (!combo.contains(event.target)) closeVersionPicker(combo, sourceVersionTrigger, sourceVersionMenu);
+    if (!targetVersionPicker.contains(event.target)) closeVersionPicker(targetVersionPicker, targetVersionTrigger, targetVersionMenu);
+  });
 
   fetchBtn.onclick = async () => {
     if (!orgSel.value) { setStatus("err", "Please choose an org first."); return; }
     const source = selectedSourceVersion();
-    if (!source) { setStatus("err", "Please select an exact CML version."); model.focus(); return; }
+    if (!source) { setStatus("err", "Please select an exact CML version."); sourceVersionTrigger.focus(); return; }
     busy(fetchBtn, "Fetching…");
     setStatus("info", "Fetching " + selectedVersionLabel(source) + " from " + orgSel.value + "…");
     try {
@@ -1499,7 +2221,7 @@ PAGE = r"""<!DOCTYPE html>
     const dest = deployOrgSel.value;
     if (!dest) { setStatus("err", "Please choose an org to deploy to."); deployOrgSel.focus(); return; }
     const source = selectedSourceVersion();
-    if (!source) { setStatus("err", "Please select an exact source CML version."); model.focus(); return; }
+    if (!source) { setStatus("err", "Please select an exact source CML version."); sourceVersionTrigger.focus(); return; }
     if (!deployVersionSel.value) { setStatus("err", "Please select an exact deployment target version."); deployVersionSel.focus(); return; }
     if (!content.value.trim()) { setStatus("err", "There is no CML content to deploy."); return; }
     const crossOrg = dest !== orgSel.value;
@@ -1567,8 +2289,8 @@ PAGE = r"""<!DOCTYPE html>
     if (!orgSel.value) { setStatus("err", "Please choose a source org.", cmpStatus); return; }
     if (!targetSel.value) { setStatus("err", "Please choose a target org.", cmpStatus); return; }
     const source = selectedSourceVersion();
-    if (!source) { setStatus("err", "Please select an exact source CML version.", cmpStatus); model.focus(); return; }
-    if (!targetVersionSel.value) { setStatus("err", "Please select an exact compare target version.", cmpStatus); targetVersionSel.focus(); return; }
+    if (!source) { setStatus("err", "Please select an exact source CML version.", cmpStatus); sourceVersionTrigger.focus(); return; }
+    if (!targetVersionSel.value) { setStatus("err", "Please select an exact compare target version.", cmpStatus); targetVersionTrigger.focus(); return; }
     busy(compareBtn, "Comparing…");
     diffBox.classList.remove("show");
     setStatus("info", `Comparing "${source.name}" ${source.versionId} between ${orgSel.value} (source) and ${targetSel.value} target version ${targetVersionSel.value}…\nThis fetches the CML from both orgs and can take up to a minute — please wait.`, cmpStatus);
@@ -1978,6 +2700,7 @@ PAGE = r"""<!DOCTYPE html>
     if (!lastCompare || !lastCompare.mergeCount) return;
     setEditorContent(lastCompare.tgt.content);
     deployOrgSel.value = targetSel.value;
+    renderOrgPicker(orgPickers[2]);
     await loadTargetVersions(deployOrgSel, deployVersionSel, "deployment");
     deployVersionSel.value = targetVersionSel.value;
     fitPicklist(deployOrgSel);
@@ -2476,17 +3199,17 @@ PAGE = r"""<!DOCTYPE html>
   function shortType(t) { return TYPE_SHORT[t] || t || "—"; }
 
   function statusBadge(s) {
-    if (s === "match")      return '<span class="badge b-match">Matched</span>';
-    if (s === "add")        return '<span class="badge b-add">Add to target</span>';
-    if (s === "ready")      return '<span class="badge b-add">Add to target</span>';
-    if (s === "extra")      return '<span class="badge b-extra">Only in target</span>';
-    if (s === "cml-difference") return '<span class="badge b-extra">CML definitions differ</span>';
-    if (s === "blocked")    return '<span class="badge b-blocked">Blocked — catalog dependency</span>';
-    if (s === "ambiguous-key") return '<span class="badge b-blocked">Blocked — ambiguous key</span>';
-    if (s === "dependency-unverified") return '<span class="badge b-unmappable">Needs review — dependency key missing</span>';
-    if (s === "exact-duplicate") return '<span class="badge b-dup">Skipped — exact duplicate</span>';
-    if (s === "unmappable") return '<span class="badge b-unmappable">No ' + esc(currentKeyField) + '</span>';
-    if (s === "stale")      return '<span class="badge b-unmappable">Unused association in this org</span>';
+    if (s === "match")      return '<span class="badge b-match"><span aria-hidden="true">✓</span> Matched</span>';
+    if (s === "add")        return '<span class="badge b-add"><span aria-hidden="true">→</span> Add to target</span>';
+    if (s === "ready")      return '<span class="badge b-add"><span aria-hidden="true">→</span> Add to target</span>';
+    if (s === "extra")      return '<span class="badge b-extra"><span aria-hidden="true">!</span> Only in target</span>';
+    if (s === "cml-difference") return '<span class="badge b-extra"><span aria-hidden="true">!</span> CML definitions differ</span>';
+    if (s === "blocked")    return '<span class="badge b-blocked"><span aria-hidden="true">×</span> Blocked — catalog dependency</span>';
+    if (s === "ambiguous-key") return '<span class="badge b-blocked"><span aria-hidden="true">×</span> Blocked — ambiguous key</span>';
+    if (s === "dependency-unverified") return '<span class="badge b-unmappable"><span aria-hidden="true">!</span> Needs review — dependency key missing</span>';
+    if (s === "exact-duplicate") return '<span class="badge b-dup"><span aria-hidden="true">!</span> Skipped — exact duplicate</span>';
+    if (s === "unmappable") return '<span class="badge b-unmappable"><span aria-hidden="true">×</span> No ' + esc(currentKeyField) + '</span>';
+    if (s === "stale")      return '<span class="badge b-unmappable"><span aria-hidden="true">!</span> Unused association in this org</span>';
     return "";
   }
 
@@ -2547,13 +3270,15 @@ PAGE = r"""<!DOCTYPE html>
   }
 
   function dataRowHtml(r, withStatus) {
-    const gk = r.mappable ? `<span class="gkey">${esc(r.gkey)}</span>`
-                          : '<span class="badge b-unmappable">missing</span>';
+    const hasKeyValue = r.gkey !== null && r.gkey !== undefined && String(r.gkey).trim() !== "";
+    const gk = hasKeyValue
+      ? `<span class="gkey">${esc(r.gkey)}</span>`
+      : `<span class="badge b-unmappable">${esc(currentKeyField)} is blank</span>`;
     const blockNote = r.blockNote ? `<span class="block-note">${esc(r.blockNote)}</span>` : "";
     let sel = "";
     if (withStatus) {
       if (isAdd(r) || isDel(r)) {
-        sel = `<td class="col-sel"><input type="checkbox" data-i="${r._i}" ${r._selected ? "checked" : ""}></td>`;
+        sel = `<td class="col-sel"><input type="checkbox" data-i="${r._i}" ${r._selected ? "checked" : ""} aria-label="Select ${esc(statusText(r))} association"></td>`;
       } else {
         sel = `<td class="col-sel"></td>`;
       }
@@ -2586,7 +3311,7 @@ PAGE = r"""<!DOCTYPE html>
     });
     const cols = (withStatus ? 7 : 5);
     const head = "<thead><tr>"
-      + (withStatus ? '<th class="col-sel"></th><th class="col-status">Status</th>' : "")
+      + (withStatus ? '<th class="col-sel" scope="col" title="Select associations for the deploy action">Select</th><th class="col-status">Status</th>' : "")
       + '<th class="col-reftype">Ref type</th><th class="col-tagtype">Tag type</th><th class="col-tag">Tag</th><th class="col-ref">Reference record</th><th class="col-key">' + esc(currentKeyField) + "</th>"
       + "</tr></thead>";
     const body = visible.length
@@ -2680,8 +3405,9 @@ PAGE = r"""<!DOCTYPE html>
   const dSt = () => $("dataStatus") || status;
   loadDataBtn.onclick = async () => {
     if (!orgSel.value) { setStatus("err", "Please choose a source org first.", dSt()); return; }
+    if (!keyName()) { setStatus("err", "Choose a detected foreign-key field first.", dSt()); keyField.focus(); return; }
     const source = selectedSourceVersion();
-    if (!source) { setStatus("err", "Please select an exact source CML version.", dSt()); model.focus(); return; }
+    if (!source) { setStatus("err", "Please select an exact source CML version.", dSt()); sourceVersionTrigger.focus(); return; }
     busy(loadDataBtn, "Loading…");
     setStatus("info", `Loading ExpressionSet-scoped constraint data for "${source.name}" ${source.versionId} from ${orgSel.value}…`, dSt());
     try {
@@ -2727,9 +3453,10 @@ PAGE = r"""<!DOCTYPE html>
   compareDataBtn.onclick = async () => {
     if (!orgSel.value) { setStatus("err", "Please choose a source org.", dSt()); return; }
     if (!targetSel.value) { setStatus("err", "Please choose a target org.", dSt()); return; }
+    if (!keyName()) { setStatus("err", "Choose a foreign-key field shared by the selected orgs.", dSt()); keyField.focus(); return; }
     const source = selectedSourceVersion();
-    if (!source) { setStatus("err", "Please select an exact source CML version.", dSt()); model.focus(); return; }
-    if (!targetVersionSel.value) { setStatus("err", "Please select an exact compare target version.", dSt()); targetVersionSel.focus(); return; }
+    if (!source) { setStatus("err", "Please select an exact source CML version.", dSt()); sourceVersionTrigger.focus(); return; }
+    if (!targetVersionSel.value) { setStatus("err", "Please select an exact compare target version.", dSt()); targetVersionTrigger.focus(); return; }
     dataCompareController = new AbortController();
     dataCompareOperationId = (
       globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
@@ -2829,22 +3556,22 @@ PAGE = r"""<!DOCTYPE html>
     const s = o.s;
     const sd = dupSum(o.src.duplicates), td = dupSum(o.tgt.duplicates);
     dataChips.innerHTML =
-      `<span class="chip">Source ${o.src.org}: ${o.src.total}</span>`
-      + `<span class="chip">Target ${o.tgt.org}: ${o.tgt.total}</span>`
+      `<span class="chip neutral">Source ${o.src.org}: ${o.src.total}</span>`
+      + `<span class="chip neutral">Target ${o.tgt.org}: ${o.tgt.total}</span>`
       + `<span class="chip ok">${s.matched} matched</span>`
       + `<span class="chip add">${s.sourceOnly} only in source</span>`
       + `<span class="chip extra">${s.targetOnly} only in target</span>`
-      + (s.cmlDifferences ? `<span class="chip warn">${s.cmlDifferences} CML definition differences (not errors)</span>` : "")
+      + (s.cmlDifferences ? `<span class="chip cml-diff">${s.cmlDifferences} CML definition differences (not errors)</span>` : "")
       + (s.ambiguousKeys ? `<span class="chip warn">${s.ambiguousKeys} ambiguous portable keys</span>` : "")
       + (s.dependencyIssues ? `<span class="chip warn">${s.dependencyIssues} catalog dependency findings</span>` : "")
       + (s.dependencyUnverified ? `<span class="chip warn">${s.dependencyUnverified} dependency checks need review</span>` : "")
-      + (s.exactDuplicates ? `<span class="chip warn">${s.exactDuplicates} exact duplicate rows</span>` : "")
+      + (s.exactDuplicates ? `<span class="chip dup">${s.exactDuplicates} exact duplicate rows</span>` : "")
       + (s.stale ? `<span class="chip warn">${s.stale} stale (excluded from deploy)</span>` : "")
       + (s.blocked ? `<span class="chip warn">${s.blocked} blocked by catalog dependencies</span>` : "")
       + (s.unmappable ? `<span class="chip warn">${s.unmappable} unmappable</span>` : "")
       + ((o.src.duplicateCheckError || o.tgt.duplicateCheckError)
         ? `<span class="chip warn">Duplicate check unavailable for one selected CML</span>` : "")
-      + ((sd + td) ? `<span class="chip warn" title="Each org is checked independently inside the exact selected version's resolved parent Expression Set">${sd + td} duplicate flags (selected source ${sd} / selected target ${td})</span>` : "");
+      + ((sd + td) ? `<span class="chip dup" title="Each org is checked independently inside the exact selected version's resolved parent Expression Set">${sd + td} duplicate flags (selected source ${sd} / selected target ${td})</span>` : "");
   }
 
   // ---- Deploy selected constraint data to the target ----
