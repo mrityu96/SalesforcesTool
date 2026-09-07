@@ -451,11 +451,11 @@ PAGE = r"""<!DOCTYPE html>
     margin:0; padding:10px 13px; border:none; border-radius:0; font-size:12.5px;
     line-height:1.5; tab-size:2; white-space:pre; overflow-wrap:normal;
     font-family:"JetBrains Mono","Fira Code",ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
-  .editor-highlight { z-index:0; overflow:hidden; pointer-events:none; color:var(--text);
+  .editor-highlight { display:none; z-index:0; overflow:hidden; pointer-events:none; color:var(--text);
     background:var(--input-bg); }
   .editor-highlight .cml-comment { color:var(--comment); }
   .editor-wrap textarea { z-index:1; min-width:0; min-height:0; resize:none; overflow:auto;
-    background:transparent; color:transparent; -webkit-text-fill-color:transparent;
+    background:var(--input-bg); color:var(--text); -webkit-text-fill-color:var(--text);
     caret-color:var(--text); }
   .editor-wrap textarea::placeholder { color:var(--muted); -webkit-text-fill-color:var(--muted); }
   .editor-wrap textarea::selection { background:color-mix(in srgb,var(--accent) 28%,transparent); }
@@ -518,9 +518,18 @@ PAGE = r"""<!DOCTYPE html>
     font-size:11px; font-weight:700; cursor:pointer; }
   .pane-copy:hover { border-color:var(--accent); color:var(--accent); background:var(--info-bg); }
   .pane-copy svg { width:13px; height:13px; }
+  .pane-title-actions { display:flex; align-items:center; gap:5px; flex:none; }
   .pane-scroll { overflow:auto; max-height:600px; }
+  .target-draft-editor { display:block; width:100%; height:clamp(320px,48vh,600px); min-height:240px;
+    resize:vertical; overflow:auto; border:0; border-radius:0; outline:none; padding:10px 12px;
+    background:var(--input-bg); color:var(--text); caret-color:var(--accent);
+    font:12.5px/18.75px "JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+    tab-size:2; white-space:pre; }
+  .target-draft-editor:focus { box-shadow:inset 0 0 0 2px var(--accent); }
+  .diff-panes.target-editing .merge-rail { opacity:.48; }
+  .diff-panes.target-editing .merge-arrow { pointer-events:none; cursor:not-allowed; }
   table.pane-table { border-collapse:collapse; width:100%; font-family:"JetBrains Mono","SF Mono",Menlo,Consolas,monospace; font-size:12.5px; }
-  .pane-table td { padding:0 8px; vertical-align:top; white-space:pre; }
+  .pane-table td { height:18.75px; padding:0 8px; vertical-align:top; white-space:pre; line-height:18.75px; }
   .gutter { text-align:right; color:var(--gutter-text); background:var(--gutter); user-select:none; width:1%; white-space:nowrap; border-right:1px solid var(--line); position:sticky; left:0; }
   .code { width:100%; border-left:3px solid transparent; }
   .mk { user-select:none; display:inline-block; width:1ch; margin-right:7px; color:var(--muted); font-weight:700; }
@@ -541,7 +550,7 @@ PAGE = r"""<!DOCTYPE html>
   .merge-table tr:not(.eqrow) td { background:color-mix(in srgb,var(--accent) 5%,var(--gutter)); }
   .merge-arrow { width:34px; height:18px; padding:0; border:1px solid var(--accent);
     border-radius:6px; background:var(--panel); color:var(--accent); font-size:14px;
-    font-weight:850; line-height:16px; cursor:pointer; }
+    font-weight:850; line-height:16px; cursor:pointer; display:block; margin:0 auto; }
   .merge-arrow:hover { background:var(--accent); color:var(--on-accent); transform:none; }
   .merge-workflow { margin:0 0 12px; padding:10px 12px; border:1px solid var(--accent);
     border-radius:12px; background:var(--info-bg); display:flex; align-items:center;
@@ -682,6 +691,11 @@ PAGE = r"""<!DOCTYPE html>
     padding:18px; margin-bottom:16px; border:1px solid var(--line); border-radius:16px;
     background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 12%,var(--panel)),var(--panel)); }
   .guide-hero h2 { margin:0 0 7px; }
+  .guide-prereqs { margin-bottom:16px; padding:15px 17px; border:1px solid var(--color-primary-border);
+    border-radius:14px; background:var(--info-bg); color:var(--info-text); }
+  .guide-prereqs h3 { margin:0 0 7px; font-size:14px; }
+  .guide-prereqs p { margin:0 0 7px; font-size:12.5px; line-height:1.55; }
+  .guide-prereqs ul,.guide-detail-list { margin:0; padding-left:19px; font-size:12px; line-height:1.55; }
   .guide-badges { display:flex; gap:8px; flex-wrap:wrap; }
   .guide-badge { display:inline-flex; align-items:center; padding:5px 10px; border-radius:999px;
     font-size:11px; font-weight:850; white-space:nowrap; border:1px solid currentColor; }
@@ -694,6 +708,8 @@ PAGE = r"""<!DOCTYPE html>
     color:var(--on-accent); font-weight:900; background:var(--accent); }
   .guide-step h3 { margin:1px 0 5px; font-size:14px; }
   .guide-step p { margin:0; color:var(--muted); font-size:12.5px; line-height:1.55; }
+  .guide-detail-list { margin-top:7px; color:var(--text-secondary); }
+  .guide-detail-list li + li { margin-top:3px; }
   .guide-boundaries { margin-top:16px; padding:15px 17px; border:2px solid var(--amber);
     border-radius:14px; background:color-mix(in srgb,var(--amber) 10%,var(--panel)); }
   .guide-boundaries h3 { margin:0 0 7px; font-size:14px; }
@@ -1054,7 +1070,7 @@ PAGE = r"""<!DOCTYPE html>
               <div class="merge-workflow-copy" id="mergeWorkflowCopy"></div>
               <div class="merge-workflow-actions">
                 <button class="ghost" id="resetMergeBtn">Reset target draft</button>
-                <button class="btn btn-green" id="reviewMergeBtn">Review &amp; Deploy merged target</button>
+                <button class="btn btn-green" id="reviewMergeBtn">Review &amp; Deploy target draft</button>
               </div>
             </div>
             <div class="diff-panes" id="diffPanes">
@@ -1069,12 +1085,23 @@ PAGE = r"""<!DOCTYPE html>
               <div class="pane">
                 <div class="pane-title">
                   <span class="pane-title-text" id="tgtTitle">Target</span>
-                  <button type="button" class="pane-copy" id="copyTargetCmlBtn" title="Copy the complete target CML or current target draft">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"/></svg>
-                    <span>Copy</span>
-                  </button>
+                  <span class="pane-title-actions">
+                    <button type="button" class="pane-copy" id="editTargetBtn" title="Edit any line in the local target working draft">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
+                      <span>Edit target</span>
+                    </button>
+                    <button type="button" class="pane-copy" id="saveTargetEditBtn" hidden>Save edits</button>
+                    <button type="button" class="pane-copy" id="cancelTargetEditBtn" hidden>Cancel</button>
+                    <button type="button" class="pane-copy" id="copyTargetCmlBtn" title="Copy the complete target CML or current target draft">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"/></svg>
+                      <span>Copy</span>
+                    </button>
+                  </span>
                 </div>
-                <div class="pane-scroll" id="tgtScroll"><table class="pane-table" id="tgtTable"></table></div>
+                <div class="pane-scroll" id="tgtScroll">
+                  <textarea class="target-draft-editor" id="tgtEditArea" aria-label="Edit target CML working draft" spellcheck="false" hidden></textarea>
+                  <table class="pane-table" id="tgtTable"></table>
+                </div>
               </div>
             </div>
           </div>
@@ -1196,46 +1223,65 @@ PAGE = r"""<!DOCTYPE html>
       <div class="view-panel" id="view-guide">
         <div class="card">
           <div class="guide-hero"><div><div class="eyebrow">Eight-step guide</div><h2>Safe operating workflow</h2>
-            <p class="sub">Follow these steps in order to review exact versions and keep every Salesforce write deliberate.</p></div>
+            <p class="sub">Follow the complete path from prerequisite metadata through review, deployment, validation, and recovery.</p></div>
             <div class="guide-badges"><span class="guide-badge read"><span aria-hidden="true">✓</span>&nbsp; Read-only</span><span class="guide-badge write"><span aria-hidden="true">!</span>&nbsp; Writes Salesforce</span></div>
           </div>
+          <section class="guide-prereqs" aria-labelledby="guidePrereqTitle">
+            <h3 id="guidePrereqTitle">Before you move CML between orgs</h3>
+            <p>CML text is only one part of a working constraint model. Confirm its dependent metadata and catalog data are available in the target org.</p>
+            <ul>
+              <li><strong>Context Definition tags and mappings:</strong> deploy every tag referenced by CML attributes to the target org. Without the corresponding Context Definition metadata, those attributes cannot resolve correctly at runtime.</li>
+              <li><strong>Product associations:</strong> compare the related <code>ExpressionSetConstraintObj</code> rows separately in Constraint Data Deploy.</li>
+              <li><strong>Catalog dependencies:</strong> products, classifications, attributes, component groups, and relationships are checked here but must be deployed through their owning process.</li>
+              <li><strong>Exact versions:</strong> source, comparison target, and deployment target are separate selections and can have different runtime status.</li>
+            </ul>
+          </section>
           <div class="guide-steps">
             <article class="guide-step" data-guide-step="1">
               <span class="guide-number">1</span><div><span class="guide-badge read">Read-only</span>
-              <h3>Choose the source</h3><p>Select the source org and the exact source CML version. Do not assume the newest version is the intended one.</p></div>
+              <h3>Choose the source</h3><p>Select the source org and exact CML version; do not assume the newest version is intended.</p>
+              <ul class="guide-detail-list"><li>Confirm the org ID and model name.</li><li>Review whether status is runtime- or definition-based.</li><li>Fetching reads Salesforce and also saves a local working copy.</li></ul></div>
             </article>
             <article class="guide-step" data-guide-step="2">
               <span class="guide-number">2</span><div><span class="guide-badge read">Read-only</span>
-              <h3>Fetch CML</h3><p>Fetch the selected version into the editor. Fetching reads Salesforce and does not change the org.</p></div>
+              <h3>Fetch and inspect CML</h3><p>Load the exact source content into the editor and inspect it before comparing or deploying.</p>
+              <ul class="guide-detail-list"><li>Confirm the fetched model is not empty.</li><li>Review comments, tags, relations, cardinalities, and attribute references.</li><li>Use Copy when an external review is required.</li></ul></div>
             </article>
             <article class="guide-step" data-guide-step="3">
               <span class="guide-number">3</span><div><span class="guide-badge read">Read-only</span>
-              <h3>Compare exact versions</h3><p>Compare source and target exact versions. Optionally enable semantic overlays and apply selected changes to a local merge draft.</p></div>
+              <h3>Compare and prepare the target draft</h3><p>Compare exact versions, then combine merge actions with direct target-draft edits.</p>
+              <ul class="guide-detail-list"><li>Line comparison exposes exact text changes.</li><li>Semantic summary distinguishes structural changes from formatting.</li><li>Use <strong>Edit target</strong> to add comments or modify any line; saving refreshes the comparison.</li><li>No Salesforce data changes until the reviewed draft is deployed.</li></ul></div>
             </article>
             <article class="guide-step" data-guide-step="4">
               <span class="guide-number">4</span><div><span class="guide-badge read">Read-only</span>
-              <h3>Check best practices</h3><p>Run the client-side checks and review every warning before considering a deployment.</p></div>
+              <h3>Check best practices</h3><p>Run the client-side quality review against the final draft before deployment.</p>
+              <ul class="guide-detail-list"><li>Review every error, warning, and recommendation.</li><li>Validate generated fixes rather than applying them blindly.</li><li>The quality score is guidance—not proof that Salesforce will compile or activate the CML.</li></ul></div>
             </article>
             <article class="guide-step" data-guide-step="5">
               <span class="guide-number">5</span><div><span class="guide-badge read">Read-only</span>
-              <h3>Choose the deployment target</h3><p>Select the deployment org and exact target version, then review the target status. Target status may differ by org.</p></div>
+              <h3>Validate target prerequisites</h3><p>Confirm the target is ready before selecting it for deployment.</p>
+              <ul class="guide-detail-list"><li>Deploy referenced Context Definition tags and mappings first.</li><li>Verify required catalog records and relationships exist.</li><li>Compare Product associations using a unique, portable foreign key.</li><li>Active versions remain read-only in this tool.</li></ul></div>
             </article>
             <article class="guide-step" data-guide-step="6">
               <span class="guide-number">6</span><div><span class="guide-badge write">Writes Salesforce</span>
-              <h3>Deploy after confirmation</h3><p>Back up and confirm the exact destination before deploying CML. This action writes Salesforce.</p></div>
+              <h3>Review and deploy CML</h3><p>Send the merged or manually edited target draft to Fetch &amp; Deploy for final review.</p>
+              <ul class="guide-detail-list"><li>Re-read the complete target text in the editor.</li><li>Confirm the exact target org alias and version.</li><li>The tool creates a backup, writes CML, re-fetches it, and verifies its hash.</li><li>The tool does not activate or compile the model.</li></ul></div>
             </article>
             <article class="guide-step" data-guide-step="7">
               <span class="guide-number">7</span><div><span class="guide-badge write">Writes Salesforce</span>
-              <h3>Deploy constraint data safely</h3><p>Use Constraint Data Deploy only after dependency preflight. Catalog prerequisites are read-only here and must be fixed externally.</p></div>
+              <h3>Deploy constraint data safely</h3><p>Deploy selected Product associations only after the dependency preflight is clear.</p>
+              <ul class="guide-detail-list"><li>Additions are selected by default; deletions require explicit opt-in.</li><li>Blocked, ambiguous, stale, or CML-difference rows cannot be deployed.</li><li>Context Definition metadata is outside this association deployment and must already exist.</li><li>Review every row-level result and preserve the audit report.</li></ul></div>
             </article>
             <article class="guide-step" data-guide-step="8">
               <span class="guide-number">8</span><div><span class="guide-badge write">Writes Salesforce</span>
-              <h3>Restore and recover</h3><p>Use the saved CML backup or association archive for recovery. A restore writes Salesforce, so verify the exact target again.</p></div>
+              <h3>Validate, activate, or recover</h3><p>Complete the platform validation that the local tool cannot perform, and recover deliberately if needed.</p>
+              <ul class="guide-detail-list"><li>Validate Context Definition resolution and attribute behavior in the target org.</li><li>Compile, activate, and run scenario tests through the approved Salesforce process.</li><li>Use saved CML backups or association archives only after confirming the exact target again.</li><li>Treat a failed post-write refresh as partial deployment requiring recovery review.</li></ul></div>
             </article>
           </div>
           <aside class="guide-boundaries"><h3>What this tool does not prove</h3><ul>
             <li>Target status may differ by org; always review the selected target version in its own org.</li>
             <li>The tool does not compile, activate, or prove runtime behavior of CML.</li>
+            <li>The tool does not deploy Context Definition tags or mappings; referenced metadata must be promoted separately.</li>
             <li>Catalog prerequisites are checked read-only and must be created or corrected externally.</li>
           </ul></aside>
         </div>
@@ -1343,9 +1389,13 @@ PAGE = r"""<!DOCTYPE html>
   const lineLegend = $("lineLegend"), onlyDiffsWrap = $("onlyDiffsWrap");
   const mergeWorkflow = $("mergeWorkflow"), mergeWorkflowCopy = $("mergeWorkflowCopy");
   const resetMergeBtn = $("resetMergeBtn"), reviewMergeBtn = $("reviewMergeBtn");
-  const copyTargetCmlBtn = $("copyTargetCmlBtn");
+  const copyTargetCmlBtn = $("copyTargetCmlBtn"), editTargetBtn = $("editTargetBtn");
+  const saveTargetEditBtn = $("saveTargetEditBtn"), cancelTargetEditBtn = $("cancelTargetEditBtn");
+  const tgtEditArea = $("tgtEditArea");
   let lastCompare = null;
   let activeMergeHunks = [];
+  let editingTarget = false;
+  let semanticRefreshSequence = 0;
   const loadDataBtn = $("loadDataBtn"), compareDataBtn = $("compareDataBtn"), stopCompareDataBtn = $("stopCompareDataBtn"), keyField = $("keyField");
   const keyFieldPicker = $("keyFieldPicker"), keyFieldMenu = $("keyFieldMenu");
   const keyFieldToggle = $("keyFieldToggle"), keyFieldHelp = $("keyFieldHelp");
@@ -2292,6 +2342,8 @@ PAGE = r"""<!DOCTYPE html>
     if (!source) { setStatus("err", "Please select an exact source CML version.", cmpStatus); sourceVersionTrigger.focus(); return; }
     if (!targetVersionSel.value) { setStatus("err", "Please select an exact compare target version.", cmpStatus); targetVersionTrigger.focus(); return; }
     busy(compareBtn, "Comparing…");
+    editingTarget = false;
+    updateTargetEditUi();
     diffBox.classList.remove("show");
     setStatus("info", `Comparing "${source.name}" ${source.versionId} between ${orgSel.value} (source) and ${targetSel.value} target version ${targetVersionSel.value}…\nThis fetches the CML from both orgs and can take up to a minute — please wait.`, cmpStatus);
     try {
@@ -2532,7 +2584,7 @@ PAGE = r"""<!DOCTYPE html>
       activeMergeHunks.forEach((action, index) => {
         if (!action.semantic || renderedSemanticActions.has(index)) return;
         const sourceMatch = action.sourceLead && row.a + 1 === action.sourceLead;
-        const targetMatch = action.targetLead && row.b + 1 === action.targetLead;
+        const targetMatch = !action.sourceLead && action.targetLead && row.b + 1 === action.targetLead;
         if (sourceMatch || targetMatch) {
           ids.push(index);
           renderedSemanticActions.add(index);
@@ -2555,7 +2607,7 @@ PAGE = r"""<!DOCTYPE html>
     const count = lastCompare ? lastCompare.mergeCount || 0 : 0;
     mergeWorkflow.hidden = count === 0;
     if (!count) return;
-    mergeWorkflowCopy.textContent = `${count} source change${count === 1 ? "" : "s"} applied to the target working draft. Salesforce has not been changed yet.`;
+    mergeWorkflowCopy.textContent = `${count} change${count === 1 ? "" : "s"} applied to the target working draft by merge or direct edit. Salesforce has not been changed yet.`;
   }
 
   function renderDiff(src, tgt) {
@@ -2623,6 +2675,7 @@ PAGE = r"""<!DOCTYPE html>
     srcTitle.textContent = "Source — " + src.org;
     tgtTitle.textContent = (lastCompare && lastCompare.mergeCount ? "Target draft — " : "Target — ") + tgt.org;
     diffPanes.classList.toggle("hide-eq", onlyDiffs.checked);
+    updateTargetEditUi();
     updateMergeWorkflow();
 
     if (chg + del + ins === 0) {
@@ -2651,10 +2704,39 @@ PAGE = r"""<!DOCTYPE html>
   syncScroll(mergeScroll);
   syncScroll(tgtScroll);
 
+  function updateTargetEditUi() {
+    if (!tgtEditArea || !editTargetBtn) return;
+    tgtEditArea.hidden = !editingTarget;
+    tgtTable.hidden = editingTarget;
+    editTargetBtn.hidden = editingTarget;
+    saveTargetEditBtn.hidden = !editingTarget;
+    cancelTargetEditBtn.hidden = !editingTarget;
+    resetMergeBtn.disabled = editingTarget;
+    reviewMergeBtn.disabled = editingTarget;
+    diffPanes.classList.toggle("target-editing", editingTarget);
+  }
+
+  async function refreshSemanticAgainstDraft() {
+    if (!lastCompare) return;
+    const compareState = lastCompare;
+    const sourceContent = compareState.src.content || "";
+    const targetContent = compareState.tgt.content || "";
+    const sequence = ++semanticRefreshSequence;
+    try {
+      const data = await postJSON("/api/semantic/compare", { sourceContent, targetContent });
+      if (lastCompare !== compareState || sequence !== semanticRefreshSequence
+          || (lastCompare.tgt.content || "") !== targetContent) return;
+      lastCompare.semantic = data;
+      renderCompare();
+    } catch (e) {
+      if (e && e.conn) handleDisconnect();
+    }
+  }
+
   onlyDiffs.onchange = () => diffPanes.classList.toggle("hide-eq", onlyDiffs.checked);
   mergeTable.onclick = async event => {
     const button = event.target.closest("[data-merge-hunk]");
-    if (!button || !lastCompare) return;
+    if (!button || !lastCompare || editingTarget) return;
     const hunk = activeMergeHunks[Number(button.dataset.mergeHunk)];
     if (!hunk) return;
     const targetLines = (lastCompare.tgt.content || "").replace(/\r\n/g, "\n").split("\n");
@@ -2670,31 +2752,47 @@ PAGE = r"""<!DOCTYPE html>
     lastCompare.mergeCount = (lastCompare.mergeCount || 0) + 1;
     lastCompare.semantic = null;
     renderCompare();
-    try {
-      lastCompare.semantic = await postJSON("/api/semantic/compare", {
-        sourceContent: lastCompare.src.content || "",
-        targetContent: lastCompare.tgt.content || ""
-      });
-      renderCompare();
-    } catch (e) {
-      if (e && e.conn) handleDisconnect();
-    }
+    await refreshSemanticAgainstDraft();
   };
   resetMergeBtn.onclick = () => {
     if (!lastCompare) return;
+    editingTarget = false;
     lastCompare.tgt.content = lastCompare.originalTargetContent;
     lastCompare.mergeCount = 0;
     lastCompare.semantic = null;
     renderCompare();
-    postJSON("/api/semantic/compare", {
-      sourceContent: lastCompare.src.content || "",
-      targetContent: lastCompare.tgt.content || ""
-    }).then(data => {
-      if (!lastCompare) return;
-      lastCompare.semantic = data;
-      renderCompare();
-    }).catch(e => { if (e && e.conn) handleDisconnect(); });
+    refreshSemanticAgainstDraft();
     setStatus("info", "Target draft reset to the version fetched from Salesforce. No org data was changed.", cmpStatus);
+  };
+  editTargetBtn.onclick = () => {
+    if (!lastCompare) return;
+    tgtEditArea.value = (lastCompare.tgt.content || "").replace(/\r\n/g, "\n");
+    editingTarget = true;
+    updateTargetEditUi();
+    tgtEditArea.focus();
+    setStatus("info", "Editing the local target working draft. Save edits to refresh the comparison; Salesforce is not changed.", cmpStatus);
+  };
+  cancelTargetEditBtn.onclick = () => {
+    editingTarget = false;
+    updateTargetEditUi();
+    setStatus("info", "Target edit cancelled. The saved working draft is unchanged.", cmpStatus);
+  };
+  saveTargetEditBtn.onclick = async () => {
+    if (!lastCompare) return;
+    const edited = tgtEditArea.value.replace(/\r\n/g, "\n");
+    const changed = edited !== (lastCompare.tgt.content || "").replace(/\r\n/g, "\n");
+    editingTarget = false;
+    if (!changed) {
+      updateTargetEditUi();
+      setStatus("info", "No target-draft changes were detected.", cmpStatus);
+      return;
+    }
+    lastCompare.tgt.content = edited;
+    lastCompare.mergeCount = (lastCompare.mergeCount || 0) + 1;
+    lastCompare.semantic = null;
+    renderCompare();
+    setStatus("info", "Target-draft edits saved locally. Refreshing line and semantic comparison; Salesforce is not changed.", cmpStatus);
+    await refreshSemanticAgainstDraft();
   };
   reviewMergeBtn.onclick = async () => {
     if (!lastCompare || !lastCompare.mergeCount) return;
@@ -2710,7 +2808,7 @@ PAGE = r"""<!DOCTYPE html>
   };
   copyTargetCmlBtn.onclick = async () => {
     if (!lastCompare) return;
-    const value = lastCompare.tgt.content || "";
+    const value = editingTarget ? tgtEditArea.value : (lastCompare.tgt.content || "");
     try {
       await navigator.clipboard.writeText(value);
     } catch (e) {
