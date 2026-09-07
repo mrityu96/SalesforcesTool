@@ -449,13 +449,14 @@ PAGE = r"""<!DOCTYPE html>
     background:var(--input-bg); }
   .editor-highlight,.editor-wrap textarea { position:absolute; inset:0; width:100%; height:100%;
     margin:0; padding:10px 13px; border:none; border-radius:0; font-size:12.5px;
-    line-height:1.5; tab-size:2; white-space:pre; overflow-wrap:normal;
+    line-height:18.75px; letter-spacing:0; tab-size:2; white-space:pre; overflow-wrap:normal;
+    font-kerning:none; font-variant-ligatures:none; font-feature-settings:"liga" 0,"calt" 0;
     font-family:"JetBrains Mono","Fira Code",ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
-  .editor-highlight { display:none; z-index:0; overflow:hidden; pointer-events:none; color:var(--text);
+  .editor-highlight { z-index:0; overflow:hidden; pointer-events:none; color:var(--text);
     background:var(--input-bg); }
   .editor-highlight .cml-comment { color:var(--comment); }
   .editor-wrap textarea { z-index:1; min-width:0; min-height:0; resize:none; overflow:auto;
-    background:var(--input-bg); color:var(--text); -webkit-text-fill-color:var(--text);
+    background:transparent; color:transparent; -webkit-text-fill-color:transparent;
     caret-color:var(--text); }
   .editor-wrap textarea::placeholder { color:var(--muted); -webkit-text-fill-color:var(--muted); }
   .editor-wrap textarea::selection { background:color-mix(in srgb,var(--accent) 28%,transparent); }
