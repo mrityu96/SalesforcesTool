@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="cml-csrf-token" content="__CML_CSRF_TOKEN__" />
+<link rel="icon" type="image/png" href="/favicon/favicon-96x96.png" sizes="96x96" />
+<link rel="icon" type="image/svg+xml" href="/favicon/favicon.svg" />
+<link rel="shortcut icon" href="/favicon/favicon.ico" />
+<link rel="apple-touch-icon" sizes="180x180" href="/favicon/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-title" content="CML Tool" />
+<meta name="theme-color" content="#3B82F6" />
+<link rel="manifest" href="/favicon/site.webmanifest" />
+<title>CML Tool — Fetch, Deploy &amp; Compare</title>
+<script src="/assets/js/theme-init.js"></script>
+<link rel="stylesheet" href="/assets/css/app.css" />
+</head>
+<body>
+<div class="app-shell">
+  <header class="app-header">
+    <div class="brand-cluster">
+      <span class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M7.4 18.3c-2.9 0-5.2-2-5.2-4.6 0-2.2 1.7-4.1 4-4.5C6.8 6.7 9 5 11.6 5c2.1 0 4 1.1 5 2.8.4-.1.8-.2 1.2-.2 2.3 0 4.1 1.8 4.1 4.1s-1.8 4.1-4.1 4.1c-.4 0-.7 0-1.1-.1-1 1.6-2.8 2.6-4.8 2.6H7.4z"/></svg>
+        </span>
+        <span class="brand-copy">
+          <strong>Salesforce CML Tool</strong>
+          <span class="credit">Made with <svg class="heart" viewBox="0 0 24 24" aria-label="care"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.7-7.5 1.1-1.1a5.5 5.5 0 0 0 0-7.8z"/></svg> by Mritunjaya Pancholi</span>
+        </span>
+      </span>
+      <div class="header-links">
+      <div class="donate-wrap">
+          <button type="button" class="header-link donate-link" id="donateBtn"
+            aria-expanded="false" aria-controls="donateOptions">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.7-7.5 1.1-1.1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+            <span>Donate</span>
+          </button>
+        <div class="donate-options" id="donateOptions" hidden>
+          <button type="button" class="donate-option" id="donateUpiBtn">
+            <span class="payment-icon upi-icon" aria-hidden="true">UPI</span>
+            <span>UPI</span>
+          </button>
+          <a class="donate-option" id="donateRazorpayBtn"
+            href="https://razorpay.me/@mpancholi" target="_blank"
+            rel="noopener noreferrer" title="Open secure Razorpay payment page">
+            <span class="payment-icon razorpay-icon" aria-hidden="true">R</span>
+            <span>Razorpay</span>
+          </a>
+        </div>
+      </div>
+        <a class="header-link about-link" href="https://www.linkedin.com/in/mrpancholi/"
+           target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg>
+          <span>About</span>
+        </a>
+      </div>
+    </div>
+
+    <nav class="nav-island side-menu" id="sideNav" aria-label="Primary navigation">
+      <div class="tabs" id="tabRow" role="tablist">
+        <button class="side-nav tab active" data-view="fetch" role="tab" aria-selected="true">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></span>
+          <span>Fetch &amp; Deploy</span>
+        </button>
+        <button class="side-nav tab" data-view="data" role="tab" aria-selected="false">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span>
+          <span>Constraint Data Deploy</span>
+        </button>
+        <button class="side-nav tab" data-view="compare" role="tab" aria-selected="false">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M10 8l-3 4 3 4M14 8l3 4-3 4"/></svg></span>
+          <span>Compare</span>
+        </button>
+        <button class="side-nav tab" data-view="guide" role="tab" aria-selected="false">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22V5.5zM20 5.5A2.5 2.5 0 0 0 17.5 3H13v17h4.5A2.5 2.5 0 0 1 20 22V5.5z"/></svg></span>
+          <span>Guide Me</span>
+        </button>
+      </div>
+    </nav>
+
+      <div class="top-actions">
+        <span class="local-badge"><span class="live-dot"></span>Runs locally</span>
+        <span id="appver" class="app-version" title="Running build"></span>
+        <button class="ghost theme-toggle" id="shortcutHelpBtn" type="button"
+          aria-haspopup="dialog" title="Keyboard shortcuts">Shortcuts</button>
+        <button class="ghost theme-toggle" id="themeBtn" title="Toggle day/night">
+          <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 15.4A9 9 0 0 1 8.6 3.2 9 9 0 1 0 20.8 15.4Z"/></svg>
+          <span id="themeLabel">Night mode</span>
+        </button>
+      </div>
+  </header>
+
+  <!-- ═══════════ MAIN ═══════════ -->
+  <main class="app-main">
+    <header class="topbar">
+      <div>
+        <h1 class="sr-only" id="pageTitle">Fetch &amp; Deploy</h1>
+        <p class="sub" id="pageSubtitle">Pick a source org — CMLs load automatically. Fetch, edit, and deploy to any org.</p>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <!-- connection error banner -->
+      <div class="conn" id="conn"></div>
+
+      <!-- ═══ ORG WORKSPACES (omitted from the instructional Guide Me view) ═══ -->
+      <div class="card connection-card" id="connectionCard">
+        <div class="conn-strip">
+          <section class="org-workspace source-workspace" aria-labelledby="sourceWorkspaceTitle">
+            <div class="workspace-head">
+              <div class="workspace-title">
+                <span class="workspace-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 21V8l8-5 8 5v13M8 21v-4h8v4M8 10h.01M12 10h.01M16 10h.01M8 13h.01M12 13h.01M16 13h.01"/></svg></span>
+                <span><strong id="sourceWorkspaceTitle">Source org</strong><span>Select the source org and exact CML version.</span></span>
+              </div>
+              <span class="workspace-org-id" id="sourceOrgId">Org ID: —</span>
+            </div>
+            <div class="field">
+              <label for="org">Source org</label>
+              <div class="org-picker" id="sourceOrgPicker">
+                <button type="button" class="org-trigger" id="sourceOrgTrigger" aria-haspopup="listbox" aria-expanded="false" disabled>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V8l8-5 8 5v13M8 21v-4h8v4M8 10h.01M12 10h.01M16 10h.01M8 13h.01M12 13h.01M16 13h.01"/></svg>
+                  <span class="org-trigger-copy" id="sourceOrgDisplay">Loading orgs…</span>
+                  <svg class="version-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="org-menu" id="sourceOrgMenu" role="listbox" aria-label="Source orgs" hidden></div>
+                <select class="sr-only" id="org" tabindex="-1" aria-hidden="true"><option>Loading orgs…</option></select>
+              </div>
+            </div>
+            <div class="field model-field">
+              <label for="model" class="label-with-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l4 4v16H6zM14 2v5h5M9 12h7M9 16h7"/></svg>
+                <span>Source CML exact version <span id="cmlCount" class="meta"></span></span>
+              </label>
+              <div class="combo version-picker" id="combo">
+                <button type="button" class="version-trigger" id="sourceVersionTrigger"
+                  aria-haspopup="listbox" aria-expanded="false" disabled>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l4 4v16H6zM14 2v5h5M9 12h7M9 16h7"/></svg>
+                  <span class="version-trigger-copy" id="selectedName">Select a source org first…</span>
+                  <svg class="version-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="version-menu" id="sourceVersionMenu" hidden>
+                  <div class="version-search-wrap">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+                    <input class="version-search" id="cmlFilter" placeholder="Search CML versions…" autocomplete="off" spellcheck="false" />
+                  </div>
+                  <div class="version-options" id="sourceVersionOptions" role="listbox" aria-label="Source CML versions"></div>
+                </div>
+                <select class="sr-only" id="model" tabindex="-1" aria-hidden="true"><option value="">Choose an org first…</option></select>
+              </div>
+              <div class="combo-selected" id="comboSelected" hidden></div>
+            </div>
+          </section>
+
+          <section class="org-workspace target-workspace" aria-labelledby="targetWorkspaceTitle">
+            <div class="workspace-head">
+              <div class="workspace-title">
+                <span class="workspace-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 21V8l8-5 8 5v13M8 21v-4h8v4M8 10h.01M12 10h.01M16 10h.01M8 13h.01M12 13h.01M16 13h.01"/></svg></span>
+                <span><strong id="targetWorkspaceTitle">Target org (compare-with)</strong><span>Select the target org and exact CML version.</span></span>
+              </div>
+              <span class="workspace-org-id" id="targetOrgId">Org ID: —</span>
+            </div>
+            <div class="field">
+              <label for="targetOrg">Target org (compare-with)</label>
+              <div class="org-picker" id="targetOrgPicker">
+                <button type="button" class="org-trigger" id="targetOrgTrigger" aria-haspopup="listbox" aria-expanded="false" disabled>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V8l8-5 8 5v13M8 21v-4h8v4M8 10h.01M12 10h.01M16 10h.01M8 13h.01M12 13h.01M16 13h.01"/></svg>
+                  <span class="org-trigger-copy" id="targetOrgDisplay">Loading orgs…</span>
+                  <svg class="version-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="org-menu" id="targetOrgMenu" role="listbox" aria-label="Target orgs" hidden></div>
+                <select class="sr-only" id="targetOrg" tabindex="-1" aria-hidden="true"><option>Loading orgs…</option></select>
+              </div>
+            </div>
+            <div class="field">
+              <label for="targetVersion" class="label-with-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l4 4v16H6zM14 2v5h5M9 12h7M9 16h7"/></svg>
+                <span>Target exact version (compare-with)</span>
+              </label>
+              <div class="version-picker" id="targetVersionPicker">
+                <button type="button" class="version-trigger" id="targetVersionTrigger"
+                  aria-haspopup="listbox" aria-expanded="false" disabled>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l4 4v16H6zM14 2v5h5M9 12h7M9 16h7"/></svg>
+                  <span class="version-trigger-copy" id="targetVersionDisplay">Select target org and source version…</span>
+                  <svg class="version-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="version-menu" id="targetVersionMenu" hidden>
+                  <div class="version-search-wrap">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+                    <input class="version-search" id="targetVersionFilter" placeholder="Search CML versions…" autocomplete="off" spellcheck="false" />
+                  </div>
+                  <div class="version-options" id="targetVersionOptions" role="listbox" aria-label="Target CML versions"></div>
+                </div>
+                <select class="sr-only" id="targetVersion" tabindex="-1" aria-hidden="true"><option value="">None — select target org and source version</option></select>
+              </div>
+              <span class="meta">Target-org runtime status can differ from the source.</span>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- ══════════════ VIEW: FETCH & DEPLOY ══════════════ -->
+      <div class="view-panel active" id="view-fetch">
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">
+              <span class="step-dot">1</span>
+              <div>
+                <h2>CML Editor</h2>
+                <p>Fetch the CML from a source org, edit it, then deploy to any target org.</p>
+              </div>
+            </div>
+            <button class="btn btn-primary cml-main-action fetch-header-action" id="fetchBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+              Fetch CML
+            </button>
+          </div>
+
+          <div class="editor-wrap">
+            <div class="editor-head">
+              <span class="editor-title-group">
+                <span class="ttl">CML Content</span>
+                <span class="draft-indicator" id="draftIndicator" aria-live="polite">Not modified</span>
+              </span>
+              <div class="mini">
+                <button class="ghost" id="lineCommentBtn" title="Toggle // on the selected line or lines (Cmd+/)">// Line comment</button>
+                <button class="ghost" id="blockCommentBtn" title="Wrap or unwrap the selection with /* and */">/* */ Block comment</button>
+                <button class="ghost" id="lintBtn" title="Scan against built-in best-practice rules">Check best practices</button>
+                <button class="ghost" id="copyBtn">Copy</button>
+              </div>
+            </div>
+            <div class="editor-body">
+              <div class="editor-code-pane">
+                <div id="content" class="cml-editor" role="textbox" aria-label="CML content editor" aria-multiline="true"></div>
+              </div>
+            </div>
+            <section class="draft-recovery" id="draftRecovery" role="status" aria-live="polite" hidden>
+              <div>
+                <strong>Unsaved draft recovered for this exact org, model, and version.</strong>
+                <span>Stored only in this browser tab/session—never cloud or telemetry.</span>
+              </div>
+              <div class="draft-recovery-actions">
+                <button class="btn btn-primary" id="restoreDraftBtn" type="button">Restore draft</button>
+                <button class="ghost" id="discardDraftBtn" type="button">Discard</button>
+              </div>
+            </section>
+          </div>
+
+          <div class="cml-actions">
+            <div class="deploy-panel">
+              <div class="field">
+                <label for="deployOrg">Deploy to org</label>
+                <div class="org-picker" id="deployOrgPicker">
+                  <button type="button" class="org-trigger" id="deployOrgTrigger" aria-haspopup="listbox" aria-expanded="false" disabled>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V8l8-5 8 5v13M8 21v-4h8v4M8 10h.01M12 10h.01M16 10h.01M8 13h.01M12 13h.01M16 13h.01"/></svg>
+                    <span class="org-trigger-copy" id="deployOrgDisplay">Loading orgs…</span>
+                    <svg class="version-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                  </button>
+                  <div class="org-menu" id="deployOrgMenu" role="listbox" aria-label="Deployment orgs" hidden></div>
+                  <select class="sr-only" id="deployOrg" tabindex="-1" aria-hidden="true"><option>Loading orgs…</option></select>
+                </div>
+              </div>
+              <div class="field">
+                <label for="deployVersion">Target exact CML version</label>
+                <select id="deployVersion"><option value="">None — select deployment target</option></select>
+                <span class="meta">Deployment-target runtime status can differ from the source.</span>
+              </div>
+              <div class="deploy-action-stack">
+                <button class="ghost readiness-action" id="readinessBtn" type="button">
+                  Check target status
+                </button>
+                <button class="btn btn-green cml-main-action" id="deployBtn">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V3M7 8l5-5 5 5"/><path d="M5 21h14a2 2 0 0 0 2-2v-4M3 15v4a2 2 0 0 0 2 2"/></svg>
+                  Deploy CML
+                </button>
+                <label class="backup-picker" for="backupSelect">Recovery backup
+                  <select id="backupSelect" aria-label="Recovery backup">
+                    <option value="">Select target to load backups</option>
+                  </select>
+                </label>
+                <button class="ghost restore-action" id="rollbackBtn" title="Restore the selected saved backup for this exact target version">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+                  Restore selected backup
+                </button>
+              </div>
+            </div>
+            <section class="readiness-panel" id="readinessPanel" aria-live="polite">
+              <div class="readiness-head">
+                <strong>Target version status</strong>
+                <span class="meta">Read-only</span>
+              </div>
+              <p>Select an exact target to check whether that version is Active, Inactive, or write-blocked.</p>
+              <p class="meta">Only an eligible inactive version can be deployed, and its status is checked again server-side.</p>
+            </section>
+          </div>
+
+          <div class="lint" id="lint"></div>
+          <div class="status" id="status"></div>
+        </div>
+      </div>
+
+      <!-- ══════════════ VIEW: COMPARE ══════════════ -->
+      <div class="view-panel" id="view-compare">
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">
+              <span class="step-dot">2</span>
+              <div>
+                <h2>Compare CML</h2>
+                <p>Review a VS Code-style side-by-side diff and apply selected source changes to a target draft.</p>
+              </div>
+            </div>
+            <button class="btn btn-purple" id="compareBtn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="button-icon-inline"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M10 8l-3 4 3 4M14 8l3 4-3 4"/></svg>Compare source ↔ target
+            </button>
+          </div>
+
+          <div class="diff" id="diff">
+            <div class="diff-head">
+              <div class="summary-stack">
+                <div class="summary" id="diffSummary"></div>
+                <div class="semantic-inline-summary" id="semanticInlineSummary" hidden></div>
+              </div>
+              <div class="legend">
+                <span id="lineLegend">
+                  <span><i class="lg-chg">~</i>Changed</span>
+                  <span><i class="lg-del">&minus;</i>Only in source</span>
+                  <span><i class="lg-ins">+</i>Only in target</span>
+                </span>
+                <label class="diff-opts" id="onlyDiffsWrap"><input type="checkbox" id="onlyDiffs" /> Show only differences</label>
+                <label class="diff-opts" title="Show a separate structural summary without hiding either code pane"><input type="checkbox" id="semanticDiff" /> Semantic summary</label>
+              </div>
+            </div>
+            <div class="merge-workflow" id="mergeWorkflow" hidden>
+              <div class="merge-workflow-copy" id="mergeWorkflowCopy"></div>
+              <div class="merge-workflow-actions">
+                <button class="ghost" id="resetMergeBtn">Reset target draft</button>
+                <button class="btn btn-green" id="reviewMergeBtn">Review &amp; Deploy target draft</button>
+              </div>
+            </div>
+            <div class="diff-panes" id="diffPanes">
+              <div class="pane">
+                <div class="pane-title"><span class="pane-title-text" id="srcTitle">Source</span></div>
+                <div class="pane-scroll" id="srcScroll"><table class="pane-table" id="srcTable"></table></div>
+              </div>
+              <div class="merge-rail" aria-label="Merge source changes into target draft">
+                <div class="pane-title" title="Apply a source change to the target draft">→</div>
+                <div class="merge-scroll" id="mergeScroll"><table class="merge-table" id="mergeTable"></table></div>
+              </div>
+              <div class="pane">
+                <div class="pane-title">
+                  <span class="pane-title-text" id="tgtTitle">Target</span>
+                  <span class="pane-title-actions">
+                    <button type="button" class="pane-copy" id="editTargetBtn" title="Edit any line in the local target working draft">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
+                      <span>Edit target</span>
+                    </button>
+                    <button type="button" class="pane-copy" id="saveTargetEditBtn" hidden>Save edits</button>
+                    <button type="button" class="pane-copy" id="cancelTargetEditBtn" hidden>Cancel</button>
+                    <button type="button" class="pane-copy" id="copyTargetCmlBtn" title="Copy the complete target CML or current target draft">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"/></svg>
+                      <span>Copy</span>
+                    </button>
+                  </span>
+                </div>
+                <div class="pane-scroll" id="tgtScroll">
+                  <div class="target-draft-editor cml-editor" id="tgtEditArea" role="textbox"
+                    aria-label="Edit target CML working draft" aria-multiline="true" hidden></div>
+                  <table class="pane-table" id="tgtTable"></table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="compareStatus" class="status compare-status"></div>
+        </div>
+      </div>
+
+      <!-- ══════════════ VIEW: CONSTRAINT DATA ══════════════ -->
+      <div class="view-panel" id="view-data">
+        <div class="card data-workspace-card">
+          <div class="card-head">
+            <div class="card-title">
+              <span class="step-dot step-dot-teal">3</span>
+              <div>
+                <h2>Product Association Workspace</h2>
+                <p>View, compare, and deploy ExpressionSetConstraintObj rows (Product associations).</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="safety-alert" role="note">
+            <span class="safety-alert-icon" aria-hidden="true">i</span>
+            <div>
+              <p>Deploying CML code alone doesn't recreate Product associations. These rows are matched across orgs by a <strong>foreign key</strong> — a field whose value is stable across orgs — instead of by record Id.</p>
+              <p><strong>Safe deployment boundary:</strong> catalog records are read-only. The tool reports missing products, classifications, attributes, component groups, and relationships, but it only writes CML content and ExpressionSetConstraintObj associations.</p>
+            </div>
+          </div>
+
+          <div class="data-action-row">
+            <div class="field key-field-compact">
+              <label for="keyField">Match records by (foreign key field)</label>
+              <div class="key-field-picker" id="keyFieldPicker">
+                <input id="keyField" value="" spellcheck="false" autocomplete="off"
+                       role="combobox" aria-autocomplete="list" aria-expanded="false"
+                       aria-controls="keyFieldMenu" placeholder="Select orgs to discover fields"
+                       title="Search or enter a field API name that identifies the same record across orgs" />
+                <button type="button" class="key-field-toggle" id="keyFieldToggle"
+                        aria-label="Show detected foreign-key fields" tabindex="-1">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                       stroke-linecap="round" stroke-linejoin="round"><path d="m7 10 5 5 5-5"/></svg>
+                </button>
+                <div class="key-field-menu" id="keyFieldMenu" role="listbox" hidden></div>
+              </div>
+              <p class="meta" id="keyFieldHelp">Choose a unique external ID when possible. <code>Name</code> requires matching, unique values; duplicates are blocked.</p>
+            </div>
+            <div class="btn-row data-actions">
+              <button class="btn btn-primary" id="loadDataBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>View data</button>
+              <button class="btn btn-purple" id="compareDataBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 7h11l-3-3M18 17H7l3 3M18 7l-3 3M7 17l3-3"/></svg>Compare data</button>
+              <button class="btn btn-danger" id="stopCompareDataBtn" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>Stop Comparison</button>
+            </div>
+          </div>
+
+          <div class="deploy-bar show" id="deployBar">
+            <div class="sel-summary" id="selSummary">Compare source and target data to select rows for deployment.</div>
+            <div class="sel-actions">
+              <button class="linklike" id="selAllAdds" disabled>Select all adds</button>
+              <button class="linklike" id="selNoAdds" disabled>Clear adds</button>
+              <button class="linklike" id="selAllDels" disabled>Select all deletes</button>
+              <button class="linklike" id="selNoDels" disabled>Clear deletes</button>
+              <button class="btn btn-green" id="deployDataBtn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m8 5 11 7-11 7z"/></svg>Deploy selected to target</button>
+            </div>
+          </div>
+
+          <div class="data" id="data">
+            <div class="data-head">
+              <div class="chips" id="dataChips"></div>
+              <div class="data-filter-row">
+                <label class="data-filter">Show
+                  <select id="dataFilter">
+                    <option value="all">All rows</option>
+                    <option value="match">Matched only</option>
+                    <option value="add">Only in source (to add)</option>
+                    <option value="extra">Only in target (extra)</option>
+                    <option value="cml-difference">CML definition differences</option>
+                    <option value="ambiguous-key">Ambiguous portable keys</option>
+                    <option value="blocked">Blocked / unmappable</option>
+                    <option value="stale">Unused association — absent from same org's CML</option>
+                    <option value="dups">Duplicates only</option>
+                  </select>
+                </label>
+                <button class="ghost" id="copyExcelBtn" disabled title="Copy visible rows as tab-separated values for Excel">Copy for Excel</button>
+              </div>
+            </div>
+
+            <div class="table-scroll">
+              <table class="data-table" id="dataTable"></table>
+            </div>
+
+            <div class="results" id="results"></div>
+          </div>
+
+          <div class="status" id="dataStatus"></div>
+        </div>
+      </div>
+
+      <!-- ══════════════ VIEW: TOOL GUIDE ══════════════ -->
+      <div class="view-panel" id="view-guide">
+        <div class="card">
+          <div class="guide-hero"><div><div class="eyebrow">Eight-step guide</div><h2>Safe operating workflow</h2>
+            <p class="sub">Follow the complete path from prerequisite metadata through review, deployment, validation, and recovery.</p></div>
+            <div class="guide-badges"><span class="guide-badge read"><span aria-hidden="true">✓</span>&nbsp; Read-only</span><span class="guide-badge write"><span aria-hidden="true">!</span>&nbsp; Writes Salesforce</span></div>
+          </div>
+          <section class="guide-prereqs" aria-labelledby="guidePrereqTitle">
+            <h3 id="guidePrereqTitle">Before you move CML between orgs</h3>
+            <p>CML text is only one part of a working constraint model. Confirm its dependent metadata and catalog data are available in the target org.</p>
+            <ul>
+              <li><strong>Context Definition tags and mappings:</strong> deploy every tag referenced by CML attributes to the target org. Without the corresponding Context Definition metadata, those attributes cannot resolve correctly at runtime.</li>
+              <li><strong>Product associations:</strong> compare the related <code>ExpressionSetConstraintObj</code> rows separately in Constraint Data Deploy.</li>
+              <li><strong>Catalog dependencies:</strong> products, classifications, attributes, component groups, and relationships are checked here but must be deployed through their owning process.</li>
+              <li><strong>Exact versions:</strong> source, comparison target, and deployment target are separate selections and can have different runtime status.</li>
+            </ul>
+          </section>
+          <div class="guide-steps">
+            <article class="guide-step" data-guide-step="1">
+              <span class="guide-number">1</span><div><span class="guide-badge read">Read-only</span>
+              <h3>Choose the source</h3><p>Select the source org and exact CML version; do not assume the newest version is intended.</p>
+              <ul class="guide-detail-list"><li>Confirm the org ID and model name.</li><li>Review whether status is runtime- or definition-based.</li><li>Fetching reads Salesforce and also saves a local working copy.</li></ul></div>
+            </article>
+            <article class="guide-step" data-guide-step="2">
+              <span class="guide-number">2</span><div><span class="guide-badge read">Read-only</span>
+              <h3>Fetch and inspect CML</h3><p>Load the exact source content into the editor and inspect it before comparing or deploying.</p>
+              <ul class="guide-detail-list"><li>Confirm the fetched model is not empty.</li><li>The offline CodeMirror editor supports line numbers, search, go-to-line, and CML line/block comments.</li><li>Review comments, tags, relations, cardinalities, and attribute references.</li><li>Use Copy when an external review is required.</li></ul></div>
+            </article>
+            <article class="guide-step" data-guide-step="3">
+              <span class="guide-number">3</span><div><span class="guide-badge read">Read-only</span>
+              <h3>Compare and prepare the target draft</h3><p>Compare exact versions, then combine merge actions with direct target-draft edits.</p>
+              <ul class="guide-detail-list"><li>Line comparison exposes exact text changes and window-renders large results to keep the page responsive.</li><li>Semantic summary distinguishes structural changes from formatting and reports explicit budget/fallback diagnostics.</li><li>Use <strong>Edit target</strong> to add comments or modify any line; saving refreshes the comparison.</li><li>No Salesforce data changes until the reviewed draft is deployed.</li></ul></div>
+            </article>
+            <article class="guide-step" data-guide-step="4">
+              <span class="guide-number">4</span><div><span class="guide-badge read">Read-only</span>
+              <h3>Check best practices in the editor</h3><p>In Fetch &amp; Deploy, run the client-side quality review against the final draft before deployment.</p>
+              <ul class="guide-detail-list"><li>Review every error, warning, and recommendation inline.</li><li>Use <strong>Hide best practices</strong> to clear the report and editor diagnostics; run the check again whenever needed.</li><li>Validate generated fixes rather than applying them blindly.</li><li>The quality score is guidance—not proof that Salesforce will compile or activate the CML.</li></ul></div>
+            </article>
+            <article class="guide-step" data-guide-step="5">
+              <span class="guide-number">5</span><div><span class="guide-badge read">Read-only</span>
+              <h3>Validate target prerequisites</h3><p>Complete external prerequisite review, then check the exact target version status.</p>
+              <ul class="guide-detail-list"><li>Deploy referenced Context Definition tags and mappings first through the approved external process.</li><li>Verify required catalog records and relationships exist.</li><li>Compare Product associations using a unique, portable foreign key.</li><li>The target status panel checks only whether the exact version is Active, Inactive, or write-blocked; Active versions remain read-only.</li></ul></div>
+            </article>
+            <article class="guide-step" data-guide-step="6">
+              <span class="guide-number">6</span><div><span class="guide-badge write">Writes Salesforce</span>
+              <h3>Review and deploy CML</h3><p>Send the merged or manually edited target draft to Fetch &amp; Deploy for final review.</p>
+              <ul class="guide-detail-list"><li>Re-read the complete target text in the editor.</li><li>Confirm the exact target org alias and version.</li><li>The tool creates a backup, writes CML, re-fetches it, and verifies its hash.</li><li>Same-target writes are protected by in-process and cross-process locks.</li><li>The tool does not activate or compile the model.</li></ul></div>
+            </article>
+            <article class="guide-step" data-guide-step="7">
+              <span class="guide-number">7</span><div><span class="guide-badge write">Writes Salesforce</span>
+              <h3>Deploy constraint data safely</h3><p>Deploy selected Product associations only after the dependency preflight is clear.</p>
+              <ul class="guide-detail-list"><li>Additions are selected by default; deletions require explicit opt-in.</li><li>Blocked, ambiguous, stale, or CML-difference rows cannot be deployed.</li><li>Context Definition metadata is outside this association deployment and must already exist.</li><li>Review every row-level result and preserve the audit report.</li></ul></div>
+            </article>
+            <article class="guide-step" data-guide-step="8">
+              <span class="guide-number">8</span><div><span class="guide-badge write">Writes Salesforce</span>
+              <h3>Validate, activate, or recover</h3><p>Complete the platform validation that the local tool cannot perform, and recover deliberately if needed.</p>
+              <ul class="guide-detail-list"><li>Validate Context Definition resolution and attribute behavior in the target org.</li><li>Compile, activate, and run scenario tests through the approved Salesforce process.</li><li>Select the intended saved backup or association archive only after confirming the exact target again.</li><li>Recognized artifacts retain for 90 days by default; follow your approved retention policy.</li><li>Treat a failed post-write refresh as partial deployment requiring recovery review.</li></ul></div>
+            </article>
+          </div>
+          <aside class="guide-boundaries"><h3>What this tool does not prove</h3><ul>
+            <li>Target status may differ by org; always review the selected target version in its own org.</li>
+            <li>The tool does not compile, activate, or prove runtime behavior of CML.</li>
+            <li>The tool does not deploy Context Definition tags or mappings; referenced metadata must be promoted separately.</li>
+            <li>Catalog prerequisites are checked read-only and must be created or corrected externally.</li>
+            <li>Structured diagnostics are local evidence, may be redacted, and do not prove a Salesforce transaction succeeded.</li>
+            <li>The header version identifies the release; the build hash identifies the exact local code/assets.</li>
+          </ul></aside>
+        </div>
+      </div>
+
+    </div><!-- .wrap -->
+  </main>
+</div><!-- .app-shell -->
+
+<dialog class="donate-dialog" id="donateDialog" aria-labelledby="donateTitle">
+  <div class="donate-dialog-body">
+    <div class="donate-dialog-head">
+      <div>
+        <div class="eyebrow">Optional contribution</div>
+        <h2 id="donateTitle">UPI</h2>
+      </div>
+      <button type="button" class="ghost" id="donateCloseBtn" aria-label="Close donation dialog">Close</button>
+    </div>
+    <img class="donate-qr" src="/donate/upi-qr.png" alt="UPI payment QR code" />
+    <p class="disclaimer">Contributions do not purchase support, features, priority
+      service, or warranty. This project is not affiliated with or endorsed by Salesforce.</p>
+    <div class="donate-actions">
+      <a class="btn btn-primary" id="upiDonateLink"
+        href="upi://pay?pa=mpancholi17%40ybl&amp;pn=Mritunjaya%20Pancholi&amp;tn=Support%20CML%20Tool&amp;cu=INR">
+        Open UPI
+      </a>
+      <button type="button" class="ghost" id="copyUpiBtn" data-upi="mpancholi17@ybl">Copy UPI ID</button>
+    </div>
+    <p class="upi-note">Scan the QR code or open UPI. On desktop, copy the UPI ID.</p>
+  </div>
+</dialog>
+
+<dialog class="action-dialog" id="confirmDialog" aria-labelledby="confirmTitle"
+  aria-describedby="confirmDescription confirmTargetText">
+  <form class="action-dialog-body" id="confirmForm" method="dialog">
+    <div class="action-dialog-icon" aria-hidden="true">!</div>
+    <div>
+      <div class="eyebrow">Typed confirmation required</div>
+      <h2 id="confirmTitle">Confirm action</h2>
+    </div>
+    <p id="confirmDescription"></p>
+    <div class="confirm-target" id="confirmTargetText"></div>
+    <label for="confirmAlias">Type the target org alias exactly: <strong id="confirmExpectedAlias"></strong></label>
+    <input id="confirmAlias" autocomplete="off" autocapitalize="none" spellcheck="false" />
+    <p class="confirm-match" id="confirmMatch" aria-live="polite">Alias does not match yet.</p>
+    <div class="action-dialog-actions">
+      <button type="button" class="ghost" id="confirmCancelBtn">Cancel</button>
+      <button type="submit" class="btn btn-danger" id="confirmSubmitBtn" disabled>Confirm</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="action-dialog shortcut-dialog" id="shortcutDialog" aria-labelledby="shortcutTitle">
+  <div class="action-dialog-body">
+    <h2 id="shortcutTitle">Keyboard shortcuts</h2>
+    <dl class="shortcut-list">
+      <div><dt><kbd>Cmd/Ctrl</kbd> + <kbd>S</kbd></dt><dd>Save target edits or prepare the current CML for deployment</dd></div>
+      <div><dt><kbd>Cmd/Ctrl</kbd> + <kbd>/</kbd></dt><dd>Toggle a CML line comment</dd></div>
+      <div><dt><kbd>Cmd/Ctrl</kbd> + <kbd>F</kbd></dt><dd>Search inside CodeMirror</dd></div>
+      <div><dt><kbd>Esc</kbd></dt><dd>Close a dialog or cancel target editing</dd></div>
+    </dl>
+    <button type="button" class="btn btn-primary" id="shortcutCloseBtn">Close</button>
+  </div>
+</dialog>
+
+<script src="/assets/vendor/codemirror.bundle.js" defer></script>
+<script src="/assets/js/editor-adapter.js" defer></script>
+<script src="/assets/js/api-client.js" defer></script>
+<script src="/assets/js/app.js" defer></script>
+</body>
+</html>
