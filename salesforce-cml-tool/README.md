@@ -180,6 +180,10 @@ the tool stays available. To stop it, double-click
 > [macOS security warning](#macos-security-warning-apple-could-not-verify) below.
 > The quickest fix is to **`git clone`** the repo instead of receiving the files
 > via AirDrop/Slack/email/zip.
+>
+> **Says you do not have appropriate access privileges?** The launcher lost its
+> executable permission. Follow the
+> [macOS launcher permission fix](#macos-says-you-do-not-have-appropriate-access-privileges).
 
 ### Windows
 
@@ -899,6 +903,40 @@ recovery process before retrying.
 
 Reload the local page and confirm the running build changed. The guide is static,
 so opening it does not depend on Salesforce connectivity or an analysis API.
+
+### macOS says you do not have appropriate access privileges
+
+This message is different from the Gatekeeper security warning: the executable
+permission was removed while the files were copied, uploaded, or downloaded.
+Run this once in Terminal:
+
+```bash
+cd "/path/to/salesforce-cml-tool"
+chmod 755 \
+  "Start Here - CML Tool/Open CML Tool for macOS.command" \
+  "Start Here - CML Tool/Stop CML Tool for macOS.command" \
+  "Start Here - CML Tool/Open CML Tool for Linux.sh"
+```
+
+Then double-click **`Open CML Tool for macOS.command`** again.
+
+When publishing through Git, record the executable permission in the repository
+instead of uploading these launcher files individually through GitHub's web
+interface:
+
+```bash
+git add --chmod=+x \
+  "Start Here - CML Tool/Open CML Tool for macOS.command" \
+  "Start Here - CML Tool/Stop CML Tool for macOS.command" \
+  "Start Here - CML Tool/Open CML Tool for Linux.sh"
+git commit -m "Preserve executable permissions for launch scripts"
+```
+
+After pushing, verify that Git records `100755` for all three:
+
+```bash
+git ls-files --stage "Start Here - CML Tool"
+```
 
 ### macOS security warning: *"Apple could not verify…"*
 
