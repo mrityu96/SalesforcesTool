@@ -1,18 +1,24 @@
 # Salesforce CML Tool
 
-A tiny, **zero-dependency** local web app for working with Salesforce **Revenue
-Cloud CML** (Constraint Model Language). Pick an org, choose a Constraint Model,
-and **fetch**, **deploy**, **compare**, or inspect it — no terminal commands to
-type and no installs. The app runs on your machine; Salesforce
+Current stable version: **1.0.0**. See the [changelog](CHANGELOG.md),
+[compatibility policy](COMPATIBILITY.md), [security policy](SECURITY.md), and
+[contribution guide](CONTRIBUTING.md).
+
+A tiny, **no-install runtime** web app for working with Salesforce **Revenue
+Cloud CML** (Constraint Model Language). Python uses only the standard library;
+the packaged editor uses an offline, reproducibly generated CodeMirror bundle.
+Pick an org, choose a Constraint Model, and **fetch**, **deploy**, **compare**,
+or inspect it—no terminal commands to type and no package install. The app runs
+on your machine; Salesforce
 operations go only to orgs already authorized through your local Salesforce CLI.
 
-It has five views and does six main jobs:
+It has four views and does six main jobs:
 
 | Operation | What it does |
 |---|---|
 | **Fetch** | List every available CML version, then download the exact selected version into an editable text box (and save a copy locally). |
-| **Deploy** | Push CML (fetched or pasted) to an exact, explicitly selected target version — with ownership checks and a confirmation prompt so nothing happens by accident. Active versions are read-only in the tool. |
-| **Compare** | Select exact source and target versions, fetch both, and show a synced, line-numbered, side-by-side diff. Semantic mode overlays entity-level `Moved`, `Added`, `Removed`, `Modified`, and `Ambiguous` findings without replacing either pane. Source changes can be applied to a guarded target draft before deployment. |
+| **Deploy** | Push CML (fetched or pasted) to an exact, explicitly selected target version — with ownership checks and a confirmation prompt so nothing happens by accident. The small read-only status panel checks only that exact target's Active/Inactive/write-blocked state; Active versions are blocked and status is rechecked server-side during deployment. |
+| **Compare** | Select exact source and target versions, fetch both, and show a synced, line-numbered, side-by-side diff. Large results use virtualized window rendering. Semantic mode overlays entity-level `Moved`, `Added`, `Removed`, `Modified`, and `Ambiguous` findings without replacing either pane. Apply source changes with merge arrows or edit any line in the target working draft—including comments—before guarded review and deployment. |
 | **Check best practices** | Scan the CML in the editor against a built-in catalog of CML anti-patterns and recommended patterns, and get a **line-numbered report** with a quality score and a suggested fix for each finding. |
 | **Constraint Data Deploy** | View, compare, and **deploy** the **Product associations** behind a CML (`ExpressionSetConstraintObj` records), matched across orgs by a **foreign key you choose** instead of by record Id. Candidate fields are discovered from the selected orgs; pick exactly which rows to add or delete with checkboxes. |
 | **Guide Me on Tool** | Follow a static eight-step workflow that distinguishes read-only actions from Salesforce writes and explains deployment/recovery boundaries. Opening it makes no API request. |
@@ -96,7 +102,7 @@ current visual theme.
    **Partial deployment — recovery required** because records have already
    changed.
 
-### 6. Guide Me on Tool (the fifth view)
+### 6. Guide Me on Tool (the fourth view)
 
 Open **Guide Me on Tool** for an eight-step, static walkthrough covering exact
 source selection, fetch, comparison and semantic overlays, best-practice checks,
@@ -113,12 +119,33 @@ write actions visually distinct and opening it sends no API request.
 - **No external Python dependencies** — uses only the Python 3 standard library.
 - **No telemetry, no cloud** — it talks only to your Salesforce orgs through the
   Salesforce CLI you already use.
+- Unsaved CML resilience uses `sessionStorage`, scoped to the exact source org,
+  model, and version. Recovery is explicit, data stays only in the current
+  browser tab/session, and successful deployment or a fresh fetch clears it.
+- Every deploy, rollback, association deploy, and association restore uses the
+  same accessible in-app typed-confirmation dialog. The action remains disabled
+  until the target alias matches exactly; Escape cancels and focus returns.
+
+## Keyboard and accessibility
+
+- Both the primary and compare target-draft editors use the locally bundled
+  CodeMirror experience with line numbers, search, and keyboard editing.
+- Best-practice findings are also rendered directly on the affected editor
+  lines with severity, rule name, and an accessible diagnostic tooltip.
+- Press **Cmd/Ctrl+S** to save target-draft edits, or to preserve and prepare a
+  modified primary draft for deployment review. Press **Cmd/Ctrl+/** for line
+  comments. The header **Shortcuts** button lists the complete set.
+- Status changes use live regions and busy state, keyboard focus is visible,
+  dialogs trap focus, reduced-motion preferences are honored, and narrow/200%
+  zoom layouts reflow rather than requiring a desktop-width canvas.
+- CI runs the complete Chromium workflow suite plus focused Firefox and WebKit
+  checks for offline security and 200% zoom behavior.
 
 ---
 
 ## Requirements
 
-- **Python 3.8+** (preinstalled on most macOS/Linux machines).
+- **Python 3.9–3.13** (the supported range verified at both CI endpoints).
   - macOS: comes preinstalled, or run `xcode-select --install`.
   - Windows: install from [python.org](https://www.python.org/downloads/) and tick
     **"Add Python to PATH"**.
@@ -239,6 +266,14 @@ without relying on color:
 - Use the arrows between the panes to apply a source hunk to the target working
   draft. Salesforce is not changed until you review the draft in the editor and
   complete the normal guarded deployment.
+- Use **Edit target** to change any target-draft line or add comments directly.
+  **Save edits** reruns the line comparison and local semantic analysis against
+  the edited draft. **Cancel** discards unsaved typing, and **Reset target
+  draft** restores the exact target content originally fetched from Salesforce.
+- After merged or manual changes are saved, **Review & Deploy target draft**
+  loads the complete draft into the Fetch & Deploy editor and preselects the
+  comparison target. Review the full text there before using the normal guarded
+  deployment action.
 - The target-pane **Copy** button copies the complete target CML or current
   target draft.
 - Tick **Show only differences** to hide matching raw lines.
@@ -290,6 +325,10 @@ explanation, and — most usefully — a **Before → After** correction written
 **valid CML you can paste straight back into the model**. Hit **Copy** on the
 *After* block to grab the fix.
 
+Best-practice checking lives only in **Fetch & Deploy**. Click **Hide best
+practices** to remove the inline report and clear its editor diagnostics.
+Running **Check best practices** again shows a fresh report.
+
 For example, an implication constraint is rewritten into the recommended guard +
 auto-add pattern:
 
@@ -339,10 +378,13 @@ leaves the page.
 
 ### Guide Me on Tool
 
-The fifth tab is a responsive local guide, not an analyzer. It presents the safe
+The fourth tab is a responsive local guide, not an analyzer. It presents the safe
 workflow in numbered order and calls out these boundaries: statuses are
 org-specific; this tool does not compile, activate, or prove runtime behavior;
-and catalog prerequisites are detected read-only and fixed outside this tool.
+catalog prerequisites are detected read-only and fixed outside this tool; and
+every Context Definition tag or mapping referenced by CML attributes must be
+deployed separately to the target org. The tool does not deploy Context
+Definition metadata.
 
 The tokenizer and tolerant parser remain internal building blocks for semantic
 comparison. Semantic overlays compare parsed declarations, types, variables,
@@ -367,6 +409,12 @@ parent through
 > classification attributes, component groups, and product relationships, but
 > it never creates or updates them. The only Salesforce writes are the CML
 > content and `ExpressionSetConstraintObj` associations.
+
+> **Context Definition prerequisite:** CML attributes can depend on Context
+> Definition tags and mappings. Promote every referenced Context Definition
+> tag to the target org through its approved metadata deployment process before
+> expecting those attributes to resolve at runtime. Constraint Data Deploy does
+> not create or update Context Definition metadata.
 
 #### Choose your foreign key
 
@@ -512,7 +560,7 @@ See the current [association deployment results screenshot](main/docs/screenshot
 ```
 salesforce-cml-tool/
 ├── README.md                  # Root onboarding and UI walkthrough
-├── .gitignore                 # Excludes development/ and defensive caches
+├── .gitignore                 # Excludes generated/private data, not test source
 ├── Start Here - CML Tool/
 │   ├── Open CML Tool for macOS.command  # macOS: start in background
 │   ├── Stop CML Tool for macOS.command  # macOS: stop background server
@@ -527,15 +575,20 @@ salesforce-cml-tool/
 │   │   ├── cml_http.py        # Local HTTP security and routing
 │   │   ├── cml_artifacts.py   # Recovery and audit artifact handling
 │   │   ├── cml_analysis.py    # Tolerant parser and semantic analysis
-│   │   ├── cml_tool_page.py   # Embedded browser UI
+│   │   ├── cml_tool_page.py   # Packaged template loader
 │   │   └── utilities/         # Guarded CLI and compatibility utilities
+│   ├── templates/             # HTML application shell and Guide
+│   ├── assets/                # Modular CSS/JS + offline CodeMirror bundle
 │   ├── docs/
 │   │   └── screenshots/       # Images used in this README
 │   ├── favicon/               # Browser and web-app assets
 │   ├── donate/                # Packaged donation assets
 │   └── LICENSE
-└── development/               # Entire directory is ignored by Git
-    ├── tests/                 # 112 Python and 11 browser tests
+└── development/               # Tracked developer source; generated data ignored
+    ├── tests/                 # 141 Python and 23 browser tests
+    ├── harness/               # Read-only-by-default contract harness
+    ├── scripts/               # Reproducible release archive builder
+    ├── build/                 # CodeMirror bundle entry source
     ├── package.json
     ├── package-lock.json
     ├── playwright.config.js
@@ -550,10 +603,10 @@ salesforce-cml-tool/
         └── association-archives/
 ```
 
-`development/` is excluded from Git as a whole. Do not force-add it: tests,
-dependencies, browser caches/results, and potentially sensitive runtime
-artifacts all live there. Production commits should contain
-`Start Here - CML Tool/` and `main/` application assets, not `development/`.
+Test, harness, build, package, and release-script sources under `development/`
+are tracked. Generated dependencies, browser binaries/results/caches, and
+potentially sensitive `development/runtime/` artifacts are ignored and must
+never be force-added.
 
 > **Cross-platform:** `main/app/cml_lifecycle.py`,
 > `main/app/cml_constraints.py`, and `main/app/cml_tool.py` do guarded CML
@@ -589,7 +642,8 @@ the UI rather than treating the local server as a public integration API.
   names.
 - **Local HTTP routing** lives in `main/app/cml_http.py`. It enforces localhost
   Host/Origin checks, CSRF validation, request-size limits, security headers,
-  and route dispatch. Services are resolved from `cml_tool.py` at request time
+  and route dispatch. Expected and unexpected failures are returned as
+  structured, redacted diagnostics. Services are resolved from `cml_tool.py` at request time
   so tests and guarded adapters retain their existing patch surface.
 - **Exact-version CML lifecycle** lives in `main/app/cml_lifecycle.py`. It owns model
   and version discovery, read/download/fetch/compare, active-version write
@@ -615,7 +669,8 @@ the UI rather than treating the local server as a public integration API.
   writing `ExpressionSetDefinitionVersion.ConstraintModel` via REST.
   Deployments create a private backup first and re-fetch the exact version for
   byte-exact verification afterward. Writes and recovery operations for the same
-  org/model are serialized to prevent overlapping deployments.
+  org/model are serialized by in-process and cross-process file locks to prevent
+  overlapping deployments.
 - **Compare** fetches the CML from both orgs and builds the raw line diff in the
   browser with a Myers shortest-edit algorithm. Its trace memory is bounded;
   highly divergent huge files retain common leading/trailing lines and treat
@@ -680,10 +735,13 @@ By default, the tool creates these local runtime directories under
 - `development/runtime/logs/cml-ui.log` — output from the macOS background launcher.
 
 Files are created with private permissions where the operating system supports
-them. The entire `development/` directory is excluded from Git because these
-files can contain sensitive CML, Salesforce IDs, portable keys, org aliases,
-usernames, and deployment/recovery evidence. Protect and retain them according
-to your organization's production-data policy; never force-add them.
+them. Recognized JSON recovery artifacts are retained for **90 days** by
+default and pruned when artifact operations run. Set
+`CML_ARTIFACT_RETENTION_DAYS=0` to disable automatic pruning or set a positive
+day count for the approved policy. Only recognized tool artifact kinds are
+eligible; malformed or unrelated files are preserved. The runtime directory is
+excluded because it can contain sensitive CML, Salesforce IDs, portable keys,
+org aliases, usernames, and deployment/recovery evidence.
 Atomic writing, traversal-safe reads, filename normalization, integrity hashes,
 and durable audit appends are isolated in `main/app/cml_artifacts.py`.
 
@@ -704,7 +762,8 @@ quoted comment-like text, declarations, annotations, inheritance, variable
 domains, relation cardinality and bodies, expression completeness,
 malformed-input recovery, synchronized editor line numbers, semantic merge
 controls, static Guide navigation, and zero-request Guide behavior.
-The verified suite currently contains **112 Python tests plus 11 browser tests**.
+The verified suite currently contains **141 Python tests plus 23 browser tests**,
+with four focused Firefox/WebKit executions added by the cross-engine matrix.
 
 ### Browser regression tests
 
@@ -714,7 +773,7 @@ test harness:
 
 ```bash
 cd development
-npm install
+npm ci
 npx playwright install chromium
 npm run test:browser
 ```
@@ -897,22 +956,23 @@ ever show the same stamp, they're the same build.
 
 ---
 
-## Contributing
+## Contributing and releases
 
-Issues and pull requests are welcome. It's plain Python + vanilla JS with no
-build step: edit `main/app/cml_tool.py`, `main/app/cml_lifecycle.py`,
-`main/app/cml_constraints.py`, `main/app/cml_analysis.py`, or
-`main/app/cml_tool_page.py` and
-relaunch. Optional terminal operations
-must delegate through `main/app/utilities/cml_cli.py`; do not add another direct
-Salesforce write path. Run `cd development` and then
-`python3 -m unittest discover -s tests -v` before
-review. Because `development/` is Git-ignored, do not force-add tests,
-dependencies, browser artifacts, or runtime/recovery files to a commit.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Application assets are modular under
+`main/templates/` and `main/assets/`; CodeMirror is the only generated
+production asset and `npm run check:editor` proves it matches the locked source
+graph. Development tests/configuration are tracked, while generated/private
+data remains ignored.
+
+Stable tags use `vMAJOR.MINOR.PATCH`. A least-privilege GitHub workflow depends
+on the full CI suite, verifies the tag against `VERSION`, creates deterministic
+operator `.tar.gz` and `.zip` archives, inspects their allowlisted contents,
+and publishes `SHA256SUMS`.
 
 ## License
 
-[MIT](main/LICENSE) — free to use, modify, and share.
+[MIT](LICENSE) — free to use, modify, and share. Bundled dependency terms are
+listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ---
 
