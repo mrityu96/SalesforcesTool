@@ -14,6 +14,7 @@
 <title>CML Tool — Fetch, Deploy &amp; Compare</title>
 <script src="/assets/js/theme-init.js"></script>
 <link rel="stylesheet" href="/assets/css/app.css" />
+<link rel="stylesheet" href="/assets/css/xml-tools.css" />
 </head>
 <body>
 <div class="app-shell">
@@ -30,7 +31,7 @@
       </span>
       <div class="header-links">
       <div class="donate-wrap">
-          <button type="button" class="header-link donate-link" id="donateBtn"
+          <button type="button" class="header-link donate-link" id="donateBtn" title="Donate"
             aria-expanded="false" aria-controls="donateOptions">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.7-7.5 1.1-1.1a5.5 5.5 0 0 0 0-7.8z"/></svg>
             <span>Donate</span>
@@ -49,7 +50,7 @@
         </div>
       </div>
         <a class="header-link about-link" href="https://www.linkedin.com/in/mrpancholi/"
-           target="_blank" rel="noopener noreferrer">
+           target="_blank" rel="noopener noreferrer" title="About">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg>
           <span>About</span>
         </a>
@@ -58,33 +59,56 @@
 
     <nav class="nav-island side-menu" id="sideNav" aria-label="Primary navigation">
       <div class="tabs" id="tabRow" role="tablist">
-        <button class="side-nav tab active" data-view="fetch" role="tab" aria-selected="true">
+        <button class="side-nav tab active" data-view="fetch" data-priority="1" role="tab" aria-selected="true">
           <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></span>
-          <span>Fetch &amp; Deploy</span>
+          <span class="nav-label">Fetch &amp; Deploy CML</span>
         </button>
-        <button class="side-nav tab" data-view="data" role="tab" aria-selected="false">
+        <button class="side-nav tab" data-view="data" data-priority="3" role="tab" aria-selected="false">
           <span class="nav-icon"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span>
-          <span>Constraint Data Deploy</span>
+          <span class="nav-label">Constraint Data</span>
         </button>
-        <button class="side-nav tab" data-view="compare" role="tab" aria-selected="false">
+        <button class="side-nav tab" data-view="compare" data-priority="2" role="tab" aria-selected="false">
           <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M10 8l-3 4 3 4M14 8l3 4-3 4"/></svg></span>
-          <span>Compare</span>
+          <span class="nav-label">Compare CML</span>
         </button>
-        <button class="side-nav tab" data-view="guide" role="tab" aria-selected="false">
+        <button class="side-nav tab" data-view="cdfix" data-priority="4" role="tab" aria-selected="false">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="m12 3 1.4 4.2L18 8.6l-4.6 1.4L12 14l-1.4-4-4.6-1.4 4.6-1.4L12 3ZM5 15l.8 2.2L8 18l-2.2.8L5 21l-.8-2.2L2 18l2.2-.8L5 15Zm13-1 .9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9L18 14Z"/></svg></span>
+          <span class="nav-label">Context Definition Fix</span>
+        </button>
+        <button class="side-nav tab" data-view="xml" data-priority="5" role="tab" aria-selected="false">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg></span>
+          <span class="nav-label">XML Tools</span>
+        </button>
+        <button class="side-nav tab" data-view="guide" data-priority="6" role="tab" aria-selected="false">
           <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22V5.5zM20 5.5A2.5 2.5 0 0 0 17.5 3H13v17h4.5A2.5 2.5 0 0 1 20 22V5.5z"/></svg></span>
-          <span>Guide Me</span>
+          <span class="nav-label">Help Me</span>
         </button>
+        <div class="nav-more" id="navMore" hidden>
+          <button type="button" class="nav-more-btn" id="navMoreBtn"
+            aria-haspopup="menu" aria-expanded="false" aria-controls="navMoreMenu">
+            <span>More</span>
+            <span class="nav-more-active" id="navMoreActive" hidden></span>
+            <svg class="nav-more-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="nav-more-menu" id="navMoreMenu" role="menu" aria-label="More pages" hidden></div>
+        </div>
       </div>
     </nav>
 
       <div class="top-actions">
-        <span class="local-badge"><span class="live-dot"></span>Runs locally</span>
+        <span class="local-badge" title="Runs locally"><span class="live-dot"></span><span class="local-badge-label">Runs locally</span></span>
         <span id="appver" class="app-version" title="Running build"></span>
+        <button class="ghost theme-toggle" id="sessionDebugBtn" type="button" hidden
+          title="Show which Salesforce tabs have an API session">Session status</button>
         <button class="ghost theme-toggle" id="shortcutHelpBtn" type="button"
           aria-haspopup="dialog" title="Keyboard shortcuts">Shortcuts</button>
-        <button class="ghost theme-toggle" id="themeBtn" title="Toggle day/night">
-          <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 15.4A9 9 0 0 1 8.6 3.2 9 9 0 1 0 20.8 15.4Z"/></svg>
-          <span id="themeLabel">Night mode</span>
+        <button class="theme-switch" id="themeBtn" type="button" role="switch"
+          aria-checked="false" aria-label="Night mode" title="Switch to night mode">
+          <span class="theme-switch-track" aria-hidden="true">
+            <svg class="theme-switch-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+            <svg class="theme-switch-moon" viewBox="0 0 24 24"><path d="M20.8 15.4A9 9 0 0 1 8.6 3.2 9 9 0 1 0 20.8 15.4Z"/></svg>
+            <span class="theme-switch-thumb"></span>
+          </span>
         </button>
       </div>
   </header>
@@ -101,8 +125,12 @@
     <div class="wrap">
       <!-- connection error banner -->
       <div class="conn" id="conn"></div>
+      <div class="build-banner" id="buildBanner" role="status" hidden>
+        <span id="buildBannerText"></span>
+        <button type="button" class="ghost" id="buildBannerReload" hidden>Reload page</button>
+      </div>
 
-      <!-- ═══ ORG WORKSPACES (omitted from the instructional Guide Me view) ═══ -->
+      <!-- ═══ ORG WORKSPACES (omitted from the Help Me view) ═══ -->
       <div class="card connection-card" id="connectionCard">
         <div class="conn-strip">
           <section class="org-workspace source-workspace" aria-labelledby="sourceWorkspaceTitle">
@@ -111,8 +139,12 @@
                 <span class="workspace-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 21V8l8-5 8 5v13M8 21v-4h8v4M8 10h.01M12 10h.01M16 10h.01M8 13h.01M12 13h.01M16 13h.01"/></svg></span>
                 <span><strong id="sourceWorkspaceTitle">Source org</strong><span>Select the source org and exact CML version.</span></span>
               </div>
-              <span class="workspace-org-id" id="sourceOrgId">Org ID: —</span>
+              <div class="workspace-meta">
+                <div class="meta-row"><svg class="meta-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg><span class="meta-label">Org ID</span><button type="button" class="workspace-org-id" id="sourceOrgId" title="Copy Org ID" disabled><span class="meta-value">—</span><svg class="meta-copy" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
+                <div class="meta-row"><svg class="meta-icon" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg><span class="meta-label">Salesforce Release</span><span class="workspace-release" id="sourceOrgRelease" title="Salesforce release this org runs">—</span></div>
+              </div>
             </div>
+            <div class="org-fields">
             <div class="field">
               <label for="org">Source org</label>
               <div class="org-picker" id="sourceOrgPicker">
@@ -125,7 +157,7 @@
                 <select class="sr-only" id="org" tabindex="-1" aria-hidden="true"><option>Loading orgs…</option></select>
               </div>
             </div>
-            <div class="field model-field">
+            <div class="field model-field cml-version-field">
               <label for="model" class="label-with-icon">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l4 4v16H6zM14 2v5h5M9 12h7M9 16h7"/></svg>
                 <span>Source CML exact version <span id="cmlCount" class="meta"></span></span>
@@ -148,6 +180,7 @@
               </div>
               <div class="combo-selected" id="comboSelected" hidden></div>
             </div>
+            </div>
           </section>
 
           <section class="org-workspace target-workspace" aria-labelledby="targetWorkspaceTitle">
@@ -156,8 +189,12 @@
                 <span class="workspace-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 21V8l8-5 8 5v13M8 21v-4h8v4M8 10h.01M12 10h.01M16 10h.01M8 13h.01M12 13h.01M16 13h.01"/></svg></span>
                 <span><strong id="targetWorkspaceTitle">Target org (compare-with)</strong><span>Select the target org and exact CML version.</span></span>
               </div>
-              <span class="workspace-org-id" id="targetOrgId">Org ID: —</span>
+              <div class="workspace-meta">
+                <div class="meta-row"><svg class="meta-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg><span class="meta-label">Org ID</span><button type="button" class="workspace-org-id" id="targetOrgId" title="Copy Org ID" disabled><span class="meta-value">—</span><svg class="meta-copy" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></div>
+                <div class="meta-row"><svg class="meta-icon" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg><span class="meta-label">Salesforce Release</span><span class="workspace-release" id="targetOrgRelease" title="Salesforce release this org runs">—</span></div>
+              </div>
             </div>
+            <div class="org-fields">
             <div class="field">
               <label for="targetOrg">Target org (compare-with)</label>
               <div class="org-picker" id="targetOrgPicker">
@@ -170,8 +207,8 @@
                 <select class="sr-only" id="targetOrg" tabindex="-1" aria-hidden="true"><option>Loading orgs…</option></select>
               </div>
             </div>
-            <div class="field">
-              <label for="targetVersion" class="label-with-icon">
+            <div class="field cml-version-field">
+              <label for="targetVersion" class="label-with-icon" title="Target-org runtime status can differ from the source.">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l4 4v16H6zM14 2v5h5M9 12h7M9 16h7"/></svg>
                 <span>Target exact version (compare-with)</span>
               </label>
@@ -191,7 +228,7 @@
                 </div>
                 <select class="sr-only" id="targetVersion" tabindex="-1" aria-hidden="true"><option value="">None — select target org and source version</option></select>
               </div>
-              <span class="meta">Target-org runtime status can differ from the source.</span>
+            </div>
             </div>
           </section>
         </div>
@@ -225,6 +262,7 @@
                 <button class="ghost" id="blockCommentBtn" title="Wrap or unwrap the selection with /* and */">/* */ Block comment</button>
                 <button class="ghost" id="lintBtn" title="Scan against built-in best-practice rules">Check best practices</button>
                 <button class="ghost" id="copyBtn">Copy</button>
+                <button class="ghost" id="downloadCmlBtn" title="Download the editor CML as a .cml file">Download .cml</button>
               </div>
             </div>
             <div class="editor-body">
@@ -280,7 +318,22 @@
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
                   Restore selected backup
                 </button>
+                <button class="ghost" id="downloadBackupBtn" hidden disabled title="Download the selected IndexedDB backup as JSON">
+                  Download backup
+                </button>
+                <button class="ghost" id="importBackupBtn" hidden title="Import a previously downloaded CML backup JSON into this Chrome profile">
+                  Import backup
+                </button>
               </div>
+            <div class="recovery-row" id="reportRecovery" hidden>
+              <label class="backup-picker" for="reportSelect">Deployment report
+                <select id="reportSelect" aria-label="Deployment report">
+                  <option value="">Select target to load reports</option>
+                </select>
+              </label>
+              <button class="ghost" id="downloadReportBtn" disabled>Download report</button>
+              <button class="ghost" id="importReportBtn">Import report</button>
+            </div>
             </div>
             <section class="readiness-panel" id="readinessPanel" aria-live="polite">
               <div class="readiness-head">
@@ -289,6 +342,15 @@
               </div>
               <p>Select an exact target to check whether that version is Active, Inactive, or write-blocked.</p>
               <p class="meta">Only an eligible inactive version can be deployed, and its status is checked again server-side.</p>
+              <div class="lifecycle-actions" aria-label="Target CML lifecycle actions">
+                <button class="btn btn-danger" id="activateBtn" type="button" disabled title="Use Salesforce Constraint Builder so CML compilation and validation are enforced.">
+                  Activate in Salesforce
+                </button>
+                <button class="ghost deactivate-action" id="deactivateBtn" type="button" disabled>
+                  Deactivate CML
+                </button>
+              </div>
+              <p class="meta lifecycle-note">Select an exact target to deactivate it before fetch or deploy; the action checks its live status before confirmation. Activation must be completed in Salesforce Constraint Builder so its compiler and validation run. Direct IsActive activation is blocked by this tool.</p>
             </section>
           </div>
 
@@ -338,11 +400,18 @@
             </div>
             <div class="diff-panes" id="diffPanes">
               <div class="pane">
-                <div class="pane-title"><span class="pane-title-text" id="srcTitle">Source</span></div>
+                <div class="pane-title">
+                  <span class="pane-title-text" id="srcTitle">Source</span>
+                  <span class="pane-title-actions">
+                    <button type="button" class="pane-copy" id="mergeAllBtn" title="Apply every source change to the target draft">
+                      <span>Merge all</span> →
+                    </button>
+                  </span>
+                </div>
                 <div class="pane-scroll" id="srcScroll"><table class="pane-table" id="srcTable"></table></div>
               </div>
-              <div class="merge-rail" aria-label="Merge source changes into target draft">
-                <div class="pane-title" title="Apply a source change to the target draft">→</div>
+              <div class="merge-rail" aria-label="Merge source changes into the target draft or revert them">
+                <div class="pane-title" title="→ applies a source change to the target draft · ← reverts a target-draft change to the version fetched from Salesforce">⇄</div>
                 <div class="merge-scroll" id="mergeScroll"><table class="merge-table" id="mergeTable"></table></div>
               </div>
               <div class="pane">
@@ -387,17 +456,18 @@
             </div>
           </div>
 
-          <div class="safety-alert" role="note">
+          <div class="safety-alert compact-alert" role="note">
             <span class="safety-alert-icon" aria-hidden="true">i</span>
-            <div>
+            <details class="learn-more">
+              <summary><span>CML deployment doesn't recreate Product associations. These records are matched by a <strong>foreign key</strong> such as <code>Global_Key__c</code>.</span><span class="learn-more-toggle">Learn more</span></summary>
               <p>Deploying CML code alone doesn't recreate Product associations. These rows are matched across orgs by a <strong>foreign key</strong> — a field whose value is stable across orgs — instead of by record Id.</p>
               <p><strong>Safe deployment boundary:</strong> catalog records are read-only. The tool reports missing products, classifications, attributes, component groups, and relationships, but it only writes CML content and ExpressionSetConstraintObj associations.</p>
-            </div>
+            </details>
           </div>
 
-          <div class="data-action-row">
-            <div class="field key-field-compact">
-              <label for="keyField">Match records by (foreign key field)</label>
+          <div class="data-action-row key-field-compact">
+            <label for="keyField">Match records by (foreign key field)</label>
+            <div class="key-action-line">
               <div class="key-field-picker" id="keyFieldPicker">
                 <input id="keyField" value="" spellcheck="false" autocomplete="off"
                        role="combobox" aria-autocomplete="list" aria-expanded="false"
@@ -410,14 +480,16 @@
                 </button>
                 <div class="key-field-menu" id="keyFieldMenu" role="listbox" hidden></div>
               </div>
-              <p class="meta" id="keyFieldHelp">Choose a unique external ID when possible. <code>Name</code> requires matching, unique values; duplicates are blocked.</p>
+              <div class="data-actions">
+                <button class="btn btn-secondary" id="loadDataBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>View Source Org Data</button>
+                <button class="btn btn-primary" id="compareDataBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 7h11l-3-3M18 17H7l3 3M18 7l-3 3M7 17l3-3"/></svg>Compare data</button>
+                <button class="btn btn-danger" id="stopCompareDataBtn" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>Stop Comparison</button>
+              </div>
             </div>
-            <div class="btn-row data-actions">
-              <button class="btn btn-primary" id="loadDataBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>View data</button>
-              <button class="btn btn-purple" id="compareDataBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 7h11l-3-3M18 17H7l3 3M18 7l-3 3M7 17l3-3"/></svg>Compare data</button>
-              <button class="btn btn-danger" id="stopCompareDataBtn" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>Stop Comparison</button>
-            </div>
+            <p class="meta" id="keyFieldHelp">Choose a unique external ID when possible. <code>Name</code> requires matching, unique values; duplicates are blocked.</p>
           </div>
+
+          <div class="chip-groups" id="dataChips"></div>
 
           <div class="deploy-bar show" id="deployBar">
             <div class="sel-summary" id="selSummary">Compare source and target data to select rows for deployment.</div>
@@ -432,7 +504,6 @@
 
           <div class="data" id="data">
             <div class="data-head">
-              <div class="chips" id="dataChips"></div>
               <div class="data-filter-row">
                 <label class="data-filter">Show
                   <select id="dataFilter">
@@ -449,6 +520,7 @@
                 </label>
                 <button class="ghost" id="copyExcelBtn" disabled title="Copy visible rows as tab-separated values for Excel">Copy for Excel</button>
               </div>
+              <input type="search" class="data-search" id="dataSearch" placeholder="Search by tag, type, reference, key…" aria-label="Search associations" autocomplete="off" spellcheck="false" />
             </div>
 
             <div class="table-scroll">
@@ -456,79 +528,911 @@
             </div>
 
             <div class="results" id="results"></div>
+            <div class="recovery-row" id="archiveRecovery" hidden>
+              <label class="backup-picker" for="archiveSelect">Deletion archive
+                <select id="archiveSelect" aria-label="Association deletion archive">
+                  <option value="">Select target version to load archives</option>
+                </select>
+              </label>
+              <button class="ghost restore-action" id="restoreListedArchiveBtn" disabled>Restore archive</button>
+              <button class="ghost" id="downloadArchiveBtn" disabled>Download archive</button>
+              <button class="ghost" id="importArchiveBtn">Import archive</button>
+            </div>
+            <div class="recovery-row" id="dataReportRecovery" hidden>
+              <label class="backup-picker" for="dataReportSelect">Deployment report
+                <select id="dataReportSelect" aria-label="Constraint data deployment report">
+                  <option value="">Select target to load reports</option>
+                </select>
+              </label>
+              <button class="ghost" id="downloadDataReportBtn" disabled>Download report</button>
+            </div>
           </div>
 
           <div class="status" id="dataStatus"></div>
         </div>
       </div>
 
+      <!-- ══════════════ VIEW: CONTEXT DEFINITION FIX ══════════════ -->
+      <div class="view-panel xml-scope" id="view-cdfix">
+        <div class="local-only-notice" hidden>
+          <strong>Requires the local CML Tool.</strong>
+          Context Definition Fix runs on the local server (Start Tool Here). It is not available in the Chrome extension yet.
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">
+              <span class="step-dot step-dot-green">1</span>
+              <div>
+                <h2>Input Context Definitions</h2>
+                <p>Retrieve read-only from the orgs selected above, or paste XML. Base comes from the target org; Modified comes from the source org.</p>
+              </div>
+            </div>
+            <button class="ghost" id="cdfClearAll" type="button">Clear all</button>
+          </div>
+          <div class="xpanes cdf-editor-grid">
+            <div class="xpane xpane-base">
+              <div class="xpane-head">
+                <span class="ttl">Base Context Definition <span class="xbadge base">Base</span></span>
+                <div class="mini">
+                  <button class="ghost" data-paste="cdfBase" type="button">Paste</button>
+                  <button class="ghost" data-copy="cdfBase" type="button">Copy</button>
+                  <button class="ghost" data-clear="cdfBase" type="button">Clear</button>
+                </div>
+              </div>
+              <div class="cdf-retrieve" data-cdf-side="base">
+                <span class="cdf-org-label">Target org <strong class="cdf-org-name">—</strong></span>
+                <select class="cdf-name-select" aria-label="Base Context Definition name" disabled>
+                  <option value="">Select a target org above…</option>
+                </select>
+                <button class="ghost cdf-refresh" type="button" title="Reload the Context Definition list" disabled>Refresh</button>
+                <button class="btn btn-primary cdf-retrieve-btn" type="button" disabled>Retrieve</button>
+                <span class="cdf-source" data-source-for="cdfBase">Empty</span>
+              </div>
+              <div class="xpane-body"><div id="cdfBase" class="cml-editor xml-editor" data-placeholder="Retrieve from the target org, or paste the BASE Context Definition XML here.&#10;The tool will not delete Base entries."></div></div>
+            </div>
+            <div class="cdf-diff-indicator" id="cdfDiffIndicator" aria-live="polite">
+              <div class="cdf-rail-total"><strong id="cdfDiffCount">—</strong><small>Total changes</small></div>
+              <div class="cdf-rail-metric added"><b id="cdfRailAdded">—</b><span>Added</span></div>
+              <div class="cdf-rail-metric updated"><b id="cdfRailUpdated">—</b><span>Updated</span></div>
+              <div class="cdf-rail-metric base-only"><b id="cdfRailBaseOnly">—</b><span>Base only</span></div>
+            </div>
+            <div class="xpane xpane-modified">
+              <div class="xpane-head">
+                <span class="ttl">Modified Context Definition <span class="xbadge modified">Modified</span></span>
+                <div class="mini">
+                  <button class="ghost" data-paste="cdfMod" type="button">Paste</button>
+                  <button class="ghost" data-copy="cdfMod" type="button">Copy</button>
+                  <button class="ghost" data-clear="cdfMod" type="button">Clear</button>
+                </div>
+              </div>
+              <div class="cdf-retrieve" data-cdf-side="modified">
+                <span class="cdf-org-label">Source org <strong class="cdf-org-name">—</strong></span>
+                <select class="cdf-name-select" aria-label="Modified Context Definition name" disabled>
+                  <option value="">Select a source org above…</option>
+                </select>
+                <button class="ghost cdf-refresh" type="button" title="Reload the Context Definition list" disabled>Refresh</button>
+                <button class="btn btn-primary cdf-retrieve-btn" type="button" disabled>Retrieve</button>
+                <span class="cdf-source" data-source-for="cdfMod">Empty</span>
+              </div>
+              <div class="xpane-body"><div id="cdfMod" class="cml-editor xml-editor" data-placeholder="Retrieve from the source org, or paste the MODIFIED Context Definition XML here.&#10;This version contains the new mappings."></div></div>
+            </div>
+          </div>
+          <div class="hero-action-row">
+            <button class="btn btn-purple hero-action" id="cdfAnalyzeBtn" type="button">Analyze differences</button>
+          </div>
+          <div class="status" id="cdfRetrieveStatus"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">
+              <span class="step-dot step-dot-orange">2</span>
+              <div>
+                <h2>Review additions and value changes</h2>
+                <p>Context Mappings, Context Attributes, and Required Parent Blocks found by <strong>Analyze differences</strong> in step 1. Base is preserved.</p>
+              </div>
+            </div>
+          </div>
+          <div class="status" id="cdfAnalyzeStatus"></div>
+
+          <section class="cdf-diagnostics" id="cdfDiagnostics">
+            <div class="diag-head">
+              <div>
+                <h3>Why are the line counts different?</h3>
+                <p>Separates Salesforce serializer omissions from actual metadata additions, removals, and changes.</p>
+              </div>
+              <span class="diag-version" id="cdfDiagVersions"></span>
+            </div>
+            <div class="diag-metrics">
+              <div class="diag-metric-card"><span>Base lines</span><strong id="cdfDiagBaseLines">0</strong></div>
+              <div class="diag-metric-card"><span>Modified lines</span><strong id="cdfDiagModifiedLines">0</strong></div>
+              <div class="diag-metric-card"><span>Line difference</span><strong id="cdfDiagLineDelta">0</strong></div>
+              <div class="diag-metric-card"><span>Business items missing</span><strong id="cdfDiagBusinessRemoved">0</strong></div>
+            </div>
+            <div class="diag-explanation" id="cdfDiagExplanation"></div>
+            <div class="diag-tabs" role="tablist">
+              <button class="diag-tab active" data-diag-view="removed" type="button">Present only in Base <span id="cdfDiagRemovedCount">0</span></button>
+              <button class="diag-tab" data-diag-view="added" type="button">Present only in Modified <span id="cdfDiagAddedCount">0</span></button>
+              <button class="diag-tab" data-diag-view="changed" type="button">Materially changed <span id="cdfDiagChangedCount">0</span></button>
+              <button class="diag-tab" data-diag-view="counts" type="button">Element counts</button>
+            </div>
+            <div class="diag-list" id="cdfDiagList"></div>
+          </section>
+
+          <details class="cdf-notapplied" id="cdfNotApplied" hidden>
+            <summary>Not applied <span class="cdf-notapplied-count" id="cdfNotAppliedCount">0</span>
+              <small>Differences in Modified that the build leaves out on purpose</small></summary>
+            <div class="cdf-notapplied-list" id="cdfNotAppliedList"></div>
+          </details>
+
+          <div class="cdfix-select" id="cdfSelectPanel">
+            <div class="cdfix-sel-head" id="cdfSelHeadText">Select changes to include</div>
+            <div class="cdfix-metrics">
+              <div class="metric-card"><strong id="cdfMetricAll">0</strong><span>Total changes</span></div>
+              <div class="metric-card metric-map"><strong id="cdfMetricMappings">0</strong><span>Context Mappings</span></div>
+              <div class="metric-card metric-node"><strong id="cdfMetricNodes">0</strong><span>Context Attributes</span></div>
+              <div class="metric-card metric-error"><strong id="cdfMetricErrors">0</strong><span>Required Parent Blocks</span></div>
+            </div>
+            <div class="cdfix-data-toolbar">
+              <input id="cdfSearch" type="search" placeholder="Search fields, Context Mappings, Context Attributes…" autocomplete="off" spellcheck="false" />
+              <div class="cdfix-filters">
+                <button class="filter-chip active" data-cdf-filter="all" type="button">All</button>
+                <button class="filter-chip" data-cdf-filter="ready" type="button">Ready</button>
+                <button class="filter-chip" data-cdf-filter="errors" type="button">Required Parent Blocks</button>
+                <button class="filter-chip" data-cdf-filter="updates" type="button">Value changes</button>
+                <button class="filter-chip" data-cdf-filter="mapping" type="button">Context Mappings</button>
+                <button class="filter-chip" data-cdf-filter="nodeAttr" type="button">Context Attributes</button>
+                <button class="filter-chip" data-cdf-filter="selected" type="button">Selected</button>
+              </div>
+            </div>
+            <div class="cdfix-sel-actions" id="cdfSelActions">
+              <button class="ghost" id="cdfSelAll" type="button">Select all</button>
+              <button class="ghost" id="cdfSelNone" type="button">Deselect all</button>
+              <button class="ghost" id="cdfExpandAll" type="button">Expand all</button>
+              <button class="ghost" id="cdfCollapseAll" type="button">Collapse all</button>
+              <span class="cdfix-selection-count" id="cdfSelCount">Total: 0 · Selected: 0</span>
+            </div>
+            <div class="cdfix-data-layout">
+              <div id="cdfFieldList"></div>
+              <aside class="cdfix-detail" id="cdfDetail" tabindex="-1">
+                <div class="cdfix-detail-empty">
+                  <strong>Select a Context Definition change</strong>
+                  <p>Choose a row to inspect its Revenue Cloud path and XML preview.</p>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" id="cdfBuildStep" hidden>
+          <div class="card-head">
+            <div class="card-title">
+              <span class="step-dot">3</span>
+              <div>
+                <h2>Build Context Definition</h2>
+                <p>Applies the selected changes and complete required parent blocks on top of Base. Nothing is deployed; copy or download the result.</p>
+              </div>
+            </div>
+            <button class="btn btn-green" id="cdfBuildBtn" type="button">Build Context Definition</button>
+          </div>
+          <div class="xpanes">
+            <div class="xpane">
+              <div class="xpane-head">
+                <span class="ttl">Patched result <span class="xbadge out">Output</span></span>
+                <div class="mini">
+                  <button class="ghost" id="cdfCopyBtn" type="button">Copy</button>
+                  <button class="ghost" id="cdfDownloadBtn" type="button">Download</button>
+                  <button class="ghost" data-clear="cdfOut" type="button">Clear</button>
+                </div>
+              </div>
+              <div class="xpane-body"><div id="cdfOut" class="cml-editor xml-editor" data-placeholder="The patched Context Definition will appear here." data-readonly></div></div>
+            </div>
+          </div>
+          <div class="status" id="cdfBuildStatus"></div>
+          <div class="xreport" id="cdfReport">
+            <h3>Apply report</h3>
+            <div class="report-summary">
+              <div><strong id="cdfReportAdded">0</strong><span>Added</span></div>
+              <div><strong id="cdfReportUpdated">0</strong><span>Updated</span></div>
+              <div><strong id="cdfReportSkipped">0</strong><span>Skipped</span></div>
+              <div><strong id="cdfReportErrors">0</strong><span>Errors</span></div>
+            </div>
+            <div class="apply-timeline" id="cdfTimeline"></div>
+            <button class="ghost" id="cdfTimelineToggle" type="button" hidden>Show all details</button>
+            <details class="raw-report">
+              <summary>View raw report</summary>
+              <pre id="cdfReportBody"></pre>
+            </details>
+          </div>
+        </div>
+
+        <div class="card" id="cdfDeployStep" hidden>
+          <div class="card-head">
+            <div class="card-title">
+              <span class="step-dot step-dot-purple">4</span>
+              <div>
+                <h2>Check and deploy commands</h2>
+                <p>Checks the fields in the org you plan to deploy to, and gives you the exact commands to run yourself. The CML Tool never runs them.</p>
+              </div>
+            </div>
+          </div>
+          <div class="cdf-deploy-grid">
+            <label class="field cdf-deploy-org">
+              <span>Org you plan to deploy to</span>
+              <select id="cdfDeployOrg" aria-label="Org you plan to deploy to"></select>
+            </label>
+            <div class="cdf-provenance" id="cdfProvenance"></div>
+          </div>
+          <div class="cdf-deploy-warnings" id="cdfDeployWarnings"></div>
+          <div class="cdf-deploy-section">
+            <div class="cdf-deploy-row">
+              <h3>Field check</h3>
+              <button class="btn btn-purple" id="cdfPreflightBtn" type="button">Check fields in this org (read-only)</button>
+            </div>
+            <div class="status" id="cdfPreflightStatus"></div>
+            <div class="cdf-preflight-list" id="cdfPreflightList"></div>
+          </div>
+          <div class="cdf-deploy-section">
+            <div class="cdf-deploy-row">
+              <h3>Deploy files and commands</h3>
+              <div class="mini">
+                <button class="ghost" id="cdfDownloadDeployBtn" type="button">Download deployable file</button>
+                <button class="ghost" id="cdfDownloadPackageBtn" type="button">Download package.xml</button>
+              </div>
+            </div>
+            <ol class="cdf-deploy-steps">
+              <li>Save the result as <code id="cdfDeployFilePath"></code> in your SFDX project.</li>
+              <li>Save the package as <code id="cdfDeployManifestPath"></code>.</li>
+              <li>Run the check-only deploy first:
+                <div class="cdf-command"><pre id="cdfCmdCheck"></pre><button class="ghost" data-copy-text="cdfCmdCheck" type="button">Copy</button></div></li>
+              <li>If it succeeds, run the real deploy:
+                <div class="cdf-command"><pre id="cdfCmdDeploy"></pre><button class="ghost" data-copy-text="cdfCmdDeploy" type="button">Copy</button></div></li>
+            </ol>
+            <details class="raw-report">
+              <summary>View package.xml</summary>
+              <pre id="cdfPackageXml"></pre>
+            </details>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════ VIEW: XML TOOLS ══════════════ -->
+      <div class="view-panel xml-scope" id="view-xml">
+        <div class="local-only-notice" hidden>
+          <strong>Requires the local CML Tool.</strong>
+          XML Tools run on the local server (Start Tool Here). They are not available in the Chrome extension yet.
+        </div>
+        <div class="xml-subnav-wrap">
+          <span class="xml-subnav-label">XML Tools</span>
+          <div class="xml-subnav" role="tablist" aria-label="XML tools">
+            <button class="xml-subtab active" data-xml-tab="compare" role="tab" aria-selected="true" type="button">Compare</button>
+            <button class="xml-subtab" data-xml-tab="merge" role="tab" aria-selected="false" type="button">Merge</button>
+            <button class="xml-subtab" data-xml-tab="dedup" role="tab" aria-selected="false" type="button">Dedup</button>
+          </div>
+        </div>
+
+        <!-- XML Compare -->
+        <div class="card xml-subpanel active" data-xml-panel="compare">
+          <div class="card-head">
+            <div class="card-title">
+              <span class="step-dot step-dot-purple">1</span>
+              <div>
+                <h2>Compare XML</h2>
+                <p>See only unique XML changes. Matching content is ignored even when it appears on different lines or in a different order.</p>
+              </div>
+            </div>
+            <button class="btn btn-purple" id="xcmpBtn" type="button">Compare</button>
+          </div>
+          <div class="field xml-tag-field">
+            <label for="cmpTag">Limit to element (optional)</label>
+            <input id="cmpTag" placeholder="e.g. fieldPermissions, contextMappings" autocomplete="off" spellcheck="false" />
+            <span class="meta">Leave blank to compare everything. Non-XML input falls back to a line diff.</span>
+          </div>
+          <div class="xpanes two">
+            <div class="xpane">
+              <div class="xpane-head">
+                <span class="ttl">Left XML</span>
+                <div class="mini">
+                  <button class="ghost" data-paste="cmpA" type="button">Paste</button>
+                  <button class="ghost" data-copy="cmpA" type="button">Copy</button>
+                  <button class="ghost" data-clear="cmpA" type="button">Clear</button>
+                </div>
+              </div>
+              <div class="xpane-body"><div id="cmpA" class="cml-editor xml-editor" data-placeholder="Paste the first XML here."></div></div>
+            </div>
+            <div class="xpane">
+              <div class="xpane-head">
+                <span class="ttl">Right XML</span>
+                <div class="mini">
+                  <button class="ghost" data-paste="cmpB" type="button">Paste</button>
+                  <button class="ghost" data-copy="cmpB" type="button">Copy</button>
+                  <button class="ghost" data-clear="cmpB" type="button">Clear</button>
+                </div>
+              </div>
+              <div class="xpane-body"><div id="cmpB" class="cml-editor xml-editor" data-placeholder="Paste the second XML here."></div></div>
+            </div>
+          </div>
+          <div class="status" id="cmpStatus"></div>
+          <div class="xreport" id="cmpReport">
+            <h3>Structural summary</h3>
+            <pre id="cmpReportBody"></pre>
+          </div>
+          <div class="diff" id="xDiff">
+            <div class="diff-head">
+              <div class="summary" id="xDiffSummary"></div>
+              <div class="legend">
+                <span><i class="lg-chg">~</i>Changed</span>
+                <span><i class="lg-del">&minus;</i>Only in left</span>
+                <span><i class="lg-ins">+</i>Only in right</span>
+                <label class="diff-opts"><input type="checkbox" id="xOnlyDiffs" /> Show only differences</label>
+              </div>
+            </div>
+            <div class="xdiff-panes" id="xDiffPanes">
+              <div class="pane">
+                <div class="pane-title">Left</div>
+                <div class="pane-scroll" id="xSrcScroll"><table class="pane-table" id="xSrcTable"></table></div>
+              </div>
+              <div class="pane">
+                <div class="pane-title">Right</div>
+                <div class="pane-scroll" id="xTgtScroll"><table class="pane-table" id="xTgtTable"></table></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- XML Merge -->
+        <div class="card xml-subpanel" data-xml-panel="merge">
+          <div class="card-head">
+            <div class="card-title">
+              <span class="step-dot step-dot-green">1</span>
+              <div>
+                <h2>Merge XML</h2>
+                <p>The base remains authoritative; matching entries from Modified override it and new entries are added.</p>
+              </div>
+            </div>
+            <button class="btn btn-green" id="mergeBtn" type="button">Merge</button>
+          </div>
+          <div class="xml-controls">
+            <div class="field">
+              <label for="baseSelect">Which pane is the base?</label>
+              <select id="baseSelect">
+                <option value="left">Pane 1 is the base</option>
+                <option value="right">Pane 2 is the base</option>
+              </select>
+            </div>
+            <button class="ghost" id="swapBtn" type="button">Swap panes</button>
+          </div>
+          <div class="xpanes three">
+            <div class="xpane">
+              <div class="xpane-head">
+                <span class="ttl">Pane 1 <span class="xbadge base" id="badge1">Base</span></span>
+                <div class="mini">
+                  <button class="ghost" data-paste="mrgA" type="button">Paste</button>
+                  <button class="ghost" data-copy="mrgA" type="button">Copy</button>
+                  <button class="ghost" data-clear="mrgA" type="button">Clear</button>
+                </div>
+              </div>
+              <div class="xpane-body"><div id="mrgA" class="cml-editor xml-editor" data-placeholder="Paste the BASE XML here."></div></div>
+            </div>
+            <div class="xpane">
+              <div class="xpane-head">
+                <span class="ttl">Pane 2 <span class="xbadge base" id="badge2" hidden>Base</span></span>
+                <div class="mini">
+                  <button class="ghost" data-paste="mrgB" type="button">Paste</button>
+                  <button class="ghost" data-copy="mrgB" type="button">Copy</button>
+                  <button class="ghost" data-clear="mrgB" type="button">Clear</button>
+                </div>
+              </div>
+              <div class="xpane-body"><div id="mrgB" class="cml-editor xml-editor" data-placeholder="Paste the MODIFIED XML here."></div></div>
+            </div>
+            <div class="xpane">
+              <div class="xpane-head">
+                <span class="ttl">Merged result <span class="xbadge out">Output</span></span>
+                <div class="mini">
+                  <button class="ghost" id="mergeCopyBtn" type="button">Copy</button>
+                  <button class="ghost" id="mergeDownloadBtn" type="button">Download</button>
+                  <button class="ghost" data-clear="mrgOut" type="button">Clear</button>
+                </div>
+              </div>
+              <div class="xpane-body"><div id="mrgOut" class="cml-editor xml-editor" data-placeholder="The merged XML will appear here." data-readonly></div></div>
+            </div>
+          </div>
+          <div class="status" id="mrgStatus"></div>
+          <div class="dup-warn" id="mrgDupWarn" hidden>
+            <div class="dup-warn-head">
+              <span>Duplicate entries detected in the inputs. Some entries were collapsed in the merged output.</span>
+              <button class="ghost" id="mrgDupToggle" type="button">Show details</button>
+            </div>
+            <div class="dup-warn-body" id="mrgDupBody" hidden>
+              The merge keeps only the last occurrence of each duplicate identity key, so the output has fewer entries than the inputs.
+              Clean each input in <strong>Dedup</strong>, then merge again.
+              <ul class="dup-list" id="mrgDupList"></ul>
+            </div>
+          </div>
+          <div class="xreport" id="mrgReport">
+            <h3>Merge report</h3>
+            <pre id="mrgReportBody"></pre>
+          </div>
+        </div>
+
+        <!-- XML Dedup -->
+        <div class="card xml-subpanel" data-xml-panel="dedup">
+          <div class="card-head">
+            <div class="card-title">
+              <span class="step-dot step-dot-teal">1</span>
+              <div>
+                <h2>Deduplicate a Permission Set or Profile</h2>
+                <p>Duplicate identity keys are collapsed and the metadata is returned in stable Salesforce order.</p>
+              </div>
+            </div>
+            <button class="btn btn-primary" id="dedupBtn" type="button">Remove duplicates</button>
+          </div>
+          <div class="xpanes two">
+            <div class="xpane">
+              <div class="xpane-head">
+                <span class="ttl">Permission Set XML</span>
+                <div class="mini">
+                  <button class="ghost" data-paste="dedIn" type="button">Paste</button>
+                  <button class="ghost" data-copy="dedIn" type="button">Copy</button>
+                  <button class="ghost" data-clear="dedIn" type="button">Clear</button>
+                </div>
+              </div>
+              <div class="xpane-body"><div id="dedIn" class="cml-editor xml-editor" data-placeholder="Paste a Permission Set or Profile XML here."></div></div>
+            </div>
+            <div class="xpane">
+              <div class="xpane-head">
+                <span class="ttl">Cleaned result <span class="xbadge out">Output</span></span>
+                <div class="mini">
+                  <button class="ghost" id="dedupCopyBtn" type="button">Copy</button>
+                  <button class="ghost" id="dedupDownloadBtn" type="button">Download</button>
+                  <button class="ghost" data-clear="dedOut" type="button">Clear</button>
+                </div>
+              </div>
+              <div class="xpane-body"><div id="dedOut" class="cml-editor xml-editor" data-placeholder="The cleaned and sorted XML will appear here." data-readonly></div></div>
+            </div>
+          </div>
+          <div class="status" id="dedStatus"></div>
+          <div class="xreport" id="dedReport">
+            <h3>Deduplication report</h3>
+            <pre id="dedReportBody"></pre>
+          </div>
+        </div>
+      </div>
+
       <!-- ══════════════ VIEW: TOOL GUIDE ══════════════ -->
       <div class="view-panel" id="view-guide">
-        <div class="card">
-          <div class="guide-hero"><div><div class="eyebrow">Eight-step guide</div><h2>Safe operating workflow</h2>
-            <p class="sub">Follow the complete path from prerequisite metadata through review, deployment, validation, and recovery.</p></div>
-            <div class="guide-badges"><span class="guide-badge read"><span aria-hidden="true">✓</span>&nbsp; Read-only</span><span class="guide-badge write"><span aria-hidden="true">!</span>&nbsp; Writes Salesforce</span></div>
+        <div class="card help-card">
+          <div class="help-hero">
+            <div>
+              <div class="eyebrow">Handbook</div>
+              <h2>Help Me</h2>
+              <p class="sub">Step-by-step handbooks for moving CML and Context Definitions between Salesforce orgs with this tool. Every screenshot uses sample data.</p>
+            </div>
+            <div class="guide-badges" aria-label="Badge legend">
+              <span class="guide-badge read"><span aria-hidden="true">✓</span>&nbsp; Read-only</span>
+              <span class="guide-badge write"><span aria-hidden="true">!</span>&nbsp; Writes Salesforce</span>
+            </div>
           </div>
-          <section class="guide-prereqs" aria-labelledby="guidePrereqTitle">
-            <h3 id="guidePrereqTitle">Before you move CML between orgs</h3>
-            <p>CML text is only one part of a working constraint model. Confirm its dependent metadata and catalog data are available in the target org.</p>
-            <ul>
-              <li><strong>Context Definition tags and mappings:</strong> deploy every tag referenced by CML attributes to the target org. Without the corresponding Context Definition metadata, those attributes cannot resolve correctly at runtime.</li>
-              <li><strong>Product associations:</strong> compare the related <code>ExpressionSetConstraintObj</code> rows separately in Constraint Data Deploy.</li>
-              <li><strong>Catalog dependencies:</strong> products, classifications, attributes, component groups, and relationships are checked here but must be deployed through their owning process.</li>
-              <li><strong>Exact versions:</strong> source, comparison target, and deployment target are separate selections and can have different runtime status.</li>
-            </ul>
+
+          <div class="help-subtabs" role="tablist" aria-label="Help Me handbooks">
+            <button type="button" class="help-subtab active" role="tab" id="helpTabCml" aria-selected="true" aria-controls="helpPanelCml" data-help-tab="cml">CML Deployment Guide</button>
+            <button type="button" class="help-subtab" role="tab" id="helpTabCd" aria-selected="false" aria-controls="helpPanelCd" data-help-tab="cd" tabindex="-1">Context Definition Deployment Guide</button>
+          </div>
+
+          <!-- ═════════ CML DEPLOYMENT GUIDE ═════════ -->
+          <section class="help-guide" id="helpPanelCml" role="tabpanel" aria-labelledby="helpTabCml" data-help-panel="cml">
+            <div class="help-intro">
+              <p>This guide takes a CML (Constraint Modeling Language) model from a <strong>source org</strong>, where it was built and tested, to a <strong>target org</strong>. It also moves the Product associations (<code>ExpressionSetConstraintObj</code> rows) that link the model to products. Follow the steps in order the first time; later you can jump straight to the step you need.</p>
+              <p class="help-note"><strong>Order matters.</strong> CML refers to Context Definition tags and mappings. A CML deployment does not deploy Context Definition tags or mappings, so if the target org does not have them yet, deploy the Context Definition first. See the <button type="button" class="linklike" data-help-open="cd">Context Definition Deployment Guide</button>.</p>
+            </div>
+            <nav class="help-toc" aria-label="CML Deployment Guide steps">
+              <h3>Steps in this guide</h3>
+              <ol>
+                <li><a href="#help-cml-1" data-help-jump="help-cml-1">Before you start</a></li>
+                <li><a href="#help-cml-2" data-help-jump="help-cml-2">Find your way around the tool</a></li>
+                <li><a href="#help-cml-3" data-help-jump="help-cml-3">Choose the source org and exact CML version</a></li>
+                <li><a href="#help-cml-4" data-help-jump="help-cml-4">Fetch the CML</a></li>
+                <li><a href="#help-cml-5" data-help-jump="help-cml-5">Search and edit in the editor</a></li>
+                <li><a href="#help-cml-6" data-help-jump="help-cml-6">Check best practices</a></li>
+                <li><a href="#help-cml-7" data-help-jump="help-cml-7">Compare source and target CML</a></li>
+                <li><a href="#help-cml-8" data-help-jump="help-cml-8">Check the target version status</a></li>
+                <li><a href="#help-cml-9" data-help-jump="help-cml-9">Deploy the CML</a></li>
+                <li><a href="#help-cml-10" data-help-jump="help-cml-10">Activate and test in Salesforce</a></li>
+                <li><a href="#help-cml-11" data-help-jump="help-cml-11">Deploy Product associations</a></li>
+                <li><a href="#help-cml-12" data-help-jump="help-cml-12">Recover if something goes wrong</a></li>
+                <li><a href="#help-cml-13" data-help-jump="help-cml-13">Troubleshooting</a></li>
+              </ol>
+            </nav>
+
+            <article class="help-step" id="help-cml-1" data-guide-step="1">
+              <header><span class="guide-number">1</span><div><span class="guide-badge read">Read-only</span><h3>Before you start</h3>
+                <p class="help-goal">Install two things once, log in to your orgs, and start the tool.</p></div></header>
+              <ol class="help-actions">
+                <li><strong>Python 3.9 or newer.</strong> macOS already has it (or run <code>xcode-select --install</code>). On Windows, install it from python.org and tick <em>Add Python to PATH</em>.</li>
+                <li><strong>Salesforce CLI.</strong> Install it once with <code>npm install -g @salesforce/cli</code>.</li>
+                <li><strong>Log in to every org you will use</strong>, giving each one a short alias:
+                  <pre class="help-code">sf org login web --alias Dev_Sandbox --instance-url https://test.salesforce.com
+sf org login web --alias Release_QA  --instance-url https://test.salesforce.com</pre>
+                  Use <code>https://login.salesforce.com</code> for production and Developer Edition orgs. The alias is what you will type to confirm every write.</li>
+                <li><strong>Start the tool.</strong> Open the <code>Start Tool Here</code> folder and double-click the launcher for your computer: <em>Open CML Tool for macOS.command</em>, <em>Open CML Tool for Windows.bat</em>, or <em>Open CML Tool for Linux.sh</em>. Your browser opens at <code>http://127.0.0.1:8787</code>.</li>
+                <li><strong>Stop the tool</strong> on macOS with <em>Stop CML Tool for macOS.command</em>. On Windows and Linux, close the launcher window.</li>
+              </ol>
+              <div class="help-callout info"><strong>Where does my data go?</strong> The tool runs only on your computer (<code>127.0.0.1</code>). It talks to Salesforce through your own Salesforce CLI login. There is no cloud service and no telemetry.</div>
+              <div class="help-check"><strong>Check before moving on:</strong> run <code>sf org list</code> in a terminal. Every org you need is listed and shows as Connected.</div>
+            </article>
+
+            <article class="help-step" id="help-cml-2" data-guide-step="2">
+              <header><span class="guide-number">2</span><div><span class="guide-badge read">Read-only</span><h3>Find your way around the tool</h3>
+                <p class="help-goal">Learn the parts of the screen you will use in every step.</p></div></header>
+              <figure class="help-figure"><a href="/assets/help/c01-layout.jpg" target="_blank" rel="noopener"><img src="/assets/help/c01-layout.jpg" alt="The tool with the header, the Source and Target org cards, and the CML Editor" loading="lazy" /></a>
+                <figcaption>The whole screen after choosing a source and target. Click any screenshot to open it full size.</figcaption></figure>
+              <ol class="help-actions">
+                <li><strong>Header tabs</strong> (the pill in the middle) switch between the six workspaces: <em>Fetch &amp; Deploy CML</em>, <em>Constraint Data</em>, <em>Compare CML</em>, <em>Context Definition Fix</em>, <em>XML Tools</em>, and <em>Help Me</em>. On a smaller screen, some tabs move into <strong>More</strong>.</li>
+                <li><strong>Runs locally</strong> (the green dot at the top right) shows that the tool is connected to its local server. Hover over it to see the version and build.</li>
+                <li><strong>Shortcuts</strong> lists the keyboard shortcuts. The sun/moon switch changes between day and night mode.</li>
+                <li><strong>Source org</strong> (left card) is where you read CML from. <strong>Target org</strong> (right card) is what you compare with. Both cards stay at the top of every tab that needs them.</li>
+                <li><strong>Status messages</strong> appear under each action. Green means success, red means a problem, and blue is information.</li>
+              </ol>
+              <figure class="help-figure"><a href="/assets/help/c02-header.jpg" target="_blank" rel="noopener"><img src="/assets/help/c02-header.jpg" alt="The header with the tabs, Shortcuts, and day and night switch" loading="lazy" /></a>
+                <figcaption>The header. The tab with the blue background is the one you are on.</figcaption></figure>
+              <div class="help-callout info"><strong>Two badges tell you what an action does.</strong> <span class="guide-badge read">Read-only</span> steps only read from Salesforce. <span class="guide-badge write">Writes Salesforce</span> steps change an org, and each one asks you to type the org alias before it runs.</div>
+              <div class="help-callout warn"><strong>A yellow banner at the top</strong> means the tool's files changed while it was running. <em>Restart</em> means stop and start the tool again. <em>Reload the page</em> means refresh the browser tab.</div>
+            </article>
+
+            <article class="help-step" id="help-cml-3" data-guide-step="3">
+              <header><span class="guide-number">3</span><div><span class="guide-badge read">Read-only</span><h3>Choose the source org and exact CML version</h3>
+                <p class="help-goal">Tell the tool exactly which CML version you want to move.</p></div></header>
+              <figure class="help-figure"><a href="/assets/help/c03-org-cards.jpg" target="_blank" rel="noopener"><img src="/assets/help/c03-org-cards.jpg" alt="Source and Target org cards with Org ID, Salesforce Release, and exact CML version" loading="lazy" /></a>
+                <figcaption>The org cards. Each card shows the Org ID, the Salesforce release, the org, and the exact CML version.</figcaption></figure>
+              <ol class="help-actions">
+                <li>In the <strong>Source org</strong> card, open <strong>Source org</strong> and pick the org alias (for example <code>Dev_Sandbox</code>).</li>
+                <li>Check the tinted box at the top right of the card. <strong>Org ID</strong> confirms you picked the right org; click it to copy. <strong>Salesforce Release</strong> shows the release the org runs, for example <code>262.14.26 · Summer '26 Patch 14.26</code>.</li>
+                <li>Open <strong>Source CML exact version</strong>. The tool lists every CML model in the org and every version of each model. Type in the search box to narrow the list.</li>
+                <li>Pick the exact version. The pill shows its runtime status: <span class="help-pill active">● ACTIVE</span> or <span class="help-pill inactive">○ INACTIVE</span>.</li>
+              </ol>
+              <figure class="help-figure"><a href="/assets/help/c04-version-menu.jpg" target="_blank" rel="noopener"><img src="/assets/help/c04-version-menu.jpg" alt="The source CML version list open with a search box" loading="lazy" /></a>
+                <figcaption>The version list. Active versions are listed first.</figcaption></figure>
+              <div class="help-callout warn"><strong>Do not assume the newest version is the right one.</strong> An org can have several versions of the same model, and only one is active at runtime. Ask the model owner which version to move if you are unsure.</div>
+              <div class="help-check"><strong>Check before moving on:</strong> the Org ID, model name, version number, and status pill match what you expect.</div>
+            </article>
+
+            <article class="help-step" id="help-cml-4" data-guide-step="4">
+              <header><span class="guide-number">4</span><div><span class="guide-badge read">Read-only</span><h3>Fetch the CML</h3>
+                <p class="help-goal">Load the exact source CML into the editor so you can read it.</p></div></header>
+              <ol class="help-actions">
+                <li>Open the <strong>Fetch &amp; Deploy CML</strong> tab.</li>
+                <li>Click <strong>Fetch CML</strong> beside the <em>CML Editor</em> heading.</li>
+                <li>The CML appears in the editor with line numbers and colour highlighting. The tool also saves a copy on your computer, and the status message shows where.</li>
+                <li>The badge beside <em>CML CONTENT</em> says <strong>Not modified</strong>. It changes as soon as you edit, so you always know whether the editor still matches Salesforce.</li>
+                <li>Use <strong>Copy</strong> to copy everything, or <strong>Download .cml</strong> to save the file, for example to attach it to a review.</li>
+              </ol>
+              <figure class="help-figure"><a href="/assets/help/c05-fetched.jpg" target="_blank" rel="noopener"><img src="/assets/help/c05-fetched.jpg" alt="The CML Editor with fetched sample CML" loading="lazy" /></a>
+                <figcaption>Fetched sample CML. The deployment panel sits under the editor.</figcaption></figure>
+              <div class="help-callout info"><strong>Unsaved work is protected.</strong> If you edit and then accidentally reload the page, the tool offers <strong>Restore draft</strong> when you pick the same org, model, and version again in that tab. The draft stays only in that browser tab, and a fresh fetch or a successful deploy clears it.</div>
+              <div class="help-check"><strong>Check before moving on:</strong> the editor is not empty, and the first lines are the model you expected.</div>
+            </article>
+
+            <article class="help-step" id="help-cml-5" data-guide-step="5">
+              <header><span class="guide-number">5</span><div><span class="guide-badge read">Read-only</span><h3>Search and edit in the editor</h3>
+                <p class="help-goal">Find types, attributes, and constraints quickly, and make small edits safely.</p></div></header>
+              <ol class="help-actions">
+                <li>Click inside the editor and press <kbd>Cmd</kbd>+<kbd>F</kbd> (macOS) or <kbd>Ctrl</kbd>+<kbd>F</kbd> (Windows/Linux). A search bar opens at the bottom of the editor.</li>
+                <li>Type what you are looking for, for example <code>monthlyPrice</code>. Every match is highlighted. Use <strong>next</strong>, <strong>previous</strong>, or <strong>all</strong> to move between them.</li>
+                <li>Tick <strong>match case</strong>, <strong>regexp</strong>, or <strong>by word</strong> to narrow the search.</li>
+                <li>Use <strong>replace</strong> or <strong>replace all</strong> to change text in place.</li>
+                <li>Press <kbd>Cmd/Ctrl</kbd>+<kbd>/</kbd>, or click <strong>// Line comment</strong>, to comment out the selected lines. <strong>/* */ Block comment</strong> wraps a whole selection.</li>
+                <li>Press <kbd>Esc</kbd> to close the search bar.</li>
+              </ol>
+              <figure class="help-figure"><a href="/assets/help/c06-search.jpg" target="_blank" rel="noopener"><img src="/assets/help/c06-search.jpg" alt="Find and replace open in the editor with two matches highlighted" loading="lazy" /></a>
+                <figcaption>Find and replace, with both matches for <code>monthlyPrice</code> highlighted.</figcaption></figure>
+              <div class="help-callout warn"><strong>Editing here does not change Salesforce.</strong> Nothing is written until you deploy in step 9.</div>
+            </article>
+
+            <article class="help-step" id="help-cml-6" data-guide-step="6">
+              <header><span class="guide-number">6</span><div><span class="guide-badge read">Read-only</span><h3>Check best practices</h3>
+                <p class="help-goal">Catch common CML mistakes before they reach another org.</p></div></header>
+              <ol class="help-actions">
+                <li>In the editor toolbar, click <strong>Check best practices</strong>.</li>
+                <li>A report opens under the editor with a quality score and a list of findings. The same findings are underlined on the affected lines in the editor; hover an underline to read it.</li>
+                <li>Each finding names the rule, explains the problem in plain language, and points to its line.</li>
+                <li>Where a fix exists, a <strong>Before → After</strong> example shows the corrected CML. Read it, then use <strong>Copy</strong> and paste the correction into the editor yourself.</li>
+                <li>Click <strong>Hide best practices</strong> to clear the report and the underlines. Run the check again after editing.</li>
+              </ol>
+              <figure class="help-figure"><a href="/assets/help/c07-best-practices.jpg" target="_blank" rel="noopener"><img src="/assets/help/c07-best-practices.jpg" alt="The best-practices report with findings and suggested fixes" loading="lazy" /></a>
+                <figcaption>A best-practices report for a small sample model.</figcaption></figure>
+              <div class="help-callout info"><strong>The score is guidance.</strong> A high score does not prove Salesforce will compile or activate the CML. Activation in Salesforce (step 10) is the real test.</div>
+            </article>
+
+            <article class="help-step" id="help-cml-7" data-guide-step="7">
+              <header><span class="guide-number">7</span><div><span class="guide-badge read">Read-only</span><h3>Compare source and target CML</h3>
+                <p class="help-goal">See exactly what will change in the target org, and build the final version there.</p></div></header>
+              <ol class="help-actions">
+                <li>In the <strong>Target org</strong> card, pick the target org (for example <code>Release_QA</code>) and its exact version. Check its Org ID, release, and status pill as you did for the source.</li>
+                <li>Open the <strong>Compare CML</strong> tab and click <strong>Compare source ↔ target</strong>. The source is on the left and the target is on the right. The two panes scroll together.</li>
+                <li>Read the colours and markers: <strong>~ purple</strong> means the line changed, <strong>− orange</strong> means it is only in the source, and <strong>+ blue</strong> means it is only in the target. The summary above the panes counts each kind.</li>
+                <li>Tick <strong>Semantic summary</strong> to compare by meaning instead of by line. It ignores formatting, comments, and moved blocks, and marks whole types as <code>MODIFIED</code>, <code>ADDED</code>, or <code>REMOVED</code>. Tick <strong>Show only differences</strong> to hide matching lines.</li>
+                <li>Click a <strong>→</strong> arrow between the panes to copy one change into the <em>target draft</em>, or click <strong>Merge all →</strong> to copy every change. Each applied change gets a <strong>←</strong> arrow that undoes just that change.</li>
+                <li>Click <strong>Edit target</strong> to type directly in the target draft, then <strong>Save edits</strong>. <strong>Reset target draft</strong> puts back the target exactly as it was fetched.</li>
+                <li>When the draft is right, click <strong>Review &amp; Deploy target draft</strong>. The tool loads the draft into the Fetch &amp; Deploy editor and pre-selects the target org for step 8.</li>
+              </ol>
+              <figure class="help-figure"><a href="/assets/help/c08-compare.jpg" target="_blank" rel="noopener"><img src="/assets/help/c08-compare.jpg" alt="Side-by-side comparison with merge arrows and semantic badges" loading="lazy" /></a>
+                <figcaption>One change has already been merged into the target draft; the banner says Salesforce has not been changed yet.</figcaption></figure>
+              <div class="help-callout warn"><strong>Merging only changes the draft in your browser.</strong> The banner above the panes reminds you that Salesforce has not been changed yet.</div>
+              <div class="help-check"><strong>Check before moving on:</strong> every difference left in the comparison is one you meant to keep.</div>
+            </article>
+
+            <article class="help-step" id="help-cml-8" data-guide-step="8">
+              <header><span class="guide-number">8</span><div><span class="guide-badge read">Read-only</span><h3>Check the target version status</h3>
+                <p class="help-goal">Make sure the exact target version can be written to.</p></div></header>
+              <ol class="help-actions">
+                <li>On the <strong>Fetch &amp; Deploy CML</strong> tab, scroll below the editor to the deployment panel.</li>
+                <li>Pick <strong>Deploy to org</strong>. It always starts empty, so you must choose the target on purpose.</li>
+                <li>Pick <strong>Target exact CML version</strong>, the version you will overwrite.</li>
+                <li>Click <strong>Check target status</strong>. The <em>Target version status</em> panel shows whether that exact version is Active or Inactive and whether it can be deployed to.</li>
+                <li>If the version is <strong>Active</strong>, deployment is blocked, because overwriting a live model would change runtime behaviour immediately. Deactivate it in Salesforce, or use <strong>Deactivate CML</strong> here (it asks you to type the alias), or pick an inactive version.</li>
+              </ol>
+              <figure class="help-figure"><a href="/assets/help/c09-deploy-panel.jpg" target="_blank" rel="noopener"><img src="/assets/help/c09-deploy-panel.jpg" alt="Deployment panel with target org, exact version, and an eligible status" loading="lazy" /></a>
+                <figcaption>The target version is Inactive, so it can be deployed to.</figcaption></figure>
+            </article>
+
+            <article class="help-step" id="help-cml-9" data-guide-step="9">
+              <header><span class="guide-number">9</span><div><span class="guide-badge write">Writes Salesforce</span><h3>Deploy the CML</h3>
+                <p class="help-goal">Write the reviewed CML to the exact target version, with a backup and a verification.</p></div></header>
+              <ol class="help-actions">
+                <li>Read the editor one last time. Whatever is in the editor is exactly what will be deployed.</li>
+                <li>Click <strong>Deploy CML</strong>. The tool checks the target status again on the server.</li>
+                <li>A confirmation window shows the model, target org, and exact version. Type the target org alias exactly (for example <code>Release_QA</code>). The <strong>Deploy CML</strong> button stays disabled until it matches. Press <kbd>Esc</kbd> to cancel.</li>
+                <li>The tool then:
+                  <ul>
+                    <li>saves a backup of the current target CML on your computer,</li>
+                    <li>writes the new CML,</li>
+                    <li>reads it back from Salesforce and compares a fingerprint (SHA-256) to prove it was saved exactly, and</li>
+                    <li>if that check fails, restores the backup automatically and tells you.</li>
+                  </ul></li>
+                <li>The status message lists the backup file and the deployment report file. Keep them until you have tested the target org.</li>
+              </ol>
+              <figure class="help-figure"><a href="/assets/help/c10-confirm.jpg" target="_blank" rel="noopener"><img src="/assets/help/c10-confirm.jpg" alt="Typed confirmation window for Deploy CML" loading="lazy" /></a>
+                <figcaption>Every write asks you to type the target alias.</figcaption></figure>
+              <figure class="help-figure"><a href="/assets/help/c11-deployed.jpg" target="_blank" rel="noopener"><img src="/assets/help/c11-deployed.jpg" alt="Successful deployment message with backup and report files" loading="lazy" /></a>
+                <figcaption>A successful deployment, with the backup and report locations.</figcaption></figure>
+              <div class="help-callout warn"><strong>Deploying does not activate the CML.</strong> The new version stays inactive until you activate it in step 10.</div>
+            </article>
+
+            <article class="help-step" id="help-cml-10" data-guide-step="10">
+              <header><span class="guide-number">10</span><div><span class="guide-badge write">Writes Salesforce</span><h3>Activate and test in Salesforce</h3>
+                <p class="help-goal">Let Salesforce compile and validate the CML, then prove it works.</p></div></header>
+              <ol class="help-actions">
+                <li>Open the target org in Salesforce and go to <strong>Constraint Builder</strong> for the model.</li>
+                <li>Activate the exact version you deployed. Salesforce compiles the CML and reports any errors, for example an association that points to a type the CML no longer has.</li>
+                <li>If activation fails, read the error, fix the CML in the source (or in the editor), and repeat steps 7–9.</li>
+                <li>After activation, configure a few real products in the target org to confirm the rules behave as expected.</li>
+              </ol>
+              <div class="help-callout info"><strong>Why the tool does not activate for you.</strong> Activating by setting <code>IsActive</code> directly would skip Salesforce's compiler and validation. The tool blocks that on purpose and leaves activation to Constraint Builder.</div>
+            </article>
+
+            <article class="help-step" id="help-cml-11" data-guide-step="11">
+              <header><span class="guide-number">11</span><div><span class="guide-badge write">Writes Salesforce</span><h3>Deploy Product associations</h3>
+                <p class="help-goal">Copy the rows that link CML types to products, which a CML deployment does not create. This is the Constraint Data Deploy workflow.</p></div></header>
+              <ol class="help-actions">
+                <li>Open the <strong>Constraint Data</strong> tab. Keep the same source and target orgs and exact versions selected.</li>
+                <li>In <strong>Match records by (foreign key field)</strong>, choose a field that has the same value in both orgs, for example <code>Global_Key__c</code>. Record Ids differ between orgs, so they cannot be used. Prefer a unique external Id; <code>Name</code> only works when names are unique.</li>
+                <li>Optional: click <strong>View Source Org Data</strong> to list the source rows only.</li>
+                <li>Click <strong>Compare data</strong>. The summary shows the <strong>Source</strong> pills on the left (rows, only in source), the <strong>Target</strong> pills on the right (rows, only in target), and the <strong>Comparison</strong> pills underneath (matched, blocked, need review, CML definition differences).</li>
+                <li>Read the <strong>Status</strong> column. <em>Matched</em> rows are already in the target. <em>Add to target</em> rows can be deployed. <em>Only in target</em> rows can be deleted. <em>Blocked</em> rows list the reason as bullets, for example a classification attribute missing in the target catalog.</li>
+                <li>Use <strong>Show</strong>, the search box, and <strong>Copy for Excel</strong> to filter the table or share it with another team.</li>
+                <li>Additions are ticked by default; deletions are never ticked by default. Use <strong>Select all adds</strong>, <strong>Clear adds</strong>, <strong>Select all deletes</strong>, and <strong>Clear deletes</strong> to change the selection. The bar shows how many rows you will add and delete.</li>
+                <li>Click <strong>Deploy selected to target</strong> and type the target alias to confirm. The server re-checks catalog dependencies before writing.</li>
+                <li>Read <strong>Deployment results</strong>. Every row shows ✓ or ✗; a blocked row lists each missing item as a bullet.</li>
+              </ol>
+              <figure class="help-figure"><a href="/assets/help/c12-data-compare.jpg" target="_blank" rel="noopener"><img src="/assets/help/c12-data-compare.jpg" alt="Constraint Data workspace after Compare data, with pills and the association table" loading="lazy" /></a>
+                <figcaption>The comparison: source and target pills, comparison pills, the selection bar, and the table.</figcaption></figure>
+              <figure class="help-figure"><a href="/assets/help/c13-data-results.jpg" target="_blank" rel="noopener"><img src="/assets/help/c13-data-results.jpg" alt="Deployment results with one success and one blocked row listing missing attributes" loading="lazy" /></a>
+                <figcaption>Results: one row added, one blocked because the target catalog is missing three classification attributes.</figcaption></figure>
+              <div class="help-callout warn"><strong>The tool never creates catalog data.</strong> Products, classifications, attributes, and relationships must be deployed through their normal process. Fix what a blocked row lists, then click <strong>Compare data</strong> again.</div>
+              <div class="help-callout warn"><strong>Deletions are permanent.</strong> The tool archives each deleted row first, so you can restore it in step 12.</div>
+            </article>
+
+            <article class="help-step" id="help-cml-12" data-guide-step="12">
+              <header><span class="guide-number">12</span><div><span class="guide-badge write">Writes Salesforce</span><h3>Recover if something goes wrong</h3>
+                <p class="help-goal">Undo a CML deployment or restore deleted associations.</p></div></header>
+              <ol class="help-actions">
+                <li><strong>Restore a CML backup:</strong> in the deployment panel, pick the target org and exact version, choose a file in <strong>Recovery backup</strong>, and click <strong>Restore Backup CML</strong>. The tool first saves another backup, so the restore can itself be undone.</li>
+                <li><strong>Restore deleted associations:</strong> on the Constraint Data tab, choose a file in <strong>Deletion archive</strong> and click <strong>Restore archive</strong>. Use <strong>Download archive</strong> to keep a copy.</li>
+                <li><strong>Download a deployment report</strong> from the <strong>Deployment report</strong> list to share exactly what was changed.</li>
+                <li>If a result says <strong>Partial deployment — recovery required</strong>, some changes were saved and some were not. Read every row before retrying.</li>
+              </ol>
+              <div class="help-callout info">Every restore asks you to type the target alias, like every other write.</div>
+            </article>
+
+            <article class="help-step" id="help-cml-13" data-guide-step="13">
+              <header><span class="guide-number">13</span><div><span class="guide-badge read">Read-only</span><h3>Troubleshooting</h3>
+                <p class="help-goal">Quick answers to common problems.</p></div></header>
+              <dl class="help-faq">
+                <dt>My org is not in the list.</dt><dd>Run <code>sf org list</code>. If the org is missing or shows as expired, log in again with <code>sf org login web --alias YourAlias</code>, then reopen the org list. The tool reads your Salesforce CLI logins.</dd>
+                <dt>“Session expired” or an authentication error.</dt><dd>Your CLI login expired. Run <code>sf org login web --alias YourAlias</code> again; no restart is needed.</dd>
+                <dt>Deploy says the target version is Active.</dt><dd>The tool never overwrites an active version. Deactivate it (step 8) or choose an inactive version.</dd>
+                <dt>A yellow banner says “Restart”.</dt><dd>The tool's files changed while it was running. Stop and start the tool.</dd>
+                <dt>A yellow banner says “Reload the page”.</dt><dd>Refresh the browser tab.</dd>
+                <dt>Association rows are blocked.</dt><dd>The target catalog is missing what the bullets list. Deploy that catalog data, then click <strong>Compare data</strong> again.</dd>
+                <dt>Windows: <code>[WinError 2]</code> when loading orgs.</dt><dd>Start the tool with <em>Open CML Tool for Windows.bat</em>, and make sure <code>sf</code> works in a new Command Prompt.</dd>
+              </dl>
+            </article>
           </section>
-          <div class="guide-steps">
-            <article class="guide-step" data-guide-step="1">
-              <span class="guide-number">1</span><div><span class="guide-badge read">Read-only</span>
-              <h3>Choose the source</h3><p>Select the source org and exact CML version; do not assume the newest version is intended.</p>
-              <ul class="guide-detail-list"><li>Confirm the org ID and model name.</li><li>Review whether status is runtime- or definition-based.</li><li>Fetching reads Salesforce and also saves a local working copy.</li></ul></div>
+
+          <!-- ═════════ CONTEXT DEFINITION DEPLOYMENT GUIDE ═════════ -->
+          <section class="help-guide" id="helpPanelCd" role="tabpanel" aria-labelledby="helpTabCd" data-help-panel="cd" hidden>
+            <div class="help-intro">
+              <p>A <strong>Context Definition</strong> tells Salesforce where each CML attribute gets its data (for example, which Order field fills <code>Channel__c</code>). When you add attributes in a source org, the target org needs the same tags and mappings before the CML can work there. This guide copies those additions into the target org's Context Definition <strong>without removing anything the target already has</strong>.</p>
+              <p class="help-note"><strong>Two words used throughout:</strong> <strong>Base</strong> is the Context Definition from the org you will deploy to (the target). <strong>Modified</strong> is the one that has the changes you want (the source).</p>
+            </div>
+            <nav class="help-toc" aria-label="Context Definition Deployment Guide steps">
+              <h3>Steps in this guide</h3>
+              <ol>
+                <li><a href="#help-cd-1" data-help-jump="help-cd-1">Understand what this does</a></li>
+                <li><a href="#help-cd-2" data-help-jump="help-cd-2">Choose the source and target orgs</a></li>
+                <li><a href="#help-cd-3" data-help-jump="help-cd-3">Retrieve Base and Modified</a></li>
+                <li><a href="#help-cd-4" data-help-jump="help-cd-4">Analyze the differences</a></li>
+                <li><a href="#help-cd-5" data-help-jump="help-cd-5">Review what will not be applied</a></li>
+                <li><a href="#help-cd-6" data-help-jump="help-cd-6">Select the changes to include</a></li>
+                <li><a href="#help-cd-7" data-help-jump="help-cd-7">Build the Context Definition</a></li>
+                <li><a href="#help-cd-8" data-help-jump="help-cd-8">Check fields in the target org</a></li>
+                <li><a href="#help-cd-9" data-help-jump="help-cd-9">Deploy with the generated commands</a></li>
+                <li><a href="#help-cd-10" data-help-jump="help-cd-10">Verify, then deploy the CML</a></li>
+                <li><a href="#help-cd-11" data-help-jump="help-cd-11">Troubleshooting</a></li>
+              </ol>
+            </nav>
+
+            <article class="help-step" id="help-cd-1" data-cd-step="1">
+              <header><span class="guide-number">1</span><div><span class="guide-badge read">Read-only</span><h3>Understand what this does</h3>
+                <p class="help-goal">Know the rules the tool follows, so the results make sense.</p></div></header>
+              <ul class="help-actions">
+                <li><strong>It adds and updates; it never deletes.</strong> Anything that is only in Base stays in Base.</li>
+                <li><strong>It reads orgs but never deploys.</strong> Retrieving is read-only. At the end, the tool gives you a file and the exact <code>sf</code> commands, and you run them yourself.</li>
+                <li><strong>It respects Salesforce's limits.</strong> Salesforce does not allow changing an existing attribute's data type, field type, key, or transient flag. The tool leaves those out and lists them as <em>Not applied</em>.</li>
+                <li><strong>It knows about Salesforce releases.</strong> Standard elements come from <code>SalesTransactionContext__stdctx</code>, and each org inherits a version of it (for example 67.11 or 68.26). Standard elements that exist only in a newer release are marked <strong>Salesforce release</strong> and left unticked, because the target gets them automatically when its org is upgraded.</li>
+                <li><strong>It fixes org-specific Ids.</strong> Record Ids inside hydration settings differ per org, so the build rewrites them to portable names.</li>
+              </ul>
             </article>
-            <article class="guide-step" data-guide-step="2">
-              <span class="guide-number">2</span><div><span class="guide-badge read">Read-only</span>
-              <h3>Fetch and inspect CML</h3><p>Load the exact source content into the editor and inspect it before comparing or deploying.</p>
-              <ul class="guide-detail-list"><li>Confirm the fetched model is not empty.</li><li>The offline CodeMirror editor supports line numbers, search, go-to-line, and CML line/block comments.</li><li>Review comments, tags, relations, cardinalities, and attribute references.</li><li>Use Copy when an external review is required.</li></ul></div>
+
+            <article class="help-step" id="help-cd-2" data-cd-step="2">
+              <header><span class="guide-number">2</span><div><span class="guide-badge read">Read-only</span><h3>Choose the source and target orgs</h3>
+                <p class="help-goal">Point the tool at the org with the changes and the org you will deploy to.</p></div></header>
+              <ol class="help-actions">
+                <li>Open the <strong>Context Definition Fix</strong> tab. The org cards stay at the top; CML versions are hidden because they are not needed here.</li>
+                <li>In <strong>Source org</strong>, pick the org that has the new tags and mappings. It becomes <strong>Modified</strong>.</li>
+                <li>In <strong>Target org</strong>, pick the org you will deploy to. It becomes <strong>Base</strong>.</li>
+                <li>Compare the two <strong>Salesforce Release</strong> values. If the source runs a newer release, expect some items to be marked <em>Salesforce release</em> later.</li>
+              </ol>
+              <figure class="help-figure"><a href="/assets/help/d01-step1.jpg" target="_blank" rel="noopener"><img src="/assets/help/d01-step1.jpg" alt="Context Definition Fix step 1 before retrieving" loading="lazy" /></a>
+                <figcaption>Step 1 before retrieving. Base is on the left (target org) and Modified is on the right (source org).</figcaption></figure>
             </article>
-            <article class="guide-step" data-guide-step="3">
-              <span class="guide-number">3</span><div><span class="guide-badge read">Read-only</span>
-              <h3>Compare and prepare the target draft</h3><p>Compare exact versions, then combine merge actions with direct target-draft edits.</p>
-              <ul class="guide-detail-list"><li>Line comparison exposes exact text changes and window-renders large results to keep the page responsive.</li><li>Semantic summary distinguishes structural changes from formatting and reports explicit budget/fallback diagnostics.</li><li>Use <strong>Edit target</strong> to add comments or modify any line; saving refreshes the comparison.</li><li>No Salesforce data changes until the reviewed draft is deployed.</li></ul></div>
+
+            <article class="help-step" id="help-cd-3" data-cd-step="3">
+              <header><span class="guide-number">3</span><div><span class="guide-badge read">Read-only</span><h3>Retrieve Base and Modified</h3>
+                <p class="help-goal">Load both Context Definitions into the editors.</p></div></header>
+              <ol class="help-actions">
+                <li>In the <strong>Base</strong> pane, choose the Context Definition name, for example <code>SalesTransactionContextExt</code>. If the list looks old, click <strong>Refresh</strong>.</li>
+                <li>Click <strong>Retrieve</strong>. The XML appears in the editor, and the badge under the name changes from <em>Empty</em> to <em>Retrieved</em>, showing the org and time.</li>
+                <li>Do the same in the <strong>Modified</strong> pane. Choose the same Context Definition name.</li>
+                <li>Check the footer of each pane: the line count and <strong>Valid XML</strong>. <em>Invalid XML</em> means the content is damaged; retrieve it again.</li>
+                <li>Alternatively, paste XML with <strong>Paste</strong>. The tool then does not know which org it came from, and later steps warn you about that.</li>
+                <li>Press <kbd>Cmd/Ctrl</kbd>+<kbd>F</kbd> inside an editor to search, just like the CML editor. Even very large files (30,000+ lines) stay responsive.</li>
+                <li>Click <strong>Analyze differences</strong>, the large button under the editors.</li>
+              </ol>
+              <figure class="help-figure"><a href="/assets/help/d02-retrieved.jpg" target="_blank" rel="noopener"><img src="/assets/help/d02-retrieved.jpg" alt="Base and Modified retrieved and showing Valid XML" loading="lazy" /></a>
+                <figcaption>Both Context Definitions retrieved. The middle rail fills in after you analyze.</figcaption></figure>
+              <div class="help-callout warn"><strong>If you edit the XML by hand,</strong> the badge changes to <em>Edited</em>, so you can see that the content no longer matches the org.</div>
             </article>
-            <article class="guide-step" data-guide-step="4">
-              <span class="guide-number">4</span><div><span class="guide-badge read">Read-only</span>
-              <h3>Check best practices in the editor</h3><p>In Fetch &amp; Deploy, run the client-side quality review against the final draft before deployment.</p>
-              <ul class="guide-detail-list"><li>Review every error, warning, and recommendation inline.</li><li>Use <strong>Hide best practices</strong> to clear the report and editor diagnostics; run the check again whenever needed.</li><li>Validate generated fixes rather than applying them blindly.</li><li>The quality score is guidance—not proof that Salesforce will compile or activate the CML.</li></ul></div>
+
+            <article class="help-step" id="help-cd-4" data-cd-step="4">
+              <header><span class="guide-number">4</span><div><span class="guide-badge read">Read-only</span><h3>Analyze the differences</h3>
+                <p class="help-goal">Understand what Modified has that Base does not.</p></div></header>
+              <ol class="help-actions">
+                <li>After you click <strong>Analyze differences</strong>, the page scrolls to step 2. The green summary says how many additions and value changes were found, how many are Salesforce release content, and how many are not applied.</li>
+                <li>The middle rail between the editors shows <strong>Total changes</strong>, <strong>Added</strong>, <strong>Updated</strong>, and <strong>Base only</strong>.</li>
+                <li><strong>Why are the line counts different?</strong> explains the gap. Salesforce writes some elements differently, so line counts alone can mislead. The tabs list <em>Present only in Base</em>, <em>Present only in Modified</em>, <em>Materially changed</em>, and <em>Element counts</em>.</li>
+              </ol>
+              <figure class="help-figure"><a href="/assets/help/d03-analysis.jpg" target="_blank" rel="noopener"><img src="/assets/help/d03-analysis.jpg" alt="Analysis summary and line-count explanation" loading="lazy" /></a>
+                <figcaption>The analysis summary and the line-count explanation for the sample definitions.</figcaption></figure>
             </article>
-            <article class="guide-step" data-guide-step="5">
-              <span class="guide-number">5</span><div><span class="guide-badge read">Read-only</span>
-              <h3>Validate target prerequisites</h3><p>Complete external prerequisite review, then check the exact target version status.</p>
-              <ul class="guide-detail-list"><li>Deploy referenced Context Definition tags and mappings first through the approved external process.</li><li>Verify required catalog records and relationships exist.</li><li>Compare Product associations using a unique, portable foreign key.</li><li>The target status panel checks only whether the exact version is Active, Inactive, or write-blocked; Active versions remain read-only.</li></ul></div>
+
+            <article class="help-step" id="help-cd-5" data-cd-step="5">
+              <header><span class="guide-number">5</span><div><span class="guide-badge read">Read-only</span><h3>Review what will not be applied</h3>
+                <p class="help-goal">Know in advance which differences will stay as they are in Base.</p></div></header>
+              <ol class="help-actions">
+                <li>Open <strong>Not applied</strong>.</li>
+                <li><strong>Schema change</strong> rows are attribute changes Salesforce does not allow on an existing attribute (data type, field type, key, transient). Base keeps its current value.</li>
+                <li><strong>Only in Base</strong> rows are items Modified no longer has. Base keeps them, because the tool never deletes.</li>
+                <li>If one of these changes really must happen in the target, plan it separately: for example, remove the old attribute in Salesforce first, and then run this guide again.</li>
+              </ol>
+              <figure class="help-figure"><a href="/assets/help/d04-not-applied.jpg" target="_blank" rel="noopener"><img src="/assets/help/d04-not-applied.jpg" alt="The Not applied list with schema changes and Base-only items" loading="lazy" /></a>
+                <figcaption>Three schema changes and two Base-only items that the build leaves out.</figcaption></figure>
             </article>
-            <article class="guide-step" data-guide-step="6">
-              <span class="guide-number">6</span><div><span class="guide-badge write">Writes Salesforce</span>
-              <h3>Review and deploy CML</h3><p>Send the merged or manually edited target draft to Fetch &amp; Deploy for final review.</p>
-              <ul class="guide-detail-list"><li>Re-read the complete target text in the editor.</li><li>Confirm the exact target org alias and version.</li><li>The tool creates a backup, writes CML, re-fetches it, and verifies its hash.</li><li>Same-target writes are protected by in-process and cross-process locks.</li><li>The tool does not activate or compile the model.</li></ul></div>
+
+            <article class="help-step" id="help-cd-6" data-cd-step="6">
+              <header><span class="guide-number">6</span><div><span class="guide-badge read">Read-only</span><h3>Select the changes to include</h3>
+                <p class="help-goal">Tick exactly the additions and value changes you want in the target.</p></div></header>
+              <ol class="help-actions">
+                <li>The counters at the top show <strong>Total changes</strong>, <strong>Context Mappings</strong>, <strong>Context Attributes</strong>, and <strong>Required Parent Blocks</strong>.</li>
+                <li>Search by field or mapping name, or filter with the chips: <em>Ready</em>, <em>Required Parent Blocks</em>, <em>Value changes</em>, <em>Context Mappings</em>, <em>Context Attributes</em>, and <em>Selected</em>.</li>
+                <li>Each group (for example <code>Region__c</code>) contains its mapping and attribute. Click a row to see its Revenue Cloud path and an XML preview on the right.</li>
+                <li>Tick or untick items. <strong>Select all</strong>, <strong>Deselect all</strong>, <strong>Expand all</strong>, and <strong>Collapse all</strong> help with long lists. The bottom line shows <em>Total</em> and <em>Selected</em>.</li>
+                <li>Items marked <strong>Salesforce release</strong> start unticked. Leave them unticked unless the target org already runs that release. If you tick a mapping that needs one of them, the build adds that item too and warns you in step 7 and step 8.</li>
+                <li>When a mapping needs a parent block that Base does not have, the tool adds the complete <strong>Required Parent Block</strong> for you.</li>
+              </ol>
+              <figure class="help-figure"><a href="/assets/help/d05-select.jpg" target="_blank" rel="noopener"><img src="/assets/help/d05-select.jpg" alt="Selection list with counters, filters, and grouped changes" loading="lazy" /></a>
+                <figcaption>The review list for the sample: 10 changes, 8 selected.</figcaption></figure>
+              <div class="help-callout warn"><strong>Leave out test or experimental fields</strong> that exist only in the source org. They would fail the field check in step 8.</div>
             </article>
-            <article class="guide-step" data-guide-step="7">
-              <span class="guide-number">7</span><div><span class="guide-badge write">Writes Salesforce</span>
-              <h3>Deploy constraint data safely</h3><p>Deploy selected Product associations only after the dependency preflight is clear.</p>
-              <ul class="guide-detail-list"><li>Additions are selected by default; deletions require explicit opt-in.</li><li>Blocked, ambiguous, stale, or CML-difference rows cannot be deployed.</li><li>Context Definition metadata is outside this association deployment and must already exist.</li><li>Review every row-level result and preserve the audit report.</li></ul></div>
+
+            <article class="help-step" id="help-cd-7" data-cd-step="7">
+              <header><span class="guide-number">7</span><div><span class="guide-badge read">Read-only</span><h3>Build the Context Definition</h3>
+                <p class="help-goal">Create the patched Context Definition: Base plus your selected changes.</p></div></header>
+              <ol class="help-actions">
+                <li>In step 3, click <strong>Build Context Definition</strong>.</li>
+                <li>The <strong>Patched result</strong> pane shows the new XML. It is read-only; use <strong>Copy</strong> or <strong>Download</strong>.</li>
+                <li>The <strong>Apply report</strong> counts <em>Added</em>, <em>Updated</em>, <em>Skipped</em>, and <em>Errors</em>, and lists every change. <strong>View raw report</strong> shows the full text report.</li>
+                <li>If the report says Ids were <em>normalized</em>, the tool replaced org-specific record Ids with portable names. That is expected.</li>
+              </ol>
+              <figure class="help-figure"><a href="/assets/help/d06-build.jpg" target="_blank" rel="noopener"><img src="/assets/help/d06-build.jpg" alt="Patched result and apply report" loading="lazy" /></a>
+                <figcaption>The patched result and the apply report.</figcaption></figure>
+              <div class="help-check"><strong>Check before moving on:</strong> <em>Errors</em> is 0, and the added and updated counts match what you selected.</div>
             </article>
-            <article class="guide-step" data-guide-step="8">
-              <span class="guide-number">8</span><div><span class="guide-badge write">Writes Salesforce</span>
-              <h3>Validate, activate, or recover</h3><p>Complete the platform validation that the local tool cannot perform, and recover deliberately if needed.</p>
-              <ul class="guide-detail-list"><li>Validate Context Definition resolution and attribute behavior in the target org.</li><li>Compile, activate, and run scenario tests through the approved Salesforce process.</li><li>Select the intended saved backup or association archive only after confirming the exact target again.</li><li>Recognized artifacts retain for 90 days by default; follow your approved retention policy.</li><li>Treat a failed post-write refresh as partial deployment requiring recovery review.</li></ul></div>
+
+            <article class="help-step" id="help-cd-8" data-cd-step="8">
+              <header><span class="guide-number">8</span><div><span class="guide-badge read">Read-only</span><h3>Check fields in the target org</h3>
+                <p class="help-goal">Prove that every field the new mappings read exists in the org you will deploy to.</p></div></header>
+              <ol class="help-actions">
+                <li>In step 4, choose <strong>Org you plan to deploy to</strong>. The box next to it shows where Base and Modified came from.</li>
+                <li>Read any warnings, for example when the chosen org is not the org Base was retrieved from, or when the build includes Salesforce release content.</li>
+                <li>Click <strong>Check fields in this org (read-only)</strong>. The tool checks every object and field the mappings read, using the org's newest API version so recent fields are not missed.</li>
+                <li>Each problem is labelled <strong>added by this build</strong> or <strong>already in Base</strong>.
+                  <ul>
+                    <li><em>Added by this build</em> will likely make the deploy fail. Either deploy the missing field first, or untick that item in step 6 and build again.</li>
+                    <li><em>Already in Base</em> was already in the target's Context Definition before this build. It is usually a standard mapping for a feature the org does not use, and it does not block the deploy.</li>
+                  </ul></li>
+              </ol>
+              <figure class="help-figure"><a href="/assets/help/d07-field-check.jpg" target="_blank" rel="noopener"><img src="/assets/help/d07-field-check.jpg" alt="Field check result with one missing field added by this build" loading="lazy" /></a>
+                <figcaption>One field is missing in the target, and it was added by this build. Fix it before deploying.</figcaption></figure>
             </article>
-          </div>
-          <aside class="guide-boundaries"><h3>What this tool does not prove</h3><ul>
-            <li>Target status may differ by org; always review the selected target version in its own org.</li>
-            <li>The tool does not compile, activate, or prove runtime behavior of CML.</li>
-            <li>The tool does not deploy Context Definition tags or mappings; referenced metadata must be promoted separately.</li>
-            <li>Catalog prerequisites are checked read-only and must be created or corrected externally.</li>
-            <li>Structured diagnostics are local evidence, may be redacted, and do not prove a Salesforce transaction succeeded.</li>
-            <li>The header version identifies the release; the build hash identifies the exact local code/assets.</li>
-          </ul></aside>
+
+            <article class="help-step" id="help-cd-9" data-cd-step="9">
+              <header><span class="guide-number">9</span><div><span class="guide-badge write">Writes Salesforce</span><h3>Deploy with the generated commands</h3>
+                <p class="help-goal">Deploy the patched Context Definition yourself, check-only first.</p></div></header>
+              <ol class="help-actions">
+                <li>Click <strong>Download deployable file</strong> and save it at the path shown, for example <code>force-app/main/default/contextDefinitions/SalesTransactionContextExt.contextDefinition-meta.xml</code>, in your SFDX project.</li>
+                <li>Click <strong>Download package.xml</strong> and save it at the path shown, for example <code>manifest/contextDefinition-package.xml</code>.</li>
+                <li>In a terminal, from the project folder, run the <strong>check-only</strong> command. It validates without changing the org:
+                  <pre class="help-code">sf project deploy start --manifest manifest/contextDefinition-package.xml --target-org Release_QA --wait 30 --dry-run</pre></li>
+                <li>Only if the check succeeds, run the real deploy, which is the same command without <code>--dry-run</code>. Use the <strong>Copy</strong> buttons next to each command.</li>
+              </ol>
+              <figure class="help-figure"><a href="/assets/help/d08-commands.jpg" target="_blank" rel="noopener"><img src="/assets/help/d08-commands.jpg" alt="Deploy files and the check-only and real deploy commands" loading="lazy" /></a>
+                <figcaption>The generated files and commands. The tool shows them; it never runs them.</figcaption></figure>
+              <div class="help-callout warn"><strong>Follow your team's approvals.</strong> For UAT and production orgs, get the required approval before running the real deploy.</div>
+            </article>
+
+            <article class="help-step" id="help-cd-10" data-cd-step="10">
+              <header><span class="guide-number">10</span><div><span class="guide-badge read">Read-only</span><h3>Verify, then deploy the CML</h3>
+                <p class="help-goal">Confirm the target now has the changes, then continue with the CML.</p></div></header>
+              <ol class="help-actions">
+                <li>Back in step 1, click <strong>Retrieve</strong> in the Base pane again to load the target's new Context Definition.</li>
+                <li>Click <strong>Analyze differences</strong>. The items you deployed should be gone. Only <em>Base only</em>, <em>Not applied</em>, and unticked Salesforce release items should remain.</li>
+                <li>Continue with the <button type="button" class="linklike" data-help-open="cml">CML Deployment Guide</button> to move the CML and its Product associations.</li>
+              </ol>
+            </article>
+
+            <article class="help-step" id="help-cd-11" data-cd-step="11">
+              <header><span class="guide-number">11</span><div><span class="guide-badge read">Read-only</span><h3>Troubleshooting</h3>
+                <p class="help-goal">Quick answers to common problems.</p></div></header>
+              <dl class="help-faq">
+                <dt>The check-only deploy fails with a missing field.</dt><dd>Run step 8 again; it shows which mapping reads that field. Deploy the field first, or untick the item and build again.</dd>
+                <dt>The field check reports many “already in Base” problems.</dt><dd>These are usually standard mappings for features the org does not use (for example multi-currency or Sales Agreements). They were already accepted in that org and do not block your deploy.</dd>
+                <dt>A change I need is under “Not applied”.</dt><dd>Salesforce does not allow that change on an existing attribute. Remove or rename the attribute in the target first, then build again.</dd>
+                <dt>Step 4 warns that Base was pasted.</dt><dd>The tool cannot confirm which org the XML came from. Retrieve Base from the target org instead, so the checks match the org you deploy to.</dd>
+                <dt>The Retrieve list is empty.</dt><dd>Click <strong>Refresh</strong>. If it is still empty, check your CLI login for that org with <code>sf org list</code>.</dd>
+              </dl>
+            </article>
+          </section>
         </div>
       </div>
 
@@ -596,5 +1500,6 @@
 <script src="/assets/js/editor-adapter.js" defer></script>
 <script src="/assets/js/api-client.js" defer></script>
 <script src="/assets/js/app.js" defer></script>
+<script src="/assets/js/xml-tools.js" defer></script>
 </body>
 </html>

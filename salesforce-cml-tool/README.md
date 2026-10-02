@@ -1,8 +1,8 @@
 # Salesforce CML Tool
 
-Current stable version: **1.0.0**. See the [changelog](CHANGELOG.md),
-[compatibility policy](COMPATIBILITY.md), [security policy](SECURITY.md), and
-[contribution guide](CONTRIBUTING.md).
+Current stable version: **2.0.0**. See the [changelog](main/CHANGELOG.md),
+[compatibility policy](main/COMPATIBILITY.md), [security policy](main/SECURITY.md), and
+[contribution guide](main/CONTRIBUTING.md).
 
 A tiny, **no-install runtime** web app for working with Salesforce **Revenue
 Cloud CML** (Constraint Model Language). Python uses only the standard library;
@@ -12,26 +12,38 @@ or inspect it—no terminal commands to type and no package install. The app run
 on your machine; Salesforce
 operations go only to orgs already authorized through your local Salesforce CLI.
 
-It has four views and does six main jobs:
+It has six views — **Fetch & Deploy CML**, **Constraint Data**, **Compare CML**,
+**Context Definition Fix**, **XML Tools**, and **Help Me** — and does these jobs:
 
 | Operation | What it does |
 |---|---|
 | **Fetch** | List every available CML version, then download the exact selected version into an editable text box (and save a copy locally). |
 | **Deploy** | Push CML (fetched or pasted) to an exact, explicitly selected target version — with ownership checks and a confirmation prompt so nothing happens by accident. The small read-only status panel checks only that exact target's Active/Inactive/write-blocked state; Active versions are blocked and status is rechecked server-side during deployment. |
-| **Compare** | Select exact source and target versions, fetch both, and show a synced, line-numbered, side-by-side diff. Large results use virtualized window rendering. Semantic mode overlays entity-level `Moved`, `Added`, `Removed`, `Modified`, and `Ambiguous` findings without replacing either pane. Apply source changes with merge arrows or edit any line in the target working draft—including comments—before guarded review and deployment. |
-| **Check best practices** | Scan the CML in the editor against a built-in catalog of CML anti-patterns and recommended patterns, and get a **line-numbered report** with a quality score and a suggested fix for each finding. |
-| **Constraint Data Deploy** | View, compare, and **deploy** the **Product associations** behind a CML (`ExpressionSetConstraintObj` records), matched across orgs by a **foreign key you choose** instead of by record Id. Candidate fields are discovered from the selected orgs; pick exactly which rows to add or delete with checkboxes. |
-| **Guide Me on Tool** | Follow a static eight-step workflow that distinguishes read-only actions from Salesforce writes and explains deployment/recovery boundaries. Opening it makes no API request. |
+| **Compare** | Select exact source and target versions, fetch both, and show a synced, line-numbered, side-by-side diff. Large results use virtualized window rendering. Semantic mode overlays entity-level `Moved`, `Added`, `Removed`, `Modified`, and `Ambiguous` findings without replacing either pane. Apply source changes one at a time with merge arrows or all at once with **Merge all**, undo any applied change with its **←** revert arrow, or edit any line in the target working draft—including comments—before guarded review and deployment. |
+| **Check best practices** | In the Fetch & Deploy editor, scan the CML against a built-in catalog of CML anti-patterns and recommended patterns, and get a **line-numbered report** with a quality score, inline editor diagnostics, and a suggested fix for each finding. |
+| **Constraint Data** | View, compare, and **deploy** the **Product associations** behind a CML (`ExpressionSetConstraintObj` records), matched across orgs by a **foreign key you choose** instead of by record Id. Candidate fields are discovered from the selected orgs; pick exactly which rows to add or delete with checkboxes. |
+| **Context Definition Fix** | Retrieve the same Context Definition from two orgs (read-only), see exactly what differs, and build a patched copy of the Base that adds only the selected changes. It lists what it deliberately leaves out, leaves newer Salesforce release content unselected, checks hydration fields in the org you plan to deploy to, and prints the `sf` deploy commands for you to run. The tool never deploys it. |
+| **XML Tools** | Compare, merge, and deduplicate any Salesforce metadata XML locally, by content rather than by line position. |
+| **Help Me** | Two built-in handbooks — **CML Deployment Guide** (13 steps) and **Context Definition Deployment Guide** (11 steps) — with a screenshot for each step using sample data. Each step is marked read-only or Salesforce write. Opening it makes no API request. |
 
 You select everything from dropdowns and lists, so there are **no typos** in org
-names or model API names. The connection strip also displays the Salesforce
-Org ID for the selected source and compare-target aliases.
+names or model API names. The Source and Target org cards sit side by side at
+equal height, each with the org and its exact CML version on one row. A tinted
+box on each card shows the **Org ID** (click to copy) and the **Salesforce
+Release** the org runs, for example `262.14.26 · Summer '26 Patch 14.26`; the
+patch number comes from the public Salesforce Trust status API, with the org's
+own release name as a fallback. The selected CML version shows a green
+**● ACTIVE** or red **○ INACTIVE** pill.
 
 The full-width interface uses a blurred-glass header with one floating top
-navigation island, compact source/target workspaces, a sky-blue atmospheric
-gradient with layered mountain silhouettes, luminous dark-mode icons, and
-semantic status styling. The retired left sidebar is no longer part of the
-application.
+navigation island (lower-priority tabs move into **More** on narrow screens),
+a **Shortcuts** button, a day/night switch, compact source/target workspaces, a
+sky-blue atmospheric gradient with layered mountain silhouettes, luminous
+dark-mode icons, and semantic status styling. If the tool's files change while
+it is running, a banner under the header says whether to **reload the page**
+(interface files changed) or **restart the tool** (server code changed), so you
+never work against a stale build. The retired left sidebar is no longer part of
+the application.
 
 ## Guided UI walkthrough
 
@@ -42,7 +54,7 @@ current visual theme.
 
 ### 1. Fetch, edit, and deploy CML
 
-![Current Fetch and Deploy screen](main/docs/screenshots/01-fetch-deploy-latest.png)
+![Current Fetch and Deploy screen with Cmd+F find and replace open in the CML editor](main/docs/screenshots/01-fetch-deploy-latest.png)
 
 1. Choose the source org and exact source CML version. After selection, the
    model picker collapses so another version cannot be selected accidentally.
@@ -50,27 +62,39 @@ current visual theme.
    source, compare-target, and deployment-target status because the same model
    can have different runtime activity in different orgs.
 2. Click **Fetch CML** beside the Step 1 **CML Editor** heading, then review or
-   edit the exact fetched text.
+   edit the exact fetched text. Press **Cmd+F** (macOS) or **Ctrl+F**
+   (Windows/Linux) inside the editor to open find and replace: every match is
+   highlighted, **next** / **previous** / **all** step through them, and
+   **match case**, **regexp**, and **by word** narrow the search. Use
+   **replace** or **replace all** to edit in place.
 3. Choose the deployment org and exact target version, click **Deploy CML**,
    approve the warning, and type the target alias exactly. The tool verifies
    that the version ID belongs to that model, backs up and verifies the
-   deployment, and never activates or compiles the model.
+   deployment. Deployment never activates automatically. Activate the validated
+   version separately in Salesforce Constraint Builder.
 
 ### 2. Compare exact text or compare by meaning
 
 ![Current semantic comparison screen in night mode](main/docs/screenshots/02-semantic-compare-latest.png)
 
-1. The source is shown on the left and the target on the right.
-2. Turn on **Semantic** to ignore formatting, comments, and moved blocks. Leave
+1. The source is shown on the left and the target draft on the right.
+2. Click a **→** arrow to copy one source change into the target draft, or
+   **Merge all →** to copy every change. Each applied change gets a **←** arrow
+   that reverts just that change. The banner above the panes counts the applied
+   changes and reminds you that Salesforce has not been changed yet.
+3. Turn on **Semantic summary** to ignore formatting, comments, and moved
+   blocks. `MODIFIED`, `ADDED`, and `REMOVED` badges mark whole entities. Leave
    it off when exact line order matters.
-3. Changed-member explanations identify the actual impact, such as a relation
-   changing from required `[1..1]` to optional `[0..1]`.
+4. **Review & Deploy target draft** moves the draft into the Fetch & Deploy
+   editor for the normal guarded deployment.
 
 ### 3. Understand and correct best-practice findings
 
 ![Current Best Practices report](main/docs/screenshots/03-best-practices-latest.png)
 
-1. The quality score is maintainability guidance, not an activation result.
+1. Click **Check best practices** in the Fetch & Deploy editor toolbar. The
+   report opens below the editor and the same findings are underlined inline.
+   The quality score is maintainability guidance, not an activation result.
 2. Each finding explains the problem in plain language and points to its line.
 3. **Before → After** examples contain supported CML. Review the meaning, then
    use **Copy** to paste the correction into the editor.
@@ -82,8 +106,9 @@ current visual theme.
 1. A matched `ExpressionSetConstraintObj` can still be blocked when its
    classification, products, attributes, component group, or relationship is
    incomplete.
-2. The expanded message lists every missing, ambiguous, or unlinked dependency.
-   **Copy for Excel** includes these full explanations for another team.
+2. The Status cell lists every missing, ambiguous, or unlinked dependency as
+   its own bullet. **Copy for Excel** includes these full explanations for
+   another team.
 3. **Blocked — catalog dependency** means the catalog data must be corrected by
    its normal deployment process. The CML Tool only reads catalog objects.
 
@@ -95,22 +120,77 @@ current visual theme.
    preflight immediately before writing.
 2. Safe additions are selected by default. Deletions are permanent and always
    require explicit selection.
-3. Results show each success or the exact Salesforce error. After an association
+3. Results show each success or the exact Salesforce error. A blocked row shows
+   one headline with each missing item (for example, every missing
+   classification attribute and its key) as a separate bullet. After an association
    change, the tool performs its own unchanged-CML save/verification refresh.
    This is not documented proof of Salesforce activation, compilation, or
    runtime behavior. If the refresh fails after DML succeeded, the result is
    **Partial deployment — recovery required** because records have already
    changed.
 
-### 6. Guide Me on Tool (the fourth view)
+### 6. Help Me
 
-Open **Guide Me on Tool** for an eight-step, static walkthrough covering exact
-source selection, fetch, comparison and semantic overlays, best-practice checks,
-exact deployment targeting, confirmed CML deployment, dependency-preflighted
-association deployment, and recovery. The guide makes read-only and Salesforce
-write actions visually distinct and opening it sends no API request.
+Open **Help Me** for two step-by-step handbooks. Switch between them with the
+sub-tabs at the top:
 
-![Current Guide Me on Tool walkthrough](main/docs/screenshots/06-guide-me-latest.png)
+- **CML Deployment Guide** — from installing and logging in, through choosing
+  the exact source version, fetching, searching, best practices, comparing and
+  merging, checking the target status, the confirmed deployment, activation in
+  Constraint Builder, Product associations, recovery, and troubleshooting.
+- **Context Definition Deployment Guide** — what the fix does, retrieving Base
+  and Modified, analyzing, the Not applied list, selecting changes, building,
+  the read-only field check, the generated `sf` commands, and verification.
+
+Every step has a screenshot taken with sample data, marks whether it reads or
+writes Salesforce, and ends with what to check before moving on. Opening it
+makes no API request; the screenshots are served by the local tool.
+
+![Current Help Me handbook](main/docs/screenshots/06-help-me-latest.png)
+
+### 7. Fix a Context Definition from another org
+
+![Current Context Definition Fix analysis](main/docs/screenshots/07-context-definition-fix-latest.png)
+
+1. **Base** is the Context Definition you will deploy to (usually the target
+   org). **Modified** holds the changes you want (usually the source org).
+   Retrieve each one from its org, which is read-only, or paste the XML.
+2. Click **Analyze differences**, the wide button under the two editors in
+   step 1. It explains the line-count gap and splits it into items
+   present only in Base, present only in Modified, and materially changed.
+   Standard elements from a newer Salesforce release than Base inherits are
+   tagged **Salesforce release** and left unselected.
+3. **Not applied** lists every difference the build deliberately leaves out.
+   These are either attribute changes Salesforce does not allow on an existing
+   attribute (data type, field type, key, transient) or items only in Base,
+   because the tool never deletes.
+4. Tick the additions and value changes you want, then click **Build Context
+   Definition**. The build report shows added, updated, skipped, and error
+   counts, along with where each input came from.
+
+### 8. Check the target org and get the deploy commands
+
+![Current Context Definition check and deploy commands in night mode](main/docs/screenshots/08-context-definition-deploy-latest.png)
+
+1. Choose the org you plan to deploy to. The step shows where Base and Modified
+   came from. It warns you when that org is not the one Base was retrieved
+   from, or when the build includes Salesforce release content.
+2. **Check fields in this org (read-only)** confirms that every hydration
+   source object and field exists in that org with a compatible type. It flags
+   whether each problem is new in this build or already in Base.
+3. Download the deployable file and `package.xml`, then run the check-only
+   command first and the real deploy only if it succeeds. The CML Tool never
+   runs these commands.
+
+### 9. Compare, merge, or deduplicate metadata XML
+
+![Current XML Tools compare](main/docs/screenshots/09-xml-tools-latest.png)
+
+1. **XML Tools** has three sub-tabs: **Compare**, **Merge**, and **Dedup**.
+2. **Compare** matches elements by content, so reordered elements are not
+   reported as changes. Optionally limit it to one element, such as
+   `fieldPermissions`.
+3. Everything runs locally; no Salesforce request is made.
 
 ## Why it's safe
 
@@ -168,13 +248,13 @@ write actions visually distinct and opening it sends no API request.
 ### macOS (easiest)
 
 1. Clone or download this folder.
-2. Open **`Start Here - CML Tool/`** and double-click
+2. Open **`Start Tool Here/`** and double-click
    **`Open CML Tool for macOS.command`**.
 3. Your browser opens at `http://127.0.0.1:8787`. Done.
 
 The server runs in the **background**, so you can close the Terminal window and
 the tool stays available. To stop it, double-click
-**`Start Here - CML Tool/Stop CML Tool for macOS.command`**.
+**`Start Tool Here/Stop CML Tool for macOS.command`**.
 
 > **First launch shows a security warning?** That's normal — see
 > [macOS security warning](#macos-security-warning-apple-could-not-verify) below.
@@ -187,7 +267,7 @@ the tool stays available. To stop it, double-click
 
 ### Windows
 
-Open **`Start Here - CML Tool/`** and double-click
+Open **`Start Tool Here/`** and double-click
 **`Open CML Tool for Windows.bat`** (or run it from a terminal). Your browser
 opens automatically. Close the launcher window to stop the tool.
 
@@ -237,7 +317,16 @@ set CML_UI_PORT=8900 && python main\app\cml_tool.py     # Windows
    deployment, the tool fetches the exact version again and verifies its SHA-256
    hash. If verification fails, it automatically attempts to restore and verify
    the previous CML.
-5. Use **Restore backup** to restore and verify the newest backup for that exact
+5. After selecting the exact target, **Deactivate CML** is available before
+   fetch or deploy and checks the live lifecycle status when clicked. Use
+   **Check target status** to refresh the observed state. Deactivation requires
+   typing the target alias and is verified against
+   `ExpressionSetVersion.IsActive`. Direct activation is blocked because setting
+   `IsActive=true` bypasses Constraint Builder compilation. Activate in
+   Salesforce Constraint Builder, where errors such as associations referencing
+   missing CML types are enforced. Deactivation immediately changes runtime
+   behavior and does not guarantee a later reactivation will succeed.
+6. Use **Restore backup** to restore and verify the newest backup for that exact
    org, model, and version. Rollback first creates another safety backup, so it
    can itself be undone.
 
@@ -306,7 +395,8 @@ classification directly to the existing panes:
 Semantic analysis is tolerant rather than a Salesforce compiler. Parser warnings
 and ambiguous duplicate identities are reported instead of being guessed.
 
-Toggle **Night / Day mode** any time with the button in the top-right.
+Switch between day and night mode any time with the sun/moon switch in the
+top-right.
 
 ### Optional project support
 
@@ -380,15 +470,18 @@ Every finding includes a plain-English explanation of what's wrong and what to
 do, plus the Before → After fix. Everything runs **in your browser** — no CML
 leaves the page.
 
-### Guide Me on Tool
+### Help Me
 
-The fourth tab is a responsive local guide, not an analyzer. It presents the safe
-workflow in numbered order and calls out these boundaries: statuses are
-org-specific; this tool does not compile, activate, or prove runtime behavior;
-catalog prerequisites are detected read-only and fixed outside this tool; and
-every Context Definition tag or mapping referenced by CML attributes must be
-deployed separately to the target org. The tool does not deploy Context
-Definition metadata.
+The last tab is a built-in handbook, not an analyzer. It contains the CML
+Deployment Guide and the Context Definition Deployment Guide, each a scrolling
+page of numbered steps with sample-data screenshots. It calls out these
+boundaries: statuses are org-specific; deployment does not auto-activate;
+activation belongs in Constraint Builder; catalog prerequisites are detected
+read-only and fixed outside this tool; and every Context Definition tag or
+mapping referenced by CML attributes must be deployed to the target org first.
+**Context Definition Fix** prepares that file and the `sf` commands for you to
+run. Regenerate the handbook screenshots with `npm run screenshots`; they are
+written to `main/assets/help/`.
 
 The tokenizer and tolerant parser remain internal building blocks for semantic
 comparison. Semantic overlays compare parsed declarations, types, variables,
@@ -439,8 +532,8 @@ parent through
 
 #### Step 1 — View the data
 
-- Pick a **Source org** and a **CML**, set your **foreign key field**, then click
-  **View data**.
+- Pick a **Source org** and a **CML**, set your **foreign key field** (it sits
+  right beside the action buttons), then click **View Source Org Data**.
 - You get a table of every constraint row: reference type, tag type, tag, the
   linked record's name, and your chosen key value (the last column is labelled
   with the field you picked).
@@ -450,6 +543,11 @@ See the current [constraint dependency preflight screenshot](main/docs/screensho
 #### Step 2 — Compare source ↔ target
 
 - Click **Compare data**.
+- The summary groups the counts so nothing is repeated: **Source** pills on the
+  left (rows, only in source, duplicate flags, stale), **Target** pills on the
+  right (rows, only in target, duplicate flags, stale), and **Comparison** pills
+  below (matched, blocked by catalog dependencies, need review, ambiguous keys,
+  CML definition differences).
 - The tool lines both orgs up by your chosen **foreign key** and labels every row:
 - While retrieval is running, **Stop Comparison** sends a protected cancellation
   request to the server and also releases the browser immediately. The server
@@ -469,7 +567,8 @@ See the current [constraint dependency preflight screenshot](main/docs/screensho
 | **\<key field\> is blank** | The linked record has no value for your key field, so it **can't be matched** across orgs. |
 
 - Use the **Show** filter to focus on matched / to-add / extra / blocked /
-  duplicate rows.
+  duplicate rows, and the search box to find rows by tag, type, reference, or
+  key. The filter row stays visible while you scroll.
 - Matched rows retain paired source/target constraint, Expression Set, and
   reference IDs in the comparison response. This provides auditable evidence
   that equal portable identities matched even when Salesforce IDs differ.
@@ -552,10 +651,11 @@ See the current [association deployment results screenshot](main/docs/screenshot
   preflight failure and partial success—appends exactly one entry to
   `development/runtime/logs/data-deploy-history.jsonl` by default.
 
-> **Lifecycle matters:** writes to Active versions and Active Expression Sets
-> are blocked. Select exact versions, deactivate the required Salesforce
-> records, refresh the selection, perform the approved writes, and then complete
-> activation manually. Deploy does not auto-activate or compile anything.
+> **Lifecycle matters:** content and association writes to Active versions are
+> blocked. Use the separate verified **Deactivate CML** action, make and verify
+> the approved changes, and activate in Salesforce Constraint Builder only when
+> ready for compiler validation. Deploy never auto-activates, and the tool
+> blocks direct `IsActive=true` writes.
 
 ---
 
@@ -563,14 +663,13 @@ See the current [association deployment results screenshot](main/docs/screenshot
 
 ```
 salesforce-cml-tool/
-├── README.md                  # Root onboarding and UI walkthrough
-├── .gitignore                 # Excludes generated/private data, not test source
-├── Start Here - CML Tool/
+├── README.md                  # This file: onboarding and UI walkthrough
+├── Start Tool Here/           # Double-click launchers
 │   ├── Open CML Tool for macOS.command  # macOS: start in background
 │   ├── Stop CML Tool for macOS.command  # macOS: stop background server
 │   ├── Open CML Tool for Windows.bat    # Windows: foreground launcher
 │   └── Open CML Tool for Linux.sh       # Linux: foreground launcher
-├── main/                      # Production application and packaged assets
+├── main/                      # Everything the tool needs to run
 │   ├── app/
 │   │   ├── cml_tool.py        # Composition root and compatibility surface
 │   │   ├── cml_lifecycle.py   # Exact-version CML lifecycle
@@ -579,27 +678,34 @@ salesforce-cml-tool/
 │   │   ├── cml_http.py        # Local HTTP security and routing
 │   │   ├── cml_artifacts.py   # Recovery and audit artifact handling
 │   │   ├── cml_analysis.py    # Tolerant parser and semantic analysis
+│   │   ├── cml_xml.py         # XML Tools and Context Definition Fix engine
+│   │   ├── cml_context_definition.py  # Read-only Context Definition retrieve
 │   │   ├── cml_tool_page.py   # Packaged template loader
 │   │   └── utilities/         # Guarded CLI and compatibility utilities
 │   ├── templates/             # HTML application shell and Guide
 │   ├── assets/                # Modular CSS/JS + offline CodeMirror bundle
-│   ├── docs/
-│   │   └── screenshots/       # Images used in this README
+│   ├── docs/                  # Complete guide, screenshots
 │   ├── favicon/               # Browser and web-app assets
 │   ├── donate/                # Packaged donation assets
+│   ├── VERSION                # Release version read by the app
+│   ├── CHANGELOG.md
+│   ├── COMPATIBILITY.md
+│   ├── CONTRIBUTING.md
+│   ├── SECURITY.md
+│   ├── THIRD_PARTY_NOTICES.md
 │   └── LICENSE
-└── development/               # Tracked developer source; generated data ignored
-    ├── tests/                 # 141 Python and 23 browser tests
-    ├── harness/               # Read-only-by-default contract harness
-    ├── scripts/               # Reproducible release archive builder
-    ├── build/                 # CodeMirror bundle entry source
-    ├── package.json
-    ├── package-lock.json
-    ├── playwright.config.js
-    ├── node_modules/          # Development-only npm dependencies
-    ├── .playwright-browsers/  # Local browser binaries
-    ├── test-results/          # Browser-test output
-    └── runtime/               # Potentially sensitive local/recovery data
+└── development/               # Developer-only; mostly not published
+    ├── tests/                 # Python and browser tests (published)
+    ├── harness/               # Read-only-by-default contract harness (published)
+    ├── scripts/               # Release archive builder, README screenshot capture (published)
+    ├── build/                 # CodeMirror bundle entry source (published)
+    ├── package.json, package-lock.json, playwright.config.js, screenshots.config.js  (published)
+    ├── node_modules/          # npm dependencies (ignored)
+    ├── .playwright-*/         # Local browser binaries (ignored)
+    ├── test-results/          # Browser-test output (ignored)
+    ├── dist/                  # Built release zips (ignored)
+    ├── notes/                 # Personal notes (ignored)
+    └── runtime/               # Potentially sensitive local/recovery data (ignored)
         ├── logs/
         ├── cml-files/
         ├── cml-backups/
@@ -618,14 +724,15 @@ never be force-added.
 > REST API using your `sf` access token, so it runs
 > the same on **macOS, Linux, and Windows**. `cml_cli.py` is the optional
 > cross-platform terminal adapter. The platform-specific launchers live under
-> `Start Here - CML Tool/`; use the file named for your operating system. The server loads
+> `Start Tool Here/`; use the file named for your operating system. The server loads
 > lifecycle, analysis, and browser UI behavior from sibling modules.
 
 The local endpoints require a per-process CSRF token for POST requests and reject
 non-local Host headers. This prevents another browser page from silently invoking
-deployment operations. Browser origins are validated, shutdown is a protected
-POST, and responses include CSP, anti-framing and MIME-sniffing protections. Use
-the UI rather than treating the local server as a public integration API.
+deployment operations. Browser origins must be loopback, or the pinned
+Chrome extension ID. Shutdown is a protected POST, and responses include CSP,
+anti-framing and MIME-sniffing protections. Use the UI rather than treating
+the local server as a public integration API.
 
 ---
 
@@ -645,8 +752,9 @@ the UI rather than treating the local server as a public integration API.
   so guarded workflows and existing integrations keep the same public function
   names.
 - **Local HTTP routing** lives in `main/app/cml_http.py`. It enforces localhost
-  Host/Origin checks, CSRF validation, request-size limits, security headers,
-  and route dispatch. Expected and unexpected failures are returned as
+  Host checks, loopback or pinned-extension Origin checks, CSRF validation,
+  request-size limits, security headers, CORS for that extension only, and
+  route dispatch. Expected and unexpected failures are returned as
   structured, redacted diagnostics. Services are resolved from `cml_tool.py` at request time
   so tests and guarded adapters retain their existing patch surface.
 - **Exact-version CML lifecycle** lives in `main/app/cml_lifecycle.py`. It owns model
@@ -765,8 +873,10 @@ property-change coverage, plus parser coverage for token coordinates,
 quoted comment-like text, declarations, annotations, inheritance, variable
 domains, relation cardinality and bodies, expression completeness,
 malformed-input recovery, synchronized editor line numbers, semantic merge
-controls, static Guide navigation, and zero-request Guide behavior.
-The verified suite currently contains **141 Python tests plus 23 browser tests**,
+controls, Help Me handbook navigation, zero-request Help Me behavior, Context
+Definition analysis/build/preflight/deploy-plan coverage (including an
+anonymised real release pair), and stale-build detection.
+The verified suite currently contains **224 Python tests plus 41 browser tests**,
 with four focused Firefox/WebKit executions added by the cross-engine matrix.
 
 ### Browser regression tests
@@ -788,6 +898,12 @@ line numbers, persistent source/target panes with semantic overlays, target CML
 copy behavior, scalable large-input diffing, and server-aware comparison
 cancellation. It does not authenticate to or contact a Salesforce org.
 
+To refresh the README screenshots after a UI change, run
+`npm run screenshots` from `development/`. It uses a separate Playwright config
+(`screenshots.config.js`) and the same synthetic-data approach: every
+Salesforce-facing API is intercepted, and only local-only endpoints reach the
+server. It overwrites the images in `main/docs/screenshots/`.
+
 ---
 
 ## Troubleshooting
@@ -799,7 +915,7 @@ on Windows the CLI is `sf.cmd`, which can't be launched that way. The current
 version handles this automatically. If you still see it:
 
 1. Make sure you started the tool with
-   **`Start Here - CML Tool/Open CML Tool for Windows.bat`** (or
+   **`Start Tool Here/Open CML Tool for Windows.bat`** (or
    `python main\app\cml_tool.py`),
    **not** by running a `.command` file — those are macOS bash scripts and won't
    work on Windows.
@@ -899,9 +1015,9 @@ verification step, not activation or runtime proof. Preserve the report,
 backup, and deletion archive, recompare current state, and follow the approved
 recovery process before retrying.
 
-### Guide Me on Tool does not open
+### Help Me does not open
 
-Reload the local page and confirm the running build changed. The guide is static,
+Reload the local page and confirm the running build changed. The handbook is static,
 so opening it does not depend on Salesforce connectivity or an analysis API.
 
 ### macOS says you do not have appropriate access privileges
@@ -913,9 +1029,9 @@ Run this once in Terminal:
 ```bash
 cd "/path/to/salesforce-cml-tool"
 chmod 755 \
-  "Start Here - CML Tool/Open CML Tool for macOS.command" \
-  "Start Here - CML Tool/Stop CML Tool for macOS.command" \
-  "Start Here - CML Tool/Open CML Tool for Linux.sh"
+  "Start Tool Here/Open CML Tool for macOS.command" \
+  "Start Tool Here/Stop CML Tool for macOS.command" \
+  "Start Tool Here/Open CML Tool for Linux.sh"
 ```
 
 Then double-click **`Open CML Tool for macOS.command`** again.
@@ -926,22 +1042,22 @@ interface:
 
 ```bash
 git add --chmod=+x \
-  "Start Here - CML Tool/Open CML Tool for macOS.command" \
-  "Start Here - CML Tool/Stop CML Tool for macOS.command" \
-  "Start Here - CML Tool/Open CML Tool for Linux.sh"
+  "Start Tool Here/Open CML Tool for macOS.command" \
+  "Start Tool Here/Stop CML Tool for macOS.command" \
+  "Start Tool Here/Open CML Tool for Linux.sh"
 git commit -m "Preserve executable permissions for launch scripts"
 ```
 
 After pushing, verify that Git records `100755` for all three:
 
 ```bash
-git ls-files --stage "Start Here - CML Tool"
+git ls-files --stage "Start Tool Here"
 ```
 
 ### macOS security warning: *"Apple could not verify…"*
 
 When you double-click
-`Start Here - CML Tool/Open CML Tool for macOS.command` you may see:
+`Start Tool Here/Open CML Tool for macOS.command` you may see:
 
 > *"Apple could not verify 'Open CML Tool for macOS.command' is free of malware…"*
 
@@ -958,7 +1074,7 @@ plain, readable Python you can inspect.
    ```bash
    git clone https://github.com/mrityu96/SalesforcesTool.git
    cd SalesforcesTool/salesforce-cml-tool
-   open "Start Here - CML Tool/Open CML Tool for macOS.command"
+   open "Start Tool Here/Open CML Tool for macOS.command"
    ```
 
 2. **Allow it in System Settings** (recent macOS, incl. Sequoia): double-click
@@ -979,7 +1095,7 @@ plain, readable Python you can inspect.
 
 ### "Port 8787 is in use"
 Another copy is running, or something else holds the port. Stop it with
-`Start Here - CML Tool/Stop CML Tool for macOS.command`, or start on a different port:
+`Start Tool Here/Stop CML Tool for macOS.command`, or start on a different port:
 `CML_UI_PORT=8900 python3 main/app/cml_tool.py`.
 
 ### I changed the code but don't see the update
@@ -987,30 +1103,32 @@ Just run the tool again — it now **auto-restarts on the new build**. When a la
 detects an older version already running on the port, it asks that one to quit and
 takes over with the new code. You no longer have to stop it manually first.
 
-After it relaunches, **reload the browser tab** (or hard-refresh). To confirm you're
-on the latest code, check the small `build …` stamp in the top-right of the page: it
-shows the running build's hash and changes whenever the code changes. If two launches
-ever show the same stamp, they're the same build.
+After it relaunches, **reload the browser tab** (or hard-refresh). An open tab also
+checks for changes by itself: a banner under the header asks you to **reload the
+page** when interface files changed, or to **restart the tool** when server code
+changed. To confirm you're on the latest code, hover the green **Runs locally** dot
+in the top-right: its tooltip shows the version and build hash, which changes
+whenever the code changes. If two launches show the same build, they're the same code.
 
 ---
 
 ## Contributing and releases
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Application assets are modular under
+See [CONTRIBUTING.md](main/CONTRIBUTING.md). Application assets are modular under
 `main/templates/` and `main/assets/`; CodeMirror is the only generated
 production asset and `npm run check:editor` proves it matches the locked source
 graph. Development tests/configuration are tracked, while generated/private
 data remains ignored.
 
 Stable tags use `vMAJOR.MINOR.PATCH`. A least-privilege GitHub workflow depends
-on the full CI suite, verifies the tag against `VERSION`, creates deterministic
+on the full CI suite, verifies the tag against `main/VERSION`, creates deterministic
 operator `.tar.gz` and `.zip` archives, inspects their allowlisted contents,
 and publishes `SHA256SUMS`.
 
 ## License
 
-[MIT](LICENSE) — free to use, modify, and share. Bundled dependency terms are
-listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[MIT](main/LICENSE) — free to use, modify, and share. Bundled dependency terms are
+listed in [THIRD_PARTY_NOTICES.md](main/THIRD_PARTY_NOTICES.md).
 
 ---
 

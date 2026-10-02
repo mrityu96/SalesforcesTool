@@ -21,6 +21,8 @@
       parent: host,
       nonce,
       placeholder: config.placeholder || "",
+      language: config.language,
+      readOnly: Boolean(config.readOnly),
       onChange() {
         if (suppressInput) return;
         host.dispatchEvent(new Event("input", { bubbles: true }));

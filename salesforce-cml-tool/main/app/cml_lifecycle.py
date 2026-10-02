@@ -17,6 +17,22 @@ class Lifecycle:
     def _get(self, name):
         return self._resolve(name)
 
+    @staticmethod
+    def _salesforce_error_messages(error, diagnostic):
+        """Return concise, token-safe Salesforce messages for lifecycle UI."""
+        messages = []
+        for item in (diagnostic or {}).get("errors", []):
+            if not isinstance(item, dict):
+                continue
+            message = str(item.get("message") or "").strip()
+            if message and message not in messages:
+                messages.append(message[:2000])
+        if not messages and error:
+            fallback = str(error).strip()
+            if fallback:
+                messages.append(fallback[:2000])
+        return messages[:20]
+
     def _runtime_activity_by_definition_version(self, org, version_ids):
         """Return observed ExpressionSetVersion activity for definition versions."""
         active_by_version = {}
@@ -173,6 +189,205 @@ class Lifecycle:
                 f"{operation} blocked: exact selected version '{version_id}' is "
                 f"{status}. Deactivate it, then refresh versions before retrying.")
         return status, None
+
+    def runtime_version_state(self, org, definition_version_id):
+        """Resolve one exact runtime version for a CML definition version."""
+        records, err = self._get("_query_json")(
+            org,
+            "SELECT Id, IsActive, ExpressionSetId, "
+            "ExpressionSetDefinitionVerId, ExpressionSetDefinitionVer.Status "
+            "FROM ExpressionSetVersion WHERE ExpressionSetDefinitionVerId = '"
+            + self._get("_soql_str")(definition_version_id) + "'")
+        if err:
+            return None, (
+                "Could not verify the runtime Expression Set version:\n" + err)
+        if not records:
+            return None, (
+                "This exact CML definition version has no runtime "
+                "ExpressionSetVersion. Activate it once in Salesforce so the "
+                "runtime version is created, then refresh the tool.")
+        if len(records) != 1:
+            return None, (
+                f"Lifecycle change blocked because exact definition version "
+                f"'{definition_version_id}' maps to {len(records)} runtime "
+                "ExpressionSetVersion records instead of one.")
+        record = records[0]
+        if record.get("ExpressionSetDefinitionVerId") != definition_version_id:
+            return None, (
+                "Lifecycle change blocked because Salesforce returned a runtime "
+                "version owned by another definition version.")
+        definition = record.get("ExpressionSetDefinitionVer") or {}
+        return {
+            "runtimeVersionId": record.get("Id"),
+            "definitionVersionId": definition_version_id,
+            "expressionSetId": record.get("ExpressionSetId"),
+            "isActive": record.get("IsActive") is True,
+            "definitionStatus": definition.get("Status") or "Unknown",
+        }, None
+
+    def set_cml_activation_unlocked(
+            self, org, model, version_id, active, confirm_target=None):
+        """Deactivate one exact runtime CML version and verify it.
+
+        Directly setting ``IsActive=true`` bypasses the Constraint Builder's
+        compiler-backed activation flow, so activation deliberately fails
+        closed until Salesforce exposes a supported equivalent API.
+        """
+        if not org or not model or not version_id or not isinstance(active, bool):
+            return {"ok": False, "log": (
+                "Select an exact target version and a valid lifecycle action.")}
+        if active:
+            return {
+                "ok": False,
+                "changed": False,
+                "outcome": "blocked",
+                "compilerValidated": False,
+                "log": (
+                    "CML activation is blocked in this tool. Directly setting "
+                    "ExpressionSetVersion.IsActive=true bypasses Salesforce "
+                    "Constraint Builder compilation and can mark invalid CML "
+                    "Active. Activate the exact version in Salesforce Constraint "
+                    "Builder so platform validation errors are enforced. "
+                    "Deactivation remains supported by this tool."),
+            }
+        if confirm_target != org:
+            return {"ok": False, "log": (
+                f"Production safety check failed. Type the target org alias "
+                f"exactly: {org}")}
+        if not self._get("find_sf")():
+            return {"ok": False, "log": (
+                "The Salesforce CLI ('sf') was not found. Install it with: "
+                "npm install -g @salesforce/cli")}
+        definition, err = self._get("resolve_exact_version")(
+            org, model, version_id)
+        if err:
+            return {"ok": False, "log": err}
+        state, err = self._get("_runtime_version_state")(
+            org, definition["Id"])
+        if err:
+            return {"ok": False, "log": err}
+        action = "deactivate"
+        if state["isActive"] is active:
+            return {
+                "ok": True,
+                "changed": False,
+                "model": model,
+                "versionId": definition["Id"],
+                **state,
+                "log": (
+                    f"No change required — '{model}' V"
+                    f"{definition.get('VersionNumber')} is already "
+                    f"{'Active' if active else 'Inactive'} in '{org}'."),
+            }
+
+        token, instance, credential_err = self._get("_org_creds")(org)
+        if credential_err:
+            return {"ok": False, "log": credential_err}
+
+        def patch_runtime(current_token, current_instance):
+            url = (
+                f"{current_instance}/services/data/"
+                f"{self._get('API_VERSION')}/sobjects/"
+                f"ExpressionSetVersion/{state['runtimeVersionId']}")
+            return self._get("_rest")(
+                "PATCH", url, current_token, {"IsActive": active})[1]
+
+        patch_err = patch_runtime(token, instance)
+        if patch_err and self._get("_is_auth_error")(patch_err):
+            token, instance, refresh_err = self._get("_org_creds")(
+                org, refresh=True)
+            if refresh_err:
+                patch_err = refresh_err
+            else:
+                patch_err = patch_runtime(token, instance)
+                if patch_err and self._get("_is_auth_error")(patch_err):
+                    patch_err = self._get("_auth_help")(org, patch_err)
+
+        verified_state = None
+        verification_err = patch_err
+        if not patch_err:
+            for attempt in range(5):
+                verified_state, verification_err = self._get(
+                    "_runtime_version_state")(org, definition["Id"])
+                if (not verification_err
+                        and verified_state["runtimeVersionId"]
+                        == state["runtimeVersionId"]
+                        and verified_state["isActive"] is active):
+                    break
+                if attempt < 4:
+                    time.sleep(0.4 * (attempt + 1))
+            else:
+                verification_err = verification_err or (
+                    "Salesforce accepted the lifecycle update, but the runtime "
+                    "IsActive value did not reach the requested state.")
+
+        success = patch_err is None and verification_err is None
+        diagnostic = (
+            self._get("_diagnostic_from_error")(patch_err)
+            if patch_err else None)
+        salesforce_errors = self._salesforce_error_messages(
+            patch_err, diagnostic)
+        report, report_err = self._get("_try_deployment_report")(
+            f"cml-{action}", org, model, {
+                "success": success,
+                "versionId": definition["Id"],
+                "versionNumber": definition.get("VersionNumber"),
+                "runtimeVersionId": state["runtimeVersionId"],
+                "requestedActive": active,
+                "previousActive": state["isActive"],
+                "verifiedState": verified_state,
+                "error": verification_err,
+                "diagnostic": diagnostic,
+            })
+        if not success:
+            return {
+                "ok": False,
+                "changed": patch_err is None,
+                "outcome": "partial" if patch_err is None else "failed",
+                "versionId": definition["Id"],
+                "runtimeVersionId": state["runtimeVersionId"],
+                "report": report,
+                "reportError": report_err,
+                "diagnostic": diagnostic,
+                "salesforceErrors": salesforce_errors,
+                "log": (
+                    (
+                        f"Salesforce rejected CML "
+                        f"{'activation' if active else 'deactivation'} for "
+                        f"'{model}' V{definition.get('VersionNumber')} in "
+                        f"'{org}'.\nSalesforce validation:\n- "
+                        + "\n- ".join(salesforce_errors)
+                    )
+                    if patch_err and salesforce_errors else
+                    (
+                        f"Could not verify CML {action} for '{model}' in "
+                        f"'{org}':\n"
+                        + (verification_err or "Unknown lifecycle error.")
+                    )),
+            }
+        return {
+            "ok": True,
+            "changed": True,
+            "model": model,
+            "versionId": definition["Id"],
+            "versionNumber": definition.get("VersionNumber"),
+            **verified_state,
+            "report": report,
+            "reportError": report_err,
+            "log": (
+                f"SUCCESS — {'activated' if active else 'deactivated'} "
+                f"'{model}' V{definition.get('VersionNumber')} in '{org}'.\n"
+                f"Verified runtime ExpressionSetVersion "
+                f"{state['runtimeVersionId']} IsActive="
+                f"{str(active).lower()}."),
+        }
+
+    def set_cml_activation(
+            self, org, model, version_id, active, confirm_target=None):
+        return self._get("_run_with_deployment_lock")(
+            org, model, lambda: self._get(
+                "_set_cml_activation_unlocked")(
+                    org, model, version_id, active, confirm_target))
 
     def download_cml(self, org, model, version_id, out_file):
         """Fetch one exact CML version over REST into ``out_file``."""

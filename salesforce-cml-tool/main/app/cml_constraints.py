@@ -1223,6 +1223,8 @@ def _impl_compare_constraints(source_org, target_org, model, source_version_id,
                 else "Catalog dependency check failed: ")
             row["blockNote"] = prefix + " ".join(
                 issue["message"] for issue in found)
+            row["blockTitle"] = prefix.rstrip(": ") + "."
+            row["blockReasons"] = [issue["message"] for issue in found]
         return row
 
     # Reference records needed in target for the rows that are only in source.
@@ -1807,12 +1809,16 @@ def _impl__deploy_constraints_unlocked(
                 })
                 continue
             if row.get("deployStatus") != "ready":
-                created.append({
+                failure = {
                     "success": False, "label": label,
                     "error": row.get("blockNote") or (
                         "Catalog dependency preflight did not mark this "
                         "association as safe to deploy."),
-                })
+                }
+                if row.get("blockReasons"):
+                    failure["errorTitle"] = row.get("blockTitle")
+                    failure["reasons"] = row["blockReasons"]
+                created.append(failure)
                 continue
             selected.append(row)
 
@@ -1927,6 +1933,8 @@ def _impl__deploy_constraints_unlocked(
                             "Blocked — catalog dependency changed. "
                             + " ".join(issue.get("message", "")
                                        for issue in issues)),
+                        "errorTitle": "Blocked — catalog dependency changed.",
+                        "reasons": [issue.get("message", "") for issue in issues],
                     })
                     continue
                 records.append({

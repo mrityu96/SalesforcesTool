@@ -4,7 +4,7 @@
 
 - Python 3.9 through 3.13 using only the standard library at runtime.
 - Current stable macOS, Windows 10/11, and common Linux distributions.
-- Current Chrome, Edge, Firefox, or Safari releases.
+- Current Chrome, Edge, Firefox, or Safari releases for the local web UI.
 - Salesforce CLI (`sf`) available to the launching user and an authenticated
   Salesforce org that exposes the required Revenue Cloud metadata and APIs.
 

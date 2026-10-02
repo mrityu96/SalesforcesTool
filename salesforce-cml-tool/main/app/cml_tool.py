@@ -28,9 +28,11 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 import webbrowser
 from http.server import ThreadingHTTPServer
+from xml.etree import ElementTree as ET
 
 # App code and packaged assets live in main/. Local-only artifacts stay under
 # the sibling development/runtime/ folder so production commits remain clean.
@@ -39,7 +41,7 @@ REPO_ROOT = os.path.dirname(APP_DIR)
 PROJECT_ROOT = os.path.dirname(REPO_ROOT)
 TEMPLATES_DIR = os.path.join(REPO_ROOT, "templates")
 ASSETS_DIR = os.path.join(REPO_ROOT, "assets")
-VERSION_PATH = os.path.join(PROJECT_ROOT, "VERSION")
+VERSION_PATH = os.path.join(REPO_ROOT, "VERSION")
 try:
     with open(VERSION_PATH, "r", encoding="utf-8") as version_file:
         APP_VERSION = version_file.read().strip()
@@ -55,6 +57,9 @@ HTTP_MODULE_PATH = os.path.join(APP_DIR, "cml_http.py")
 ARTIFACT_MODULE_PATH = os.path.join(APP_DIR, "cml_artifacts.py")
 LIFECYCLE_MODULE_PATH = os.path.join(APP_DIR, "cml_lifecycle.py")
 CONSTRAINTS_MODULE_PATH = os.path.join(APP_DIR, "cml_constraints.py")
+XML_MODULE_PATH = os.path.join(APP_DIR, "cml_xml.py")
+CONTEXT_DEFINITION_MODULE_PATH = os.path.join(
+    APP_DIR, "cml_context_definition.py")
 SCRIPTS_DIR = os.path.join(APP_DIR, "utilities")
 DOWNLOAD_DIR = os.path.join(RUNTIME_ROOT, "cml-files")
 BACKUP_DIR = os.path.join(RUNTIME_ROOT, "cml-backups")
@@ -313,13 +318,9 @@ def list_orgs():
         return {"error": "The Salesforce CLI ('sf') was not found on this machine. "
                          "Install it or run: npm install -g @salesforce/cli"}
     try:
-        sf_env = _SALESFORCE.environment()
-        # Newer CLI releases redact list output by default. Request secrets only
-        # inside this server process so the initial discovery can warm the same
-        # credential cache used by subsequent REST reads. Tokens are never
-        # included in the browser response.
-        sf_env["SF_TEMP_SHOW_SECRETS"] = "true"
-        proc = _sf_run(["org", "list", "--json"], env=sf_env)
+        # Discovery needs alias, username, and org Id only. Access tokens are
+        # fetched lazily per org by _org_creds when an operation needs them.
+        proc = _sf_run(["org", "list", "--json"])
         if not proc.stdout.strip():
             return {"error": (proc.stderr or "sf org list returned no output.").strip()}
         data = json.loads(proc.stdout)
@@ -334,10 +335,6 @@ def list_orgs():
                 if not alias or alias in seen:
                     continue
                 seen.add(alias)
-                token = o.get("accessToken")
-                instance_url = o.get("instanceUrl")
-                if (_SALESFORCE.looks_like_token(token) and instance_url):
-                    _CREDS_CACHE.setdefault(alias, (token, instance_url))
                 orgs.append({
                     "alias": alias,
                     "username": username,
@@ -347,6 +344,77 @@ def list_orgs():
         return orgs
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc)}
+
+
+# Stale-while-revalidate org list. /api/orgs always answers from memory; the
+# CLI runs only on a background thread, one refresh at a time.
+ORG_CACHE_TTL_SECONDS = 60
+_ORG_CACHE_LOCK = threading.Lock()
+_ORG_CACHE = {
+    "orgs": None,
+    "error": None,
+    "updatedAt": 0.0,
+    "generation": 0,
+    "refreshInProgress": False,
+}
+
+
+def _refresh_org_cache():
+    try:
+        result = list_orgs()
+    except Exception as exc:  # noqa: BLE001
+        result = {"error": str(exc)}
+    with _ORG_CACHE_LOCK:
+        if isinstance(result, list):
+            _ORG_CACHE["orgs"] = result
+            _ORG_CACHE["error"] = None
+        else:
+            _ORG_CACHE["error"] = (result or {}).get("error") or "Could not list orgs."
+        _ORG_CACHE["updatedAt"] = time.time()
+        _ORG_CACHE["generation"] += 1
+        _ORG_CACHE["refreshInProgress"] = False
+
+
+def start_org_refresh(force=False):
+    """Start one background org-list refresh; returns False if none started."""
+    with _ORG_CACHE_LOCK:
+        if _ORG_CACHE["refreshInProgress"]:
+            return False
+        fresh = (_ORG_CACHE["updatedAt"]
+                 and time.time() - _ORG_CACHE["updatedAt"] < ORG_CACHE_TTL_SECONDS)
+        if fresh and not force:
+            return False
+        _ORG_CACHE["refreshInProgress"] = True
+    try:
+        threading.Thread(
+            target=_refresh_org_cache, name="cml-org-refresh", daemon=True).start()
+    except Exception:
+        with _ORG_CACHE_LOCK:
+            _ORG_CACHE["refreshInProgress"] = False
+        raise
+    return True
+
+
+def org_list_snapshot(force_refresh=False):
+    """Return the cached org list immediately, revalidating in the background."""
+    start_org_refresh(force=force_refresh)
+    with _ORG_CACHE_LOCK:
+        orgs = _ORG_CACHE["orgs"]
+        error = _ORG_CACHE["error"]
+        updated = _ORG_CACHE["updatedAt"]
+        snapshot = {
+            "orgs": list(orgs or []),
+            "loading": orgs is None and error is None,
+            "refreshing": _ORG_CACHE["refreshInProgress"],
+            "generation": _ORG_CACHE["generation"],
+            "updatedAt": updated or None,
+            "stale": not updated or time.time() - updated >= ORG_CACHE_TTL_SECONDS,
+        }
+    if error and orgs is None:
+        snapshot["error"] = error
+    elif error:
+        snapshot["warning"] = f"Last org refresh failed; showing the previous list. {error}"
+    return snapshot
 
 
 def list_models(org):
@@ -370,6 +438,10 @@ def _expression_set_write_status(org, expression_set_id, operation, definition_v
 
 def _version_write_status(org, version_id, operation):
     return _LIFECYCLE.version_write_status(org, version_id, operation)
+
+
+def _runtime_version_state(org, version_id):
+    return _LIFECYCLE.runtime_version_state(org, version_id)
 
 
 def _download_cml(org, model, version_id, out_file):
@@ -668,6 +740,18 @@ def deploy_cml(org, model, version_id, content, confirm_target=None):
         org, model, version_id, content, confirm_target)
 
 
+def _set_cml_activation_unlocked(
+        org, model, version_id, active, confirm_target=None):
+    return _LIFECYCLE.set_cml_activation_unlocked(
+        org, model, version_id, active, confirm_target)
+
+
+def set_cml_activation(
+        org, model, version_id, active, confirm_target=None):
+    return _LIFECYCLE.set_cml_activation(
+        org, model, version_id, active, confirm_target)
+
+
 def _rollback_cml_unlocked(org, model, version_id, backup_id,
                            confirm_target=None):
     return _LIFECYCLE.rollback_cml_unlocked(
@@ -692,6 +776,187 @@ _CmlParser = _ANALYSIS._CmlParser
 _tokenize_cml = _ANALYSIS._tokenize_cml
 compare_cml_semantics = _ANALYSIS.compare_cml_semantics
 
+_XML = _load_sibling_module("_cml_xml", XML_MODULE_PATH)
+xml_compare = _XML.compare_xml
+xml_merge = _XML.merge_xml
+xml_dedup = _XML.dedup_permset_text
+cd_fix_analyze = _XML.cd_fix_analyze
+cd_fix_build = _XML.cd_fix_build
+
+_CONTEXT_DEFINITIONS = _load_sibling_module(
+    "_cml_context_definition", CONTEXT_DEFINITION_MODULE_PATH)
+
+
+def list_context_definitions(org):
+    return _CONTEXT_DEFINITIONS.list_context_definitions(
+        org, _org_creds, API_VERSION,
+        auth_error=_is_auth_error, auth_helper=_auth_help)
+
+
+def _cached_org_id(alias):
+    with _ORG_CACHE_LOCK:
+        for org in _ORG_CACHE["orgs"] or []:
+            if org.get("alias") == alias:
+                return org.get("orgId") or ""
+    return ""
+
+
+def retrieve_context_definition(org, name):
+    result = _CONTEXT_DEFINITIONS.retrieve_context_definition(
+        org, name, _org_creds, API_VERSION,
+        auth_error=_is_auth_error, auth_helper=_auth_help)
+    if result.get("ok"):
+        result["orgId"] = _cached_org_id(org)
+    return result
+
+
+_ORG_API_VERSIONS = {}
+
+
+def _version_number(version):
+    try:
+        return float(str(version).lstrip("v"))
+    except ValueError:
+        return 0.0
+
+
+def _org_api_version(org):
+    """
+    The newest API version the org serves (e.g. "v67.0"), never older than the
+    tool's pinned version. Fields added in newer releases are invisible to
+    FieldDefinition queried at an older version.
+    """
+    if org in _ORG_API_VERSIONS:
+        return _ORG_API_VERSIONS[org]
+    token, instance, error = _org_creds(org)
+    if error:
+        return API_VERSION
+    data, error = _rest("GET", f"{instance}/services/data/", token)
+    versions = [row.get("version") for row in data or [] if isinstance(row, dict)] if not error else []
+    newest = max(versions, key=_version_number, default=None)
+    if not newest or _version_number(newest) <= _version_number(API_VERSION):
+        return API_VERSION
+    _ORG_API_VERSIONS[org] = "v" + str(newest).lstrip("v")
+    return _ORG_API_VERSIONS[org]
+
+
+_ORG_RELEASES = {}
+TRUST_STATUS_URL = "https://api.status.salesforce.com/v1/instances/{}/status"
+
+
+def _trust_instance_status(instance_key):
+    url = TRUST_STATUS_URL.format(urllib.parse.quote(instance_key, safe=""))
+    try:
+        with urllib.request.urlopen(url, timeout=6) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def org_release(org):
+    """
+    Read-only: the Salesforce release an org runs, e.g. "262.14.26 · Summer '26
+    Patch 14.26". The patch number comes from the public Trust status API for
+    the org's instance; the release name falls back to the org's own API list.
+    """
+    if not org:
+        return {"ok": False, "error": "Choose an org."}
+    if org in _ORG_RELEASES:
+        return _ORG_RELEASES[org]
+    token, instance, error = _org_creds(org)
+    if error:
+        return {"ok": False, "error": error}
+    versions, error = _rest("GET", f"{instance}/services/data/", token)
+    if error:
+        return {"ok": False, "error": error}
+    rows = [row for row in versions or [] if isinstance(row, dict)]
+    newest = max((row.get("version") for row in rows), key=_version_number, default="")
+    label = next((row.get("label") for row in rows
+                  if row.get("version") == newest
+                  and str(row.get("url", "")).endswith("/v" + str(newest))), "")
+    result = {"ok": True, "apiVersion": newest, "release": label,
+              "releaseNumber": "", "instance": "", "source": "api"}
+    records, error = _query_json(org, "SELECT InstanceName FROM Organization")
+    if not error and records:
+        result["instance"] = records[0].get("InstanceName") or ""
+    if result["instance"]:
+        status = _trust_instance_status(result["instance"])
+        if status and status.get("releaseNumber"):
+            result.update(release=status.get("releaseVersion") or label,
+                          releaseNumber=status["releaseNumber"], source="trust")
+    _ORG_RELEASES[org] = result
+    return result
+
+
+def _tooling_query(org, soql, api_version=None):
+    """Read-only paginated Tooling API query with one login refresh."""
+    for refresh in (False, True):
+        token, instance, error = _org_creds(org, refresh=refresh)
+        if error:
+            return None, error
+        records, url = [], (
+            f"{instance}/services/data/{api_version or API_VERSION}/tooling/query?q="
+            + urllib.parse.quote(soql))
+        while url:
+            data, error = _rest("GET", url, token)
+            if error:
+                break
+            records.extend(data.get("records", []) or [])
+            next_url = data.get("nextRecordsUrl")
+            url = instance + next_url if next_url else None
+        if not error:
+            return records, None
+        if refresh or not _is_auth_error(error):
+            return None, _auth_help(org, error) if _is_auth_error(error) else error
+    return None, "Query failed."
+
+
+def cd_preflight(org, content, base=""):
+    """
+    Read-only: check that every field the built Context Definition hydrates
+    from exists in ``org`` with a compatible type (FieldDefinition, which is
+    not filtered by the running user's field-level security).
+    """
+    if not org:
+        return {"ok": False, "log": "Choose the org to check."}
+    try:
+        sources = _XML.cd_hydration_sources(content or "")
+        base_sources = _XML.cd_hydration_sources(base) if (base or "").strip() else []
+    except (ValueError, ET.ParseError) as exc:
+        return {"ok": False, "log": f"Could not read the Context Definition: {exc}"}
+    if not sources:
+        return {"ok": True, "org": org, "checked": 0, "problems": [], "objects": 0,
+                "log": "The Context Definition has no sObject field hydrations to check."}
+    objects = sorted({
+        obj for source in sources for obj, _ in source["chain"]
+        if _CONTEXT_DEFINITIONS.OBJECT_NAME_PATTERN.match(obj)})
+    api_version = _org_api_version(org)
+    fields_by_object = {}
+    for obj in objects:
+        rows, error = _tooling_query(org, (
+            "SELECT QualifiedApiName, DataType, RelationshipName FROM FieldDefinition "
+            f"WHERE EntityDefinition.QualifiedApiName = '{obj}'"), api_version=api_version)
+        if error:
+            return {"ok": False, "log": f"Could not read {obj} fields in '{org}': {error}"}
+        fields_by_object[obj] = rows or None
+    result = _CONTEXT_DEFINITIONS.evaluate_hydration_preflight(
+        sources, fields_by_object, [source["path"] for source in base_sources])
+    problems = result["problems"]
+    new_problems = [problem for problem in problems if not problem["inBase"]]
+    log = (
+        f"Checked {result['checked']} hydration source(s) across {len(objects)} object(s) "
+        f"in '{org}' at API {api_version} (read-only). ")
+    log += (f"{len(problems)} problem(s): {len(new_problems)} added by this build, "
+            f"{len(problems) - len(new_problems)} already in Base." if problems
+            else "Every field exists with a compatible type.")
+    return {"ok": True, "org": org, "checked": result["checked"], "objects": len(objects),
+            "apiVersion": api_version, "problems": problems, "log": log}
+
+
+def cd_deploy_plan(name, target_org, base_origin=None, release_count=0, base_edited=False):
+    return _CONTEXT_DEFINITIONS.deploy_plan(
+        name, target_org, API_VERSION, base_origin, release_count, base_edited)
+
 
 def target_version_readiness(org, model, version_id):
     """Return the exact target version's current guarded-write eligibility."""
@@ -701,24 +966,35 @@ def target_version_readiness(org, model, version_id):
     resolved, resolve_err = resolve_exact_version(org, model, version_id)
     if resolve_err:
         return {"ok": False, "log": resolve_err}
-    observed_status, write_err = _version_write_status(
+    definition_status, write_err = _version_write_status(
         org, resolved["Id"], "Deployment readiness")
-    eligible = write_err is None
+    runtime_state, runtime_err = _runtime_version_state(org, resolved["Id"])
+    if runtime_err:
+        return {"ok": False, "log": runtime_err}
+    runtime_active = runtime_state["isActive"]
+    eligible = write_err is None and not runtime_active
+    lifecycle_status = "Active" if runtime_active else "Inactive"
+    message = write_err or (
+        "Deployment is blocked because this exact runtime CML version is Active. "
+        "Deactivate it before changing CML content."
+        if runtime_active else
+        "This exact target version is currently eligible for a guarded write. "
+        "Status is checked again during deployment.")
     return {
         "ok": True,
         "readOnly": True,
         "target": org,
         "versionId": resolved["Id"],
+        "runtimeVersionId": runtime_state["runtimeVersionId"],
         "targetStatus": {
             "status": "eligible" if eligible else "blocked",
-            "versionStatus": observed_status or resolved.get("Status")
+            "versionStatus": lifecycle_status,
+            "definitionStatus": definition_status or resolved.get("Status")
             or "Unknown",
-            "message": write_err or (
-                "This exact target version is currently eligible for a "
-                "guarded write. Status is checked again during deployment."),
+            "message": message,
         },
-        "log": write_err or (
-            "Exact target version status checked read-only."),
+        "log": message if write_err else (
+            "Exact target runtime and authoring status checked read-only."),
     }
 
 
@@ -792,37 +1068,87 @@ def _static_asset_path(filename: str) -> str:
     return os.path.abspath(candidates[1])
 
 
+def _walk_files(root):
+    paths = []
+    for directory, dirnames, filenames in os.walk(root):
+        dirnames.sort()
+        for filename in sorted(filenames):
+            paths.append(os.path.join(directory, filename))
+    return paths
+
+
+def _server_code_paths():
+    """Files loaded once at startup: editing any of them needs a restart."""
+    return [
+        os.path.abspath(__file__),
+        VERSION_PATH,
+        ANALYSIS_MODULE_PATH,
+        SALESFORCE_MODULE_PATH,
+        HTTP_MODULE_PATH,
+        ARTIFACT_MODULE_PATH,
+        LIFECYCLE_MODULE_PATH,
+        CONSTRAINTS_MODULE_PATH,
+        XML_MODULE_PATH,
+        CONTEXT_DEFINITION_MODULE_PATH,
+        PAGE_MODULE_PATH,
+    ] + _walk_files(TEMPLATES_DIR)
+
+
+def _hash_paths(paths):
+    digest = hashlib.sha1()
+    for path in paths:
+        digest.update(os.path.relpath(path, REPO_ROOT).encode("utf-8"))
+        digest.update(b"\0")
+        with open(path, "rb") as source:
+            digest.update(source.read())
+    return digest.hexdigest()[:12]
+
+
 def _build_id():
     """Hash all server, template, and browser assets for restart detection."""
     try:
-        digest = hashlib.sha1()
-        source_paths = [
-                os.path.abspath(__file__),
-                VERSION_PATH,
-                ANALYSIS_MODULE_PATH,
-                SALESFORCE_MODULE_PATH,
-                HTTP_MODULE_PATH,
-                ARTIFACT_MODULE_PATH,
-                LIFECYCLE_MODULE_PATH,
-                CONSTRAINTS_MODULE_PATH,
-                PAGE_MODULE_PATH,
-        ]
-        for root in (TEMPLATES_DIR, ASSETS_DIR):
-            for directory, dirnames, filenames in os.walk(root):
-                dirnames.sort()
-                for filename in sorted(filenames):
-                    source_paths.append(os.path.join(directory, filename))
-        for path in source_paths:
-            digest.update(os.path.relpath(path, REPO_ROOT).encode("utf-8"))
-            digest.update(b"\0")
-            with open(path, "rb") as source:
-                digest.update(source.read())
-        return digest.hexdigest()[:12]
+        return _hash_paths(_server_code_paths() + _walk_files(ASSETS_DIR))
+    except Exception:  # noqa: BLE001
+        return "dev"
+
+
+def _server_code_hash():
+    try:
+        return _hash_paths(_server_code_paths())
     except Exception:  # noqa: BLE001
         return "dev"
 
 
 BUILD = _build_id()
+SERVER_CODE_HASH = _server_code_hash()
+_BUILD_STATUS_CACHE = {"signature": None, "result": None}
+_BUILD_STATUS_LOCK = threading.Lock()
+
+
+def build_status():
+    """
+    Whether this process still runs the code on disk. serverStale means
+    Python or template files changed after startup (restart needed);
+    assetsHash lets an open page notice JS/CSS changes (reload needed).
+    """
+    try:
+        server_paths = _server_code_paths()
+        asset_paths = _walk_files(ASSETS_DIR)
+        signature = tuple(
+            (path, stat.st_mtime_ns, stat.st_size)
+            for path, stat in ((p, os.stat(p)) for p in server_paths + asset_paths))
+    except OSError:
+        return {"ok": False, "log": "Could not read the tool's files."}
+    with _BUILD_STATUS_LOCK:
+        if _BUILD_STATUS_CACHE["signature"] != signature:
+            _BUILD_STATUS_CACHE["result"] = {
+                "ok": True,
+                "build": BUILD,
+                "serverStale": _hash_paths(server_paths) != SERVER_CODE_HASH,
+                "assetsHash": _hash_paths(asset_paths),
+            }
+            _BUILD_STATUS_CACHE["signature"] = signature
+        return dict(_BUILD_STATUS_CACHE["result"])
 
 
 def _load_page():
@@ -923,6 +1249,8 @@ def main():
     print("=" * 60)
     print(f"  Running at:  {url}")
     print("=" * 60)
+
+    start_org_refresh(force=True)
 
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()

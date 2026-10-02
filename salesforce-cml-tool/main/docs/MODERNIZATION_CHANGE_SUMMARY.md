@@ -42,9 +42,9 @@ describes/queries were removed; Context Definition prerequisites remain
 operator guidance outside the tool.
 
 The reorganized project root contains `README.md`, `.gitignore`,
-`Start Here - CML Tool/`, `main/`, and `development/`. `main/` contains the
+`Start Tool Here/`, `main/`, and `development/`. `main/` contains the
 production `app/`, `docs/`, `favicon/`, `donate/`, and `LICENSE`. The
-platform-specific files under `Start Here - CML Tool/` point to
+platform-specific files under `Start Tool Here/` point to
 `main/app/cml_tool.py`.
 
 Tests, harness/build sources, package manifests, and release scripts live under
@@ -279,14 +279,14 @@ Now:
 
 ### Platform launcher folder and runtime locations
 
-- `salesforce-cml-tool/Start Here - CML Tool/Open CML Tool for macOS.command`
+- `salesforce-cml-tool/Start Tool Here/Open CML Tool for macOS.command`
   starts `main/app/cml_tool.py --no-browser` in the background and writes
   `development/runtime/logs/cml-ui.log` by default.
-- `salesforce-cml-tool/Start Here - CML Tool/Stop CML Tool for macOS.command`
+- `salesforce-cml-tool/Start Tool Here/Stop CML Tool for macOS.command`
   stops the macOS background server.
-- `salesforce-cml-tool/Start Here - CML Tool/Open CML Tool for Windows.bat`
+- `salesforce-cml-tool/Start Tool Here/Open CML Tool for Windows.bat`
   and
-  `salesforce-cml-tool/Start Here - CML Tool/Open CML Tool for Linux.sh`
+  `salesforce-cml-tool/Start Tool Here/Open CML Tool for Linux.sh`
   run `main/app/cml_tool.py` in the foreground.
 - Runtime artifacts default to `development/runtime/`: `cml-files/`,
   `cml-backups/`, `association-archives/`, `deployment-reports/`, and `logs/`.

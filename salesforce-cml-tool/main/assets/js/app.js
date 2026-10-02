@@ -2,44 +2,235 @@
 
   // ── Navigation ──────────────────────────────────────────────────
   const PAGE_META = {
-    fetch:   { title:"Fetch &amp; Deploy",  sub:"Pick a source org — CMLs load automatically. Fetch, edit, and deploy to any org." },
-    compare: { title:"Compare",             sub:"Use a VS Code-style diff to review and merge source changes into a guarded target draft." },
-    data:    { title:"Constraint Data Deploy", sub:"View, compare, and deploy ExpressionSetConstraintObj rows (Product associations)." },
-    guide:   { title:"Guide Me on Tool",    sub:"A safe, numbered workflow for reviewing, deploying, and recovering CML." },
+    fetch:   { title:"Fetch &amp; Deploy CML", sub:"Pick a source org — CMLs load automatically. Fetch, edit, and deploy to any org." },
+    compare: { title:"Compare CML",         sub:"Use a VS Code-style diff to review and merge source changes into a guarded target draft." },
+    data:    { title:"Constraint Data",     sub:"View, compare, and deploy ExpressionSetConstraintObj rows (Product associations)." },
+    cdfix:   { title:"Context Definition Fix", sub:"Retrieve Context Definitions from the source and target orgs (read-only), then analyze and build a patched Base." },
+    xml:     { title:"XML Tools",           sub:"Compare, merge, and deduplicate Salesforce metadata XML." },
+    guide:   { title:"Help Me",             sub:"Step-by-step handbooks for CML and Context Definition deployments." },
   };
+  const VIEWS_WITHOUT_ORGS = new Set(["guide", "xml"]);
+  let currentView = "fetch";
+  const navButtons = Array.from(document.querySelectorAll("#sideNav .side-nav[data-view]"));
+  const navMore = $("navMore"), navMoreBtn = $("navMoreBtn"), navMoreMenu = $("navMoreMenu");
+  const navMoreActive = $("navMoreActive");
+
   function switchView(view) {
+    if (!$("view-" + view)) return;
+    currentView = view;
+    document.body.dataset.view = view;
     document.querySelectorAll(".view-panel").forEach(p => p.classList.remove("active"));
-    const panel = $("view-" + view);
-    if (panel) panel.classList.add("active");
+    $("view-" + view).classList.add("active");
     const connectionCard = $("connectionCard");
-    if (connectionCard) connectionCard.hidden = view === "guide";
-    document.querySelectorAll(".side-nav,.tab").forEach(b => {
+    if (connectionCard) connectionCard.hidden = VIEWS_WITHOUT_ORGS.has(view);
+    navButtons.forEach(b => {
       const active = b.dataset.view === view;
       b.classList.toggle("active", active);
       b.setAttribute("aria-selected", String(active));
     });
+    navMoreMenu.querySelectorAll("[data-view]").forEach(item => {
+      item.classList.toggle("active", item.dataset.view === view);
+    });
     const m = PAGE_META[view] || {};
     if ($("pageTitle")) $("pageTitle").innerHTML = m.title || view;
     if ($("pageSubtitle")) $("pageSubtitle").textContent = (m.sub || "").replace(/&amp;/g,"&");
+    fitNav();
+    document.dispatchEvent(new CustomEvent("cml:viewchange", { detail: { view } }));
   }
-  document.querySelectorAll(".side-nav,.tab").forEach(b => {
+  navButtons.forEach(b => {
     b.addEventListener("click", () => switchView(b.dataset.view));
   });
-  const primaryNavButtons = Array.from(document.querySelectorAll("#sideNav [data-view]"));
-  primaryNavButtons.forEach((button, index) => {
-    button.addEventListener("keydown", event => {
-      let next = null;
-      if (event.key === "ArrowRight") next = (index + 1) % primaryNavButtons.length;
-      if (event.key === "ArrowLeft") next = (index - 1 + primaryNavButtons.length) % primaryNavButtons.length;
-      if (event.key === "Home") next = 0;
-      if (event.key === "End") next = primaryNavButtons.length - 1;
-      if (next !== null) {
-        event.preventDefault();
-        primaryNavButtons[next].focus();
-        switchView(primaryNavButtons[next].dataset.view);
-      }
+
+  // ── Help Me: handbook sub-tabs and step links ───────────────────
+  const helpTabs = Array.from(document.querySelectorAll("[data-help-tab]"));
+  function selectHelpTab(name, focus) {
+    helpTabs.forEach(tab => {
+      const active = tab.dataset.helpTab === name;
+      tab.classList.toggle("active", active);
+      tab.setAttribute("aria-selected", String(active));
+      tab.tabIndex = active ? 0 : -1;
+      if (active && focus) tab.focus();
+    });
+    document.querySelectorAll("[data-help-panel]").forEach(panel => {
+      panel.hidden = panel.dataset.helpPanel !== name;
+    });
+  }
+  helpTabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => selectHelpTab(tab.dataset.helpTab));
+    tab.addEventListener("keydown", event => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const next = event.key === "Home" ? 0 : event.key === "End" ? helpTabs.length - 1
+        : (index + (event.key === "ArrowRight" ? 1 : -1) + helpTabs.length) % helpTabs.length;
+      selectHelpTab(helpTabs[next].dataset.helpTab, true);
     });
   });
+  document.querySelectorAll("[data-help-open]").forEach(link => {
+    link.addEventListener("click", () => {
+      switchView("guide");
+      selectHelpTab(link.dataset.helpOpen, true);
+      $("view-guide").scrollIntoView({ block: "start" });
+    });
+  });
+  document.querySelectorAll("[data-help-jump]").forEach(link => {
+    link.addEventListener("click", event => {
+      const target = $(link.dataset.helpJump);
+      if (!target) return;
+      event.preventDefault();
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+
+  // ── Center pill: priority overflow into "More" ──────────────────
+  // Items never shrink; the lowest-priority items (highest data-priority)
+  // move into the More menu until the pill fits between brand and actions.
+  const navLabel = button => button.querySelector(".nav-label").textContent;
+  const overflowOrder = navButtons.slice().sort(
+    (a, b) => Number(b.dataset.priority) - Number(a.dataset.priority));
+  const pinnedCount = 2;
+
+  function renderMoreMenu(hiddenButtons) {
+    navMoreMenu.replaceChildren(...navButtons.filter(b => hiddenButtons.has(b)).map(button => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "nav-more-item" + (button.dataset.view === currentView ? " active" : "");
+      item.setAttribute("role", "menuitem");
+      item.dataset.view = button.dataset.view;
+      item.append(button.querySelector(".nav-icon").cloneNode(true));
+      const label = document.createElement("span");
+      label.textContent = navLabel(button);
+      item.append(label);
+      return item;
+    }));
+  }
+
+  function fitNav() {
+    const header = document.querySelector(".app-header");
+    const island = $("sideNav"), tabRow = $("tabRow");
+    if (!header || !island) return;
+    navButtons.forEach(b => { b.hidden = false; });
+    navMore.hidden = false;
+    const headerStyle = getComputedStyle(header);
+    const gap = parseFloat(headerStyle.columnGap) || 0;
+    const available = header.clientWidth
+      - parseFloat(headerStyle.paddingLeft) - parseFloat(headerStyle.paddingRight)
+      - document.querySelector(".brand-cluster").scrollWidth
+      - document.querySelector(".top-actions").scrollWidth - gap * 2;
+    const islandStyle = getComputedStyle(island);
+    const chrome = parseFloat(islandStyle.paddingLeft) + parseFloat(islandStyle.paddingRight)
+      + parseFloat(islandStyle.borderLeftWidth) + parseFloat(islandStyle.borderRightWidth);
+    const itemGap = parseFloat(getComputedStyle(tabRow).columnGap) || 0;
+    const widths = new Map(navButtons.map(b => [b, b.getBoundingClientRect().width]));
+    const moreWidthFor = activeLabel => {
+      navMoreActive.textContent = activeLabel || "";
+      navMoreActive.hidden = !activeLabel;
+      return navMore.getBoundingClientRect().width;
+    };
+    const hiddenButtons = new Set();
+    const totalWidth = () => {
+      const visible = navButtons.filter(b => !hiddenButtons.has(b));
+      let total = chrome + visible.reduce((sum, b) => sum + widths.get(b), 0)
+        + itemGap * Math.max(0, visible.length - 1);
+      if (hiddenButtons.size) {
+        const activeHidden = navButtons.find(b => hiddenButtons.has(b) && b.dataset.view === currentView);
+        total += itemGap + moreWidthFor(activeHidden ? navLabel(activeHidden) : "");
+      }
+      return total;
+    };
+    for (const button of overflowOrder.slice(0, navButtons.length - pinnedCount)) {
+      if (totalWidth() <= available) break;
+      hiddenButtons.add(button);
+    }
+    navButtons.forEach(b => { b.hidden = hiddenButtons.has(b); });
+    navMore.hidden = hiddenButtons.size === 0;
+    const activeHidden = navButtons.find(b => hiddenButtons.has(b) && b.dataset.view === currentView);
+    navMoreActive.textContent = activeHidden ? navLabel(activeHidden) : "";
+    navMoreActive.hidden = !activeHidden;
+    navMoreBtn.classList.toggle("active", Boolean(activeHidden));
+    renderMoreMenu(hiddenButtons);
+    if (!hiddenButtons.size) closeMoreMenu(false);
+  }
+
+  function openMoreMenu(focusFirst) {
+    navMoreMenu.hidden = false;
+    navMoreBtn.setAttribute("aria-expanded", "true");
+    navMore.classList.add("open");
+    if (focusFirst) {
+      const first = navMoreMenu.querySelector(".nav-more-item.active") || navMoreMenu.querySelector(".nav-more-item");
+      if (first) first.focus();
+    }
+  }
+  function closeMoreMenu(restoreFocus) {
+    if (navMoreMenu.hidden) return;
+    navMoreMenu.hidden = true;
+    navMoreBtn.setAttribute("aria-expanded", "false");
+    navMore.classList.remove("open");
+    if (restoreFocus) navMoreBtn.focus();
+  }
+  navMoreBtn.addEventListener("click", () => {
+    if (navMoreMenu.hidden) openMoreMenu(true);
+    else closeMoreMenu(false);
+  });
+  navMoreMenu.addEventListener("click", event => {
+    const item = event.target.closest(".nav-more-item");
+    if (!item) return;
+    closeMoreMenu(true);
+    switchView(item.dataset.view);
+  });
+  navMoreMenu.addEventListener("keydown", event => {
+    const items = Array.from(navMoreMenu.querySelectorAll(".nav-more-item"));
+    const index = items.indexOf(document.activeElement);
+    let next = null;
+    if (event.key === "ArrowDown") next = (index + 1) % items.length;
+    if (event.key === "ArrowUp") next = (index - 1 + items.length) % items.length;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = items.length - 1;
+    if (event.key === "Escape" || event.key === "Tab") closeMoreMenu(event.key === "Escape");
+    if (next !== null) {
+      event.preventDefault();
+      items[next].focus();
+    }
+  });
+  document.addEventListener("mousedown", event => {
+    if (!navMore.contains(event.target)) closeMoreMenu(false);
+  });
+
+  // Arrow keys move across the visible pill items plus More; More itself
+  // opens its menu on ArrowDown/Enter instead of switching views.
+  $("tabRow").addEventListener("keydown", event => {
+    if (navMoreMenu.contains(event.target)) return;
+    const stops = [...navButtons.filter(b => !b.hidden), ...(navMore.hidden ? [] : [navMoreBtn])];
+    const index = stops.indexOf(document.activeElement);
+    if (index < 0) return;
+    if (document.activeElement === navMoreBtn && event.key === "ArrowDown") {
+      event.preventDefault();
+      openMoreMenu(true);
+      return;
+    }
+    let next = null;
+    if (event.key === "ArrowRight") next = (index + 1) % stops.length;
+    if (event.key === "ArrowLeft") next = (index - 1 + stops.length) % stops.length;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = stops.length - 1;
+    if (next === null) return;
+    event.preventDefault();
+    closeMoreMenu(false);
+    stops[next].focus();
+    if (stops[next] !== navMoreBtn) switchView(stops[next].dataset.view);
+  });
+
+  if ("ResizeObserver" in window) {
+    const headerObserver = new ResizeObserver(() => fitNav());
+    [".app-header", ".brand-cluster", ".top-actions"].forEach(selector => {
+      const el = document.querySelector(selector);
+      if (el) headerObserver.observe(el);
+    });
+  } else {
+    window.addEventListener("resize", fitNav);
+  }
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitNav);
+  document.body.dataset.view = currentView;
+  fitNav();
 
   const orgSel = $("org"), targetSel = $("targetOrg"), targetVersionSel = $("targetVersion"), model = $("model"), content = $("content"), status = $("status");
   const sourceOrgPicker = $("sourceOrgPicker"), sourceOrgTrigger = $("sourceOrgTrigger");
@@ -47,7 +238,60 @@
   const targetOrgPicker = $("targetOrgPicker"), targetOrgTrigger = $("targetOrgTrigger");
   const targetOrgDisplay = $("targetOrgDisplay"), targetOrgMenu = $("targetOrgMenu");
   const sourceOrgId = $("sourceOrgId"), targetOrgId = $("targetOrgId");
+  const sourceOrgRelease = $("sourceOrgRelease"), targetOrgRelease = $("targetOrgRelease");
   const fetchBtn = $("fetchBtn"), deployBtn = $("deployBtn"), rollbackBtn = $("rollbackBtn"), compareBtn = $("compareBtn"), copyBtn = $("copyBtn");
+  const downloadCmlBtn = $("downloadCmlBtn"), downloadBackupBtn = $("downloadBackupBtn");
+  const importBackupBtn = $("importBackupBtn"), sessionDebugBtn = $("sessionDebugBtn");
+  const archiveSelect = $("archiveSelect"), restoreListedArchiveBtn = $("restoreListedArchiveBtn");
+  const downloadArchiveBtn = $("downloadArchiveBtn"), importArchiveBtn = $("importArchiveBtn");
+  const archiveRecovery = $("archiveRecovery");
+  const reportSelect = $("reportSelect"), downloadReportBtn = $("downloadReportBtn");
+  const importReportBtn = $("importReportBtn"), reportRecovery = $("reportRecovery");
+  const dataReportSelect = $("dataReportSelect"), downloadDataReportBtn = $("downloadDataReportBtn");
+  const dataReportRecovery = $("dataReportRecovery");
+  const isBrowserSession = () => Boolean(window.CmlRuntime && window.CmlRuntime.mode === "browser-session");
+  if (downloadBackupBtn && isBrowserSession()) downloadBackupBtn.hidden = false;
+  if (importBackupBtn && isBrowserSession()) importBackupBtn.hidden = false;
+  if (sessionDebugBtn && isBrowserSession()) sessionDebugBtn.hidden = false;
+  if (archiveRecovery && isBrowserSession()) archiveRecovery.hidden = false;
+  if (reportRecovery && isBrowserSession()) reportRecovery.hidden = false;
+  if (dataReportRecovery && isBrowserSession()) dataReportRecovery.hidden = false;
+
+  function downloadTextFile(filename, text, mime) {
+    const safe = String(filename || "download").replace(/[^\w.\-]+/g, "_").slice(0, 120);
+    const blob = new Blob([text], { type: mime || "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = safe;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function pickJsonFile() {
+    return new Promise((resolve) => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "application/json,.json";
+      input.onchange = async () => {
+        const file = input.files && input.files[0];
+        if (!file) { resolve(null); return; }
+        try {
+          resolve(JSON.parse(await file.text()));
+        } catch (_) {
+          resolve({ _parseError: true });
+        }
+      };
+      input.click();
+    });
+  }
+
+  function orgSessionWarning(org) {
+    if (!org || org.usable !== false) return "";
+    return org.warning || "Found a Lightning session but not an API session. Open the org in Classic or stay logged in, then retry.";
+  }
   const lineCommentBtn = $("lineCommentBtn"), blockCommentBtn = $("blockCommentBtn");
   const cmlFilter = $("cmlFilter"), cmlCount = $("cmlCount");
   const combo = $("combo"), comboSelected = $("comboSelected"), selectedName = $("selectedName");
@@ -61,7 +305,7 @@
   const deployOrgPicker = $("deployOrgPicker"), deployOrgTrigger = $("deployOrgTrigger");
   const deployOrgDisplay = $("deployOrgDisplay"), deployOrgMenu = $("deployOrgMenu");
   const readinessBtn = $("readinessBtn"), readinessPanel = $("readinessPanel");
-  const themeBtn = $("themeBtn"), themeIcon = $("themeIcon"), themeLabel = $("themeLabel"), conn = $("conn");
+  const themeBtn = $("themeBtn"), conn = $("conn");
   const diffBox = $("diff"), diffSummary = $("diffSummary"), onlyDiffs = $("onlyDiffs");
   const diffPanes = $("diffPanes"), srcTable = $("srcTable"), tgtTable = $("tgtTable"), mergeTable = $("mergeTable");
   const srcTitle = $("srcTitle"), tgtTitle = $("tgtTitle"), srcScroll = $("srcScroll"), tgtScroll = $("tgtScroll"), mergeScroll = $("mergeScroll");
@@ -72,9 +316,11 @@
   const resetMergeBtn = $("resetMergeBtn"), reviewMergeBtn = $("reviewMergeBtn");
   const copyTargetCmlBtn = $("copyTargetCmlBtn"), editTargetBtn = $("editTargetBtn");
   const saveTargetEditBtn = $("saveTargetEditBtn"), cancelTargetEditBtn = $("cancelTargetEditBtn");
-  const tgtEditArea = $("tgtEditArea");
+  const tgtEditArea = $("tgtEditArea"), mergeAllBtn = $("mergeAllBtn");
   let lastCompare = null;
   let activeMergeHunks = [];
+  let activeRevertHunks = [];
+  let compareHasDiffs = false;
   let editingTarget = false;
   let semanticRefreshSequence = 0;
   let virtualDiffState = null;
@@ -86,6 +332,7 @@
   const deployBar = $("deployBar"), selSummary = $("selSummary"), deployDataBtn = $("deployDataBtn");
   const selAllAdds = $("selAllAdds"), selNoAdds = $("selNoAdds"), selAllDels = $("selAllDels"), selNoDels = $("selNoDels");
   const copyExcelBtn = $("copyExcelBtn");
+  const dataSearch = $("dataSearch");
   const results = $("results");
   const donateBtn = $("donateBtn"), donateOptions = $("donateOptions");
   const donateUpiBtn = $("donateUpiBtn"), donateDialog = $("donateDialog");
@@ -124,6 +371,22 @@
   const selectedVersionLabel = (m) => m
     ? `${m.name} · V${m.version} · ${(m && m.status) || "Unknown"}`
     : "";
+  function renderVersionTrigger(element, m, emptyText) {
+    if (!m) { element.textContent = emptyText; element.title = ""; return; }
+    const status = m.status || "Unknown";
+    const tone = status === "Active" ? "active" : (status === "Inactive" ? "inactive" : "unknown");
+    const name = document.createElement("span");
+    name.className = "version-name";
+    name.textContent = `${m.name} · V${m.version}`;
+    element.title = `${m.name} · V${m.version} · ${status}`;
+    element.replaceChildren(name, " ");
+    const pill = document.createElement("span");
+    pill.className = `cml-state-pill ${tone}`;
+    pill.title = `Version status: ${status}`;
+    pill.innerHTML = `<span aria-hidden="true">${tone === "active" ? "●" : "○"}</span> `;
+    pill.append(status);
+    element.append(pill);
+  }
 
   // Size native picklists from their current option text. Containers wrap, so
   // a long exact-version label gets room instead of forcing button truncation.
@@ -395,16 +658,18 @@
 
   // ---- Theme (day/night) ----
   function applyThemeLabel() {
-    const t = document.documentElement.getAttribute("data-theme") || "light";
-    themeLabel.textContent = t === "light" ? "Night mode" : "Day mode";
-    themeIcon.innerHTML = t === "light"
-      ? '<path d="M20.8 15.4A9 9 0 0 1 8.6 3.2 9 9 0 1 0 20.8 15.4Z"/>'
-      : '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+    const dark = document.documentElement.getAttribute("data-theme") === "dark";
+    themeBtn.setAttribute("aria-checked", String(dark));
+    themeBtn.title = dark ? "Switch to day mode" : "Switch to night mode";
   }
+  let themeTransitionTimer = null;
   themeBtn.onclick = () => {
-    const cur = document.documentElement.getAttribute("data-theme") || "light";
-    const next = cur === "light" ? "dark" : "light";
-    document.documentElement.setAttribute("data-theme", next);
+    const root = document.documentElement;
+    const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    root.classList.add("theme-transitioning");
+    clearTimeout(themeTransitionTimer);
+    themeTransitionTimer = setTimeout(() => root.classList.remove("theme-transitioning"), 450);
+    root.setAttribute("data-theme", next);
     try { localStorage.setItem("cml-theme", next); } catch (e) {}
     applyThemeLabel();
   };
@@ -419,14 +684,30 @@
     el.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
-  // Same-origin transport is isolated in api-client.js.
+  // API transport is isolated in api-client.js.
   const { apiGet, postJSON } = window.CmlApi;
+
+  // Shared with xml-tools.js (Context Definition Fix and XML Tools views).
+  window.CmlShell = Object.freeze({
+    setStatus,
+    downloadTextFile,
+    isBrowserSession,
+    currentView: () => currentView,
+  });
 
   function showConn() {
     conn.className = "conn show";
     conn.innerHTML = '<span class="spinner"></span>Lost connection to the CML Tool. Make sure its window is still open — reconnecting automatically…';
+    if (window.CmlRuntime) {
+      const overlay = document.getElementById("cmlOfflineOverlay");
+      if (overlay) overlay.hidden = false;
+    }
   }
-  function hideConn() { conn.className = "conn"; }
+  function hideConn() {
+    conn.className = "conn";
+    const overlay = document.getElementById("cmlOfflineOverlay");
+    if (overlay) overlay.hidden = true;
+  }
 
   function handleDisconnect() {
     if (reconnecting) return;
@@ -434,8 +715,8 @@
     showConn();
     const timer = setInterval(async () => {
       try {
-        const r = await fetch("/api/orgs", { cache: "no-store" });
-        if (r.ok) {
+        const ping = await apiGet("/api/ping");
+        if (ping && ping.app === "cml-tool") {
           clearInterval(timer);
           reconnecting = false;
           hideConn();
@@ -445,7 +726,7 @@
       } catch (e) { /* still down; keep trying */ }
     }, 1500);
   }
-  const actionBtns = [fetchBtn, deployBtn, rollbackBtn, compareBtn, loadDataBtn, compareDataBtn, deployDataBtn ];
+  const actionBtns = [fetchBtn, deployBtn, rollbackBtn, compareBtn, loadDataBtn, compareDataBtn, deployDataBtn];
   function busy(btn, label) {
     btn.innerHTML = '<span class="spinner"></span>' + label;
     document.querySelector(".app-main").setAttribute("aria-busy", "true");
@@ -456,7 +737,7 @@
     deployBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V3M7 8l5-5 5 5"/><path d="M5 21h14a2 2 0 0 0 2-2v-4M3 15v4a2 2 0 0 0 2 2"/></svg>Deploy CML';
     rollbackBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>Restore Backup CML';
     compareBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="button-icon-inline"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M10 8l-3 4 3 4M14 8l3 4-3 4"/></svg>Compare source ↔ target';
-    loadDataBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>View data';
+    loadDataBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>View Source Org Data';
     compareDataBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 7h11l-3-3M18 17H7l3 3M18 7l-3 3M7 17l3-3"/></svg>Compare data';
     deployDataBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m8 5 11 7-11 7z"/></svg>Deploy selected to target';
     actionBtns.forEach(b => b.disabled = false);
@@ -469,11 +750,13 @@
   }
 
   const ORG_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V8l8-5 8 5v13M8 21v-4h8v4M8 10h.01M12 10h.01M16 10h.01M8 13h.01M12 13h.01M16 13h.01"/></svg>';
+  const REFRESH_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>';
+  let orgListLoaded = false, orgGeneration = null, orgPollTimer = null, orgRefreshWanted = false;
   const orgPickers = [
     { select:orgSel, picker:sourceOrgPicker, trigger:sourceOrgTrigger, display:sourceOrgDisplay,
-      menu:sourceOrgMenu, placeholder:"Select a source org" },
+      menu:sourceOrgMenu, placeholder:"Select a source org", refreshable:true },
     { select:targetSel, picker:targetOrgPicker, trigger:targetOrgTrigger, display:targetOrgDisplay,
-      menu:targetOrgMenu, placeholder:"Select a target org" },
+      menu:targetOrgMenu, placeholder:"Select a target org", refreshable:true },
     { select:deployOrgSel, picker:deployOrgPicker, trigger:deployOrgTrigger, display:deployOrgDisplay,
       menu:deployOrgMenu, placeholder:"Select a deployment target" },
   ];
@@ -486,14 +769,23 @@
 
   function renderOrgPicker(config) {
     const selected = selectedOrgInfo(config.select.value);
-    config.display.textContent = selected ? selected.alias : config.placeholder;
-    config.trigger.disabled = !allOrgs.length;
-    config.menu.innerHTML = allOrgs.map(org => {
+    config.display.textContent = selected ? selected.alias
+      : (orgListLoaded ? config.placeholder : "Loading orgs…");
+    config.trigger.disabled = !allOrgs.length && !(config.refreshable && orgListLoaded);
+    const refreshRow = config.refreshable
+      ? `<button type="button" class="org-option" role="option" aria-selected="false" data-refresh="true"`
+        + `${orgRefreshWanted ? ' aria-disabled="true"' : ""}>${REFRESH_ICON}`
+        + `<span class="org-option-copy"><span class="org-option-name">${orgRefreshWanted ? "Refreshing org list…" : "Refresh org list"}</span>`
+        + `<span class="org-option-meta">Find orgs added with sf org login</span></span></button>`
+      : "";
+    config.menu.innerHTML = refreshRow + allOrgs.map(org => {
       const isSelected = org.alias === config.select.value;
       return `<button type="button" class="org-option${isSelected ? " selected" : ""}" role="option"`
         + ` aria-selected="${isSelected}" data-value="${esc(org.alias)}">${ORG_ICON}`
         + `<span class="org-option-copy"><span class="org-option-name">${esc(org.alias)}</span>`
-        + `<span class="org-option-meta">${esc(org.username || "Salesforce org")}</span></span></button>`;
+        + `<span class="org-option-meta">${esc(org.usable === false
+          ? (org.warning || "No API session")
+          : (org.username || "Salesforce org"))}</span></span></button>`;
     }).join("");
   }
 
@@ -512,6 +804,10 @@
     config.menu.addEventListener("click", event => {
       const option = event.target.closest(".org-option");
       if (!option) return;
+      if (option.dataset.refresh) {
+        refreshOrgs();
+        return;
+      }
       config.select.value = option.dataset.value;
       renderOrgPicker(config);
       closeOrgPicker(config);
@@ -529,9 +825,47 @@
   function renderSelectedOrgIds() {
     const source = selectedOrgInfo(orgSel.value);
     const target = selectedOrgInfo(targetSel.value);
-    sourceOrgId.textContent = `Org ID: ${(source && source.orgId) || "—"}`;
-    targetOrgId.textContent = `Org ID: ${(target && target.orgId) || "—"}`;
+    [[sourceOrgId, source], [targetOrgId, target]].forEach(([button, info]) => {
+      const id = (info && info.orgId) || "";
+      button.querySelector(".meta-value").textContent = id || "—";
+      button.dataset.orgId = id;
+      button.disabled = !id;
+    });
+    renderOrgRelease(sourceOrgRelease, orgSel.value);
+    renderOrgRelease(targetOrgRelease, targetSel.value);
   }
+
+  const orgReleaseCache = new Map();
+  function releaseText(data) {
+    if (!data || !data.ok) return "unavailable";
+    const parts = [data.releaseNumber, data.release].filter(Boolean);
+    if (!parts.length && data.apiVersion) parts.push(`API ${data.apiVersion}`);
+    return parts.join(" · ") || "unknown";
+  }
+  function renderOrgRelease(element, org) {
+    element.dataset.org = org || "";
+    if (!org) { element.textContent = "—"; return; }
+    const cached = orgReleaseCache.get(org);
+    if (cached && !(cached instanceof Promise)) { element.textContent = releaseText(cached); return; }
+    element.textContent = "checking…";
+    const request = cached || apiGet("/api/org-release?org=" + encodeURIComponent(org))
+      .then(data => { orgReleaseCache.set(org, data); return data; })
+      .catch(() => { orgReleaseCache.delete(org); return null; });
+    orgReleaseCache.set(org, request);
+    request.then(data => {
+      if (element.dataset.org === org) element.textContent = releaseText(data);
+    });
+  }
+  [sourceOrgId, targetOrgId].forEach(button => {
+    button.addEventListener("click", async () => {
+      const id = button.dataset.orgId;
+      if (!id) return;
+      try { await navigator.clipboard.writeText(id); } catch (_) { return; }
+      const value = button.querySelector(".meta-value");
+      value.textContent = "Copied";
+      setTimeout(() => { value.textContent = button.dataset.orgId || "—"; }, 1200);
+    });
+  });
 
   function renderKeyFieldMenu(filter = "") {
     const needle = filter.trim().toLowerCase();
@@ -677,42 +1011,120 @@
     }
   }
 
+  function scheduleOrgPoll(delay) {
+    clearTimeout(orgPollTimer);
+    orgPollTimer = setTimeout(loadOrgs, delay);
+  }
+
+  function handleOrgLoadError(e) {
+    orgRefreshWanted = false;
+    if (e && e.conn) { handleDisconnect(); return; }
+    if (!orgListLoaded) orgSel.innerHTML = '<option value="">(could not load orgs)</option>';
+    orgPickers.forEach(renderOrgPicker);
+    setStatus("err", "Could not load orgs: " + e);
+  }
+
   async function loadOrgs() {
     try {
-      const orgs = await apiGet("/api/orgs");
-      if (orgs.error) {
-        orgSel.innerHTML = '<option value="">(could not load orgs)</option>';
-        setStatus("err", orgs.error);
-        return;
-      }
-      if (!orgs.length) {
-        orgSel.innerHTML = '<option value="">(no orgs found)</option>';
-        setStatus("err",
-          "No Salesforce orgs are authorized for THIS user on THIS computer.\n"
+      applyOrgResponse(await apiGet("/api/orgs"));
+    } catch (e) {
+      handleOrgLoadError(e);
+    }
+  }
+
+  async function refreshOrgs() {
+    if (orgRefreshWanted) return;
+    orgRefreshWanted = true;
+    orgPickers.forEach(renderOrgPicker);
+    try {
+      applyOrgResponse(await postJSON("/api/orgs/refresh", {}));
+    } catch (e) {
+      handleOrgLoadError(e);
+    }
+  }
+
+  // The local server answers from a cache and reports loading/refreshing
+  // while the CLI runs in the background; the extension returns a plain array.
+  function applyOrgResponse(raw) {
+    const data = Array.isArray(raw)
+      ? { orgs: raw, loading: false, refreshing: false, generation: null }
+      : (raw || {});
+    if (data.loading || data.refreshing) {
+      scheduleOrgPoll(data.loading ? 400 : 1000);
+    } else {
+      clearTimeout(orgPollTimer);
+      orgRefreshWanted = false;
+    }
+    const unchanged = orgListLoaded && data.generation !== null
+      && data.generation === orgGeneration;
+    if (data.loading || unchanged) {
+      orgPickers.forEach(renderOrgPicker);
+      return;
+    }
+    orgGeneration = data.generation;
+    orgListLoaded = true;
+    if (data.error) {
+      allOrgs = [];
+      orgSel.innerHTML = '<option value="">(could not load orgs)</option>';
+      orgPickers.forEach(renderOrgPicker);
+      setStatus("err", data.error);
+      return;
+    }
+    applyOrgs(data.orgs || []);
+    if (data.warning) setStatus("info", data.warning);
+  }
+
+  function applyOrgs(orgs) {
+    if (!orgs.length) {
+      allOrgs = [];
+      orgPickers.forEach(renderOrgPicker);
+      orgSel.innerHTML = '<option value="">(no orgs found)</option>';
+      const browserSession = window.CmlRuntime && window.CmlRuntime.mode === "browser-session";
+      setStatus("err", browserSession
+        ? "No Salesforce org tabs were found in this Chrome profile.\n"
+          + "Log into the org in a normal tab (Lightning or Classic), leave it open, then click Fetch again or reload this page.\n"
+          + "Compare across two orgs requires both orgs to be logged in.\n"
+          + "Use Session status if a tab is open but the org still does not appear."
+        : "No Salesforce orgs are authorized for THIS user on THIS computer.\n"
           + "Org logins are stored per operating-system user, so each person must log in on their own account:\n\n"
           + "    sf org login web --alias <name>\n\n"
-          + "Then refresh the CML Tool. For protected local diagnostics, restart with CML_DEBUG=1.");
-        return;
-      }
-      allOrgs = orgs;
-      const opts = orgs.map(o => `<option value="${o.alias}">${o.alias}${o.username ? "  —  " + o.username : ""}</option>`).join("");
-      orgSel.innerHTML = '<option value="">None — select a source org</option>' + opts;
-      targetSel.innerHTML = '<option value="">None — select a target org</option>' + opts;
-      deployOrgSel.innerHTML = '<option value="">None — select a deployment target</option>' + opts;
-      orgSel.value = "";
-      targetSel.value = "";
-      deployOrgSel.value = "";
-      targetVersionSel.innerHTML = '<option value="">None — select target org and source version</option>';
-      deployVersionSel.innerHTML = '<option value="">None — select deployment target and source version</option>';
+          + "Then choose Refresh org list in the Source or Target org picker. For protected local diagnostics, restart with CML_DEBUG=1.");
+      return;
+    }
+    const firstPopulate = !allOrgs.length;
+    const previous = [orgSel.value, targetSel.value, deployOrgSel.value];
+    allOrgs = orgs;
+    const opts = orgs.map(o => `<option value="${o.alias}">${o.alias}${o.username ? "  —  " + o.username : ""}${o.usable === false ? "  —  no API session" : ""}</option>`).join("");
+    orgSel.innerHTML = '<option value="">None — select a source org</option>' + opts;
+    targetSel.innerHTML = '<option value="">None — select a target org</option>' + opts;
+    deployOrgSel.innerHTML = '<option value="">None — select a deployment target</option>' + opts;
+    if (!firstPopulate) {
+      // Background refresh: keep selections that still exist.
+      const known = new Set(orgs.map(o => o.alias));
+      [orgSel, targetSel, deployOrgSel].forEach((select, index) => {
+        const kept = known.has(previous[index]) ? previous[index] : "";
+        select.value = kept;
+        if (previous[index] && !kept) select.dispatchEvent(new Event("change", { bubbles:true }));
+      });
       orgPickers.forEach(renderOrgPicker);
       renderSelectedOrgIds();
-      loadKeyFields();
-      loadModels();
-    } catch (e) {
-      if (e && e.conn) { handleDisconnect(); return; }
-      orgSel.innerHTML = '<option value="">(could not load orgs)</option>';
-      setStatus("err", "Could not load orgs: " + e);
+      return;
     }
+    orgSel.value = "";
+    targetSel.value = "";
+    deployOrgSel.value = "";
+    targetVersionSel.innerHTML = '<option value="">None — select target org and source version</option>';
+    deployVersionSel.innerHTML = '<option value="">None — select deployment target and source version</option>';
+    orgPickers.forEach(renderOrgPicker);
+    renderSelectedOrgIds();
+    const blocked = orgs.filter(o => o.usable === false);
+    if (blocked.length) {
+      setStatus("info", blocked.map(o =>
+        (o.alias || o.orgId) + ": " + (o.warning || "No API session")
+      ).join("\n") + "\nOpen Classic or stay logged in so a my.salesforce.com cookie exists, then use Session status.");
+    }
+    loadKeyFields();
+    loadModels();
   }
 
   // Floating, searchable exact-version controls. Native selects remain the
@@ -731,7 +1143,7 @@
   }
   function collapseModelView() {
     const selected = selectedSourceVersion();
-    selectedName.textContent = selected ? selectedVersionLabel(selected) : "Select exact CML version";
+    renderVersionTrigger(selectedName, selected, "Select exact CML version");
     closeVersionPicker(combo, sourceVersionTrigger, sourceVersionMenu);
   }
   function expandModelView() {
@@ -744,6 +1156,8 @@
     loadTargetVersions(targetSel, targetVersionSel, "compare");
     loadTargetVersions(deployOrgSel, deployVersionSel, "deployment");
     loadCmlBackups();
+    loadAssociationArchives();
+    loadDeploymentReports();
   });
   sourceVersionTrigger.onclick = () => sourceVersionMenu.hidden ? expandModelView()
     : closeVersionPicker(combo, sourceVersionTrigger, sourceVersionMenu);
@@ -865,7 +1279,8 @@
     }
   }
 
-  async function loadTargetVersions(orgControl, versionControl, purpose) {
+  async function loadTargetVersions(
+      orgControl, versionControl, purpose, refresh = false) {
     const isCompareTarget = versionControl === targetVersionSel;
     const sequence = isCompareTarget ? ++targetModelLoadSequence : null;
     versionControl.innerHTML = `<option value="">None — select exact ${purpose} version</option>`;
@@ -884,7 +1299,7 @@
     if (isCompareTarget) targetVersionDisplay.textContent = "Loading CML versions…";
     versionControl.innerHTML = '<option value="">Loading exact versions…</option>';
     try {
-      const data = await getOrgModels(org);
+      const data = await getOrgModels(org, refresh);
       if (isCompareTarget && sequence !== targetModelLoadSequence) return;
       if (data.error) {
         versionControl.innerHTML = '<option value="">(could not load exact versions)</option>';
@@ -929,6 +1344,8 @@
   }
 
   orgSel.onchange = () => {
+    const warning = orgSessionWarning(selectedOrgInfo(orgSel.value));
+    if (warning) setStatus("err", warning);
     targetVersionSel.innerHTML = '<option value="">None — select target org and source version</option>';
     deployVersionSel.innerHTML = '<option value="">None — select deployment target and source version</option>';
     renderSelectedOrgIds();
@@ -936,16 +1353,24 @@
     loadModels();
   };
   targetSel.onchange = () => {
+    const warning = orgSessionWarning(selectedOrgInfo(targetSel.value));
+    if (warning) setStatus("err", warning);
     renderSelectedOrgIds();
     loadKeyFields();
     loadTargetVersions(targetSel, targetVersionSel, "compare");
+    loadAssociationArchives();
+    loadDeploymentReports();
   };
   deployOrgSel.onchange = () => {
+    const warning = orgSessionWarning(selectedOrgInfo(deployOrgSel.value));
+    if (warning) setStatus("err", warning);
     loadTargetVersions(deployOrgSel, deployVersionSel, "deployment");
     readinessPanel.dataset.checked = "";
     loadCmlBackups();
+    loadDeploymentReports();
   };
   deployVersionSel.addEventListener("change", loadCmlBackups);
+  targetVersionSel.addEventListener("change", loadAssociationArchives);
   cmlFilter.oninput = renderModels;
   targetVersionFilter.oninput = renderTargetVersions;
   sourceVersionOptions.onclick = event => {
@@ -959,14 +1384,14 @@
     if (!option) return;
     targetVersionSel.value = option.dataset.value;
     const selected = targetModels.find(item => item.versionId === targetVersionSel.value);
-    targetVersionDisplay.textContent = selected ? selectedVersionLabel(selected) : "Select exact CML version";
+    renderVersionTrigger(targetVersionDisplay, selected, "Select exact CML version");
     renderTargetVersions();
     closeVersionPicker(targetVersionPicker, targetVersionTrigger, targetVersionMenu);
     targetVersionSel.dispatchEvent(new Event("change", { bubbles:true }));
   };
   targetVersionSel.addEventListener("change", () => {
     const selected = targetModels.find(item => item.versionId === targetVersionSel.value);
-    targetVersionDisplay.textContent = selected ? selectedVersionLabel(selected) : "Select exact CML version";
+    renderVersionTrigger(targetVersionDisplay, selected, "Select exact CML version");
     renderTargetVersions();
   });
   [cmlFilter, targetVersionFilter].forEach(search => {
@@ -998,7 +1423,10 @@
       if (data.ok) {
         clearDraftForCurrentScope();
         setEditorContent(data.content);
-        setStatus("ok", data.log + "\n\nSaved to: " + data.file);
+        const savedNote = isBrowserSession()
+          ? "Held in this tab. Use Download .cml to save a copy on disk."
+          : ("Saved to: " + data.file);
+        setStatus("ok", data.log + "\n\n" + savedNote);
       } else {
         setStatus("err", data.log || "Fetch failed.");
       }
@@ -1031,18 +1459,30 @@
   }
 
   function renderReadiness(data) {
+    const lifecycleActions = (_activateDisabled, deactivateDisabled) =>
+      `<div class="lifecycle-actions" aria-label="Target CML lifecycle actions">`
+      + `<button class="btn btn-danger" id="activateBtn" type="button" disabled title="Use Salesforce Constraint Builder so CML compilation and validation are enforced.">Activate in Salesforce</button>`
+      + `<button class="ghost deactivate-action" id="deactivateBtn" type="button" ${deactivateDisabled ? "disabled" : ""}>Deactivate CML</button>`
+      + `</div><p class="meta lifecycle-note">Select an exact target to deactivate it before fetch or deploy; the action checks its live status before confirmation. Activation must be completed in Salesforce Constraint Builder so its compiler and validation run. Direct IsActive activation is blocked by this tool.</p>`;
     if (!data.ok) {
-      readinessPanel.innerHTML = `<div class="readiness-head"><strong>Target version status</strong><span class="chip warn">Unavailable</span></div><p>${esc(data.log || "Status check failed.")}</p>`;
+      readinessPanel.innerHTML = `<div class="readiness-head"><strong>Target version status</strong><span class="chip warn">Unavailable</span></div><p>${esc(data.log || "Status check failed.")}</p>`
+        + lifecycleActions(true, true);
       readinessPanel.dataset.checked = "";
+      wireLifecycleActions();
       return;
     }
     const target = data.targetStatus || {};
     const eligible = target.status === "eligible";
+    const observedStatus = String(target.versionStatus || "").toLowerCase();
+    const active = observedStatus === "active";
+    const inactive = observedStatus === "inactive";
     readinessPanel.innerHTML =
       `<div class="readiness-head"><strong>Target version status</strong><span class="chip ${eligible ? "ok" : "warn"}">${esc(target.status || "unverified")}</span></div>`
       + `<p><strong>${esc(target.versionStatus || "Unknown")}</strong></p>`
-      + `<p class="readiness-item ${eligible ? "writable" : "blocked"}">${esc(target.message || "Target status was not verified.")}</p>`;
+      + `<p class="readiness-item ${eligible ? "writable" : "blocked"}">${esc(target.message || "Target status was not verified.")}</p>`
+      + lifecycleActions(!inactive, !active);
     readinessPanel.dataset.checked = "true";
+    wireLifecycleActions();
   }
 
   async function checkReadiness() {
@@ -1073,7 +1513,93 @@
   }
 
   readinessBtn.onclick = checkReadiness;
-  deployVersionSel.onchange = () => { readinessPanel.dataset.checked = ""; };
+  deployVersionSel.onchange = () => {
+    readinessPanel.dataset.checked = "";
+    const activate = $("activateBtn"), deactivate = $("deactivateBtn");
+    if (activate) activate.disabled = true;
+    // Deactivation must be available before fetch/deploy. Its click handler
+    // performs a fresh read-only status check before asking for confirmation,
+    // and the server re-verifies the exact version before writing.
+    if (deactivate) {
+      deactivate.disabled = !(
+        deployOrgSel.value && deployVersionSel.value
+        && selectedSourceVersion());
+    }
+  };
+
+  function wireLifecycleActions() {
+    const activate = $("activateBtn"), deactivate = $("deactivateBtn");
+    if (activate) activate.onclick = null;
+    if (deactivate) deactivate.onclick = () => changeCmlLifecycle(false);
+  }
+
+  async function changeCmlLifecycle(active) {
+    const dest = deployOrgSel.value;
+    const source = selectedSourceVersion();
+    const targetVersionId = deployVersionSel.value;
+    if (!dest || !source || !targetVersionId) {
+      setStatus("err", "Choose a source model, target org, and exact target version first.");
+      return;
+    }
+    const readiness = await checkReadiness();
+    if (!readiness.ok) {
+      setStatus("err", readiness.log || "Target lifecycle status could not be verified.");
+      return;
+    }
+    const currentlyActive = String(
+      readiness.targetStatus?.versionStatus || "").toLowerCase() === "active";
+    if (currentlyActive === active) {
+      setStatus("info", `No change required — the exact target version is already ${active ? "Active" : "Inactive"}.`);
+      return;
+    }
+    const action = active ? "Activate" : "Deactivate";
+    const consequence = active
+      ? "This compiles/enables the selected CML for runtime product configuration. Activation can fail if Salesforce validation or dependencies are incomplete."
+      : "This immediately removes the selected CML version from runtime use. Reactivation is a separate validated operation and is not guaranteed to succeed.";
+    const typed = await requestTypedConfirmation({
+      title: `${action} CML`,
+      description: consequence,
+      target: `Model: ${source.name}\nTarget org: ${dest}\nExact version: ${targetVersionId}`,
+      alias: dest,
+      submitLabel: `${action} CML`,
+    });
+    if (typed !== dest) return;
+    const button = active ? $("activateBtn") : $("deactivateBtn");
+    if (button) {
+      button.disabled = true;
+      button.innerHTML = `<span class="spinner"></span>${active ? "Activating…" : "Deactivating…"}`;
+    }
+    document.querySelector(".app-main").setAttribute("aria-busy", "true");
+    setStatus("info", `${action.slice(0, -1)}ing ${source.name} ${targetVersionId} in ${dest}…`);
+    try {
+      const data = await postJSON("/api/lifecycle", {
+        org: dest,
+        model: source.name,
+        targetVersionId,
+        active,
+        confirmTarget: typed,
+      });
+      let details = data.log || `${action} operation failed.`;
+      if (data.report?.file) details += `\nLifecycle report: ${data.report.file}`;
+      if (data.reportError) details += `\nWARNING: ${data.reportError}`;
+      setStatus(data.ok ? "ok" : "err", appendDiagnostic(details, data.diagnostic));
+      await loadTargetVersions(
+        deployOrgSel, deployVersionSel, "deployment", true);
+      await loadDeploymentReports();
+      if (Array.from(deployVersionSel.options).some(
+          option => option.value === targetVersionId)) {
+        deployVersionSel.value = targetVersionId;
+        await checkReadiness();
+      }
+    } catch (error) {
+      if (error && error.conn) handleDisconnect();
+      else setStatus("err", `${action} error: ${error}`);
+    } finally {
+      document.querySelector(".app-main").removeAttribute("aria-busy");
+    }
+  }
+
+  wireLifecycleActions();
 
   deployBtn.onclick = async () => {
     const dest = deployOrgSel.value;
@@ -1117,6 +1643,7 @@
         updateDirtyIndicator();
       }
       await loadCmlBackups();
+      await loadDeploymentReports();
     } catch (e) {
       if (e && e.conn) { handleDisconnect(); } else { setStatus("err", "Deploy error: " + e); }
     }
@@ -1124,12 +1651,93 @@
     deployBtn.focus();
   };
 
+  function setArchiveButtons() {
+    const has = Boolean(archiveSelect && archiveSelect.value);
+    if (restoreListedArchiveBtn) restoreListedArchiveBtn.disabled = !has;
+    if (downloadArchiveBtn) downloadArchiveBtn.disabled = !has;
+  }
+
+  async function loadAssociationArchives() {
+    if (!archiveSelect) return;
+    archiveSelect.innerHTML = '<option value="">No archive selected</option>';
+    setArchiveButtons();
+    const dest = targetSel.value;
+    const selectedModel = selectedModelName();
+    const targetVersionId = targetVersionSel.value;
+    if (!isBrowserSession() || !dest || !selectedModel || !targetVersionId) return;
+    try {
+      const list = await apiGet(`/api/archives?org=${encodeURIComponent(dest)}&model=${encodeURIComponent(selectedModel)}&versionId=${encodeURIComponent(targetVersionId)}`);
+      if (!list.ok) return;
+      for (const archive of list.archives || []) {
+        const option = document.createElement("option");
+        option.value = archive.id;
+        option.textContent = `${archive.createdAt || "Unknown time"} · ${archive.id}`;
+        archiveSelect.appendChild(option);
+      }
+      if ((list.archives || []).length) archiveSelect.value = list.archives[0].id;
+      setArchiveButtons();
+    } catch (error) {
+      if (error && error.conn) handleDisconnect();
+    }
+  }
+
+  async function fillReportSelect(select, org, downloadBtn) {
+    if (!select) return;
+    select.innerHTML = '<option value="">No report selected</option>';
+    if (downloadBtn) downloadBtn.disabled = true;
+    const selectedModel = selectedModelName();
+    if (!isBrowserSession() || !org || !selectedModel) return;
+    try {
+      const list = await apiGet(`/api/reports?org=${encodeURIComponent(org)}&model=${encodeURIComponent(selectedModel)}`);
+      if (!list.ok) return;
+      for (const report of list.reports || []) {
+        const option = document.createElement("option");
+        option.value = report.id;
+        const outcome = report.success === false ? "failed" : (report.success ? "ok" : "report");
+        option.textContent = `${report.createdAt || "Unknown time"} · ${report.action || "report"} · ${outcome}`;
+        select.appendChild(option);
+      }
+      if ((list.reports || []).length) select.value = list.reports[0].id;
+      if (downloadBtn) downloadBtn.disabled = !select.value;
+    } catch (error) {
+      if (error && error.conn) handleDisconnect();
+    }
+  }
+
+  async function loadDeploymentReports() {
+    await fillReportSelect(reportSelect, deployOrgSel.value, downloadReportBtn);
+    await fillReportSelect(dataReportSelect, targetSel.value, downloadDataReportBtn);
+  }
+
+  async function downloadStoredReport(reportId, statusEl) {
+    if (!reportId) {
+      setStatus("err", "Select a report to download.", statusEl);
+      return;
+    }
+    try {
+      const data = await apiGet("/api/report?id=" + encodeURIComponent(reportId));
+      if (!data.ok) {
+        setStatus("err", data.log || "Could not download that report.", statusEl);
+        return;
+      }
+      const payload = Object.assign({}, data);
+      delete payload.ok;
+      delete payload.log;
+      payload.kind = "deployment-report";
+      downloadTextFile(data.id || "deployment-report.json", JSON.stringify(payload, null, 2), "application/json");
+      setStatus("ok", "Downloaded report " + (data.id || "") + ".", statusEl);
+    } catch (e) {
+      if (e && e.conn) { handleDisconnect(); } else { setStatus("err", "Report download error: " + e, statusEl); }
+    }
+  }
+
   async function loadCmlBackups() {
     const dest = deployOrgSel.value;
     const selectedModel = selectedModelName();
     const targetVersionId = deployVersionSel.value;
     backupSelect.innerHTML = '<option value="">No backup selected</option>';
     rollbackBtn.disabled = true;
+    if (downloadBackupBtn) downloadBackupBtn.disabled = true;
     if (!dest || !selectedModel || !targetVersionId) return;
     try {
       const list = await apiGet(`/api/backups?org=${encodeURIComponent(dest)}&model=${encodeURIComponent(selectedModel)}&versionId=${encodeURIComponent(targetVersionId)}`);
@@ -1142,12 +1750,14 @@
       }
       if ((list.backups || []).length) backupSelect.value = list.backups[0].id;
       rollbackBtn.disabled = !backupSelect.value;
+      if (downloadBackupBtn) downloadBackupBtn.disabled = !backupSelect.value;
     } catch (error) {
       if (error && error.conn) handleDisconnect();
     }
   }
   backupSelect.addEventListener("change", () => {
     rollbackBtn.disabled = !backupSelect.value;
+    if (downloadBackupBtn) downloadBackupBtn.disabled = !backupSelect.value;
   });
 
   rollbackBtn.onclick = async () => {
@@ -1179,6 +1789,7 @@
       if (data.report && data.report.file) details += `\nDeployment report: ${data.report.file}`;
       setStatus(data.ok ? "ok" : "err", appendDiagnostic(details, data.diagnostic));
       await loadCmlBackups();
+      await loadDeploymentReports();
     } catch (e) {
       if (e && e.conn) { handleDisconnect(); } else { setStatus("err", "Rollback error: " + e); }
     }
@@ -1191,6 +1802,211 @@
     try { await navigator.clipboard.writeText(content.value); copyBtn.textContent = "Copied!"; setTimeout(() => copyBtn.textContent = "Copy", 1200); }
     catch (e) { content.select(); document.execCommand("copy"); }
   };
+
+  if (downloadCmlBtn) {
+    downloadCmlBtn.onclick = () => {
+      if (!content.value) {
+        setStatus("err", "Nothing to download. Fetch or paste CML first.");
+        return;
+      }
+      const source = selectedSourceVersion();
+      const name = ((source && source.name) || "model") + ".cml";
+      downloadTextFile(name, content.value, "text/plain;charset=utf-8");
+    };
+  }
+
+  if (downloadBackupBtn) {
+    downloadBackupBtn.onclick = async () => {
+      if (!backupSelect.value) {
+        setStatus("err", "Select a recovery backup to download.");
+        return;
+      }
+      busy(downloadBackupBtn, "Downloading…");
+      try {
+        const data = await apiGet("/api/backup?id=" + encodeURIComponent(backupSelect.value));
+        if (!data.ok) {
+          setStatus("err", data.log || "Could not download that backup.");
+          return;
+        }
+        const payload = JSON.stringify({
+          kind: "cml-backup",
+          id: data.id,
+          createdAt: data.createdAt,
+          reason: data.reason,
+          sha256: data.sha256,
+          org: data.org,
+          model: data.model,
+          versionId: data.versionId,
+          versionNumber: data.versionNumber,
+          versionStatus: data.versionStatus,
+          content: data.content || "",
+        }, null, 2);
+        downloadTextFile(data.id || "cml-backup.json", payload, "application/json");
+        setStatus("ok", "Downloaded backup " + (data.id || "") + ".");
+      } catch (e) {
+        if (e && e.conn) { handleDisconnect(); } else { setStatus("err", "Backup download error: " + e); }
+      }
+      downloadBackupBtn.textContent = "Download backup";
+      idle();
+    };
+  }
+
+  if (importBackupBtn) {
+    importBackupBtn.onclick = async () => {
+      const payload = await pickJsonFile();
+      if (!payload) return;
+      if (payload._parseError) {
+        setStatus("err", "That file is not valid JSON.");
+        return;
+      }
+      try {
+        const imported = await postJSON("/api/backup/import", { backup: payload });
+        setStatus(imported.ok ? "ok" : "err", imported.log || "Import finished.");
+        if (imported.ok) await loadCmlBackups();
+      } catch (e) {
+        if (e && e.conn) { handleDisconnect(); } else { setStatus("err", "Backup import error: " + e); }
+      }
+    };
+  }
+
+  if (sessionDebugBtn) {
+    sessionDebugBtn.onclick = async () => {
+      try {
+        const data = await apiGet("/api/debug");
+        setStatus(data.ok ? "info" : "err", data.log || "Session status unavailable.");
+      } catch (e) {
+        if (e && e.conn) { handleDisconnect(); } else { setStatus("err", "Session status error: " + e); }
+      }
+    };
+  }
+
+  if (archiveSelect) {
+    archiveSelect.addEventListener("change", setArchiveButtons);
+  }
+
+  if (restoreListedArchiveBtn) {
+    restoreListedArchiveBtn.onclick = async () => {
+      const dest = targetSel.value;
+      const source = selectedSourceVersion();
+      const dataStatus = $("dataStatus") || status;
+      if (!dest || !source || !targetVersionSel.value || !archiveSelect.value) {
+        setStatus("err", "Select a target org, exact version, and archive first.", dataStatus);
+        return;
+      }
+      const typed = await requestTypedConfirmation({
+        title: "Restore deleted associations",
+        description: "This recreates associations from the selected local recovery archive.",
+        target: `Target org: ${dest}\nModel: ${source.name}\nExact version: ${targetVersionSel.value}\nArchive: ${archiveSelect.value}`,
+        alias: dest,
+        submitLabel: "Restore associations",
+      });
+      if (typed !== dest) return;
+      busy(restoreListedArchiveBtn, "Restoring…");
+      try {
+        const restored = await postJSON("/api/data/restore", {
+          targetOrg: dest, model: source.name,
+          targetVersionId: targetVersionSel.value,
+          archiveId: archiveSelect.value, confirmTarget: typed
+        });
+        setStatus(restored.ok ? "ok" : "err", restored.log || "Association restore finished.", dataStatus);
+        await loadAssociationArchives();
+        await loadDeploymentReports();
+      } catch (e) {
+        if (e && e.conn) { handleDisconnect(); } else { setStatus("err", "Restore error: " + e, dataStatus); }
+      }
+      restoreListedArchiveBtn.textContent = "Restore archive";
+      idle();
+    };
+  }
+
+  if (downloadArchiveBtn) {
+    downloadArchiveBtn.onclick = async () => {
+      const dataStatus = $("dataStatus") || status;
+      if (!archiveSelect.value) {
+        setStatus("err", "Select an archive to download.", dataStatus);
+        return;
+      }
+      try {
+        const data = await apiGet("/api/archive?id=" + encodeURIComponent(archiveSelect.value));
+        if (!data.ok) {
+          setStatus("err", data.log || "Could not download that archive.", dataStatus);
+          return;
+        }
+        const payload = JSON.stringify({
+          kind: "association-delete-archive",
+          id: data.id,
+          createdAt: data.createdAt,
+          org: data.org,
+          targetOrg: data.targetOrg,
+          model: data.model,
+          versionId: data.versionId,
+          expressionSetId: data.expressionSetId,
+          keyField: data.keyField,
+          expressionSetStatus: data.expressionSetStatus,
+          prcIdentityVersion: data.prcIdentityVersion,
+          rows: data.rows || [],
+        }, null, 2);
+        downloadTextFile(data.id || "association-archive.json", payload, "application/json");
+        setStatus("ok", "Downloaded archive " + (data.id || "") + ".", dataStatus);
+      } catch (e) {
+        if (e && e.conn) { handleDisconnect(); } else { setStatus("err", "Archive download error: " + e, dataStatus); }
+      }
+    };
+  }
+
+  if (importArchiveBtn) {
+    importArchiveBtn.onclick = async () => {
+      const dataStatus = $("dataStatus") || status;
+      const payload = await pickJsonFile();
+      if (!payload) return;
+      if (payload._parseError) {
+        setStatus("err", "That file is not valid JSON.", dataStatus);
+        return;
+      }
+      try {
+        const imported = await postJSON("/api/archive/import", { archive: payload });
+        setStatus(imported.ok ? "ok" : "err", imported.log || "Import finished.", dataStatus);
+        if (imported.ok) await loadAssociationArchives();
+      } catch (e) {
+        if (e && e.conn) { handleDisconnect(); } else { setStatus("err", "Archive import error: " + e, dataStatus); }
+      }
+    };
+  }
+
+  if (reportSelect) {
+    reportSelect.addEventListener("change", () => {
+      if (downloadReportBtn) downloadReportBtn.disabled = !reportSelect.value;
+    });
+  }
+  if (dataReportSelect) {
+    dataReportSelect.addEventListener("change", () => {
+      if (downloadDataReportBtn) downloadDataReportBtn.disabled = !dataReportSelect.value;
+    });
+  }
+  if (downloadReportBtn) {
+    downloadReportBtn.onclick = () => downloadStoredReport(reportSelect && reportSelect.value, status);
+  }
+  if (downloadDataReportBtn) {
+    downloadDataReportBtn.onclick = () => downloadStoredReport(
+      dataReportSelect && dataReportSelect.value, $("dataStatus") || status);
+  }
+  if (importReportBtn) {
+    importReportBtn.onclick = async () => {
+      const payload = await pickJsonFile();
+      if (!payload) return;
+      if (payload._parseError) {
+        setStatus("err", "That file is not valid JSON.");
+        return;
+      }
+      try {
+        const imported = await postJSON("/api/report/import", { report: payload });
+        setStatus(imported.ok ? "ok" : "err", imported.log || "Import finished.");
+        if (imported.ok) await loadDeploymentReports();
+      } catch (e) {
+        if (e && e.conn) { handleDisconnect(); } else { setStatus("err", "Report import error: " + e); }
+      }
+    };
+  }
 
   // ---- Compare (source org vs target org) ----
   const cmpStatus = $("compareStatus") || status;
@@ -1364,7 +2180,7 @@
     return { className: status ? ` sem-${status}` : "", badges };
   }
 
-  function paneRow(rowType, num, codeHtml, marker, semanticMark) {
+  function paneRow(rowType, num, codeHtml, marker, semanticMark, draftChanged) {
     const baseClass = rowType === "eq" ? "eqrow"
       : rowType === "chg" ? "row-chg"
       : rowType === "del" ? "row-del"
@@ -1374,7 +2190,45 @@
     }
     const semantic = semanticDecoration(semanticMark);
     const mk = `<span class="mk">${marker}</span>`;
-    return `<tr class="${baseClass}${semantic.className}"><td class="gutter">${num}</td><td class="code">${mk}${semantic.badges}${codeHtml}</td></tr>`;
+    return `<tr class="${baseClass}${semantic.className}${draftChanged ? " row-draft" : ""}"><td class="gutter">${num}</td><td class="code">${mk}${semantic.badges}${codeHtml}</td></tr>`;
+  }
+
+  // Differences between the working draft and the target fetched from
+  // Salesforce; each one can be reverted independently.
+  function draftRevertHunks(currentLines) {
+    if (!lastCompare) return [];
+    const original = (lastCompare.originalTargetContent || "").replace(/\r\n/g, "\n").split("\n");
+    if (original.join("\n") === currentLines.join("\n")) return [];
+    const hunks = [];
+    let removed = [], added = [];
+    const flush = nextCurrentLine => {
+      if (!removed.length && !added.length) return;
+      hunks.push({
+        currentStart: added.length ? added[0] : nextCurrentLine,
+        currentDeleteCount: added.length,
+        originalLines: removed.map(index => original[index]),
+      });
+      removed = []; added = [];
+    };
+    for (const op of diffOps(original, currentLines)) {
+      if (op.t === "eq") flush(op.b);
+      else if (op.t === "del") removed.push(op.a);
+      else added.push(op.b);
+    }
+    flush(currentLines.length);
+    return hunks;
+  }
+
+  function revertRailButtons(row) {
+    const ids = row.b != null && virtualDiffState ? virtualDiffState.revertAnchors.get(row.b) : null;
+    return (ids || []).map(index =>
+      `<button type="button" class="merge-arrow revert-arrow" data-revert-hunk="${index}" title="Revert this target-draft change to the version fetched from Salesforce" aria-label="Revert target-draft change">←</button>`
+    ).join("");
+  }
+
+  function railCell(buttons, count) {
+    if (!buttons) return "&nbsp;";
+    return `<div class="rail-actions${count > 1 ? " multi" : ""}">${buttons}</div>`;
   }
 
   function semanticMergeActions(sourceLines, targetLines) {
@@ -1449,17 +2303,21 @@
           renderedSemanticActions.add(index);
         }
       });
+      const reverts = revertRailButtons(row);
       const buttons = ids.map(index => {
         const action = activeMergeHunks[index];
         return `<button type="button" class="merge-arrow semantic-merge-arrow" data-merge-hunk="${index}" title="${esc(action.title)}" aria-label="${esc(action.title)}">→</button>`;
-      }).join("");
-      return `<tr${row.type === "eq" ? ' class="eqrow"' : ""}><td>${buttons || "&nbsp;"}</td></tr>`;
+      }).join("") + reverts;
+      const count = ids.length + (reverts.match(/data-revert-hunk/g) || []).length;
+      return `<tr${row.type === "eq" ? ' class="eqrow"' : ""}><td>${railCell(buttons, count)}</td></tr>`;
     }
-    if (row.type === "eq") return '<tr class="eqrow"><td>&nbsp;</td></tr>';
+    const reverts = revertRailButtons(row);
+    const revertCount = (reverts.match(/data-revert-hunk/g) || []).length;
+    if (row.type === "eq") return `<tr class="eqrow"><td>${railCell(reverts, revertCount)}</td></tr>`;
     const button = row.mergeLead
       ? `<button type="button" class="merge-arrow" data-merge-hunk="${row.mergeId}" title="Apply this source change to the target draft" aria-label="Apply source change to target draft">→</button>`
-      : "&nbsp;";
-    return `<tr><td>${button}</td></tr>`;
+      : "";
+    return `<tr><td>${railCell(button + reverts, (button ? 1 : 0) + revertCount)}</td></tr>`;
   }
 
   function updateMergeWorkflow() {
@@ -1480,9 +2338,10 @@
 
   function renderVirtualDiffWindow() {
     if (!virtualDiffState) return;
-    const { a, b, semanticMaps } = virtualDiffState;
+    const { a, b, semanticMaps, draftLines, revertAnchors } = virtualDiffState;
     const visibleRows = onlyDiffs.checked
-      ? virtualDiffState.rows.filter(row => row.type !== "eq")
+      ? virtualDiffState.rows.filter(row => row.type !== "eq"
+        || draftLines.has(row.b) || revertAnchors.has(row.b))
       : virtualDiffState.rows;
     const virtual = visibleRows.length > VIRTUAL_DIFF_THRESHOLD;
     const viewportRows = Math.ceil(
@@ -1508,16 +2367,16 @@
       middle += mergeRailRow(row, renderedSemanticActions);
       if (row.type === "eq") {
         left += paneRow("eq", row.a + 1, esc(a[row.a]), " ", semanticMaps.source.get(row.a + 1));
-        right += paneRow("eq", row.b + 1, esc(b[row.b]), " ", semanticMaps.target.get(row.b + 1));
+        right += paneRow("eq", row.b + 1, esc(b[row.b]), " ", semanticMaps.target.get(row.b + 1), draftLines.has(row.b));
       } else if (row.type === "chg") {
         left += paneRow("chg", row.a + 1, esc(a[row.a]), "~", semanticMaps.source.get(row.a + 1));
-        right += paneRow("chg", row.b + 1, esc(b[row.b]), "~", semanticMaps.target.get(row.b + 1));
+        right += paneRow("chg", row.b + 1, esc(b[row.b]), "~", semanticMaps.target.get(row.b + 1), draftLines.has(row.b));
       } else if (row.type === "del") {
         left += paneRow("del", row.a + 1, esc(a[row.a]), "−", semanticMaps.source.get(row.a + 1));
         right += paneRow("filler");
       } else {
         left += paneRow("filler");
-        right += paneRow("ins", row.b + 1, esc(b[row.b]), "+", semanticMaps.target.get(row.b + 1));
+        right += paneRow("ins", row.b + 1, esc(b[row.b]), "+", semanticMaps.target.get(row.b + 1), draftLines.has(row.b));
       }
     }
     left += diffSpacer(bottomHeight, 2);
@@ -1575,7 +2434,18 @@
     const chg = rows.filter(row => row.type === "chg").length;
     const del = rows.filter(row => row.type === "del").length;
     const ins = rows.filter(row => row.type === "ins").length;
-    virtualDiffState = { a, b, rows, semanticMaps };
+    compareHasDiffs = chg + del + ins > 0;
+    activeRevertHunks = draftRevertHunks(b);
+    const revertAnchors = new Map(), draftLines = new Set();
+    activeRevertHunks.forEach((hunk, index) => {
+      const anchor = Math.max(0, Math.min(hunk.currentStart, b.length - 1));
+      if (!revertAnchors.has(anchor)) revertAnchors.set(anchor, []);
+      revertAnchors.get(anchor).push(index);
+      for (let line = hunk.currentStart; line < hunk.currentStart + hunk.currentDeleteCount; line++) {
+        draftLines.add(line);
+      }
+    });
+    virtualDiffState = { a, b, rows, semanticMaps, revertAnchors, draftLines };
     renderVirtualDiffWindow();
     srcTitle.textContent = "Source — " + src.org;
     tgtTitle.textContent = (lastCompare && lastCompare.mergeCount ? "Target draft — " : "Target — ") + tgt.org;
@@ -1621,6 +2491,7 @@
     cancelTargetEditBtn.hidden = !editingTarget;
     resetMergeBtn.disabled = editingTarget;
     reviewMergeBtn.disabled = editingTarget;
+    mergeAllBtn.disabled = editingTarget || !compareHasDiffs;
     diffPanes.classList.toggle("target-editing", editingTarget);
   }
 
@@ -1645,7 +2516,41 @@
     [srcScroll, mergeScroll, tgtScroll].forEach(pane => { pane.scrollTop = 0; });
     renderVirtualDiffWindow();
   };
+  function normalizedCompareText(value) {
+    return (value || "").replace(/\r\n/g, "\n");
+  }
+  async function applyTargetDraft(content, statusMessage) {
+    lastCompare.tgt.content = content;
+    lastCompare.semantic = null;
+    renderCompare();
+    if (statusMessage) setStatus("info", statusMessage, cmpStatus);
+    await refreshSemanticAgainstDraft();
+  }
+  mergeAllBtn.onclick = async () => {
+    if (!lastCompare || editingTarget) return;
+    const source = normalizedCompareText(lastCompare.src.content);
+    if (source === normalizedCompareText(lastCompare.tgt.content)) return;
+    const applied = Math.max(1, activeMergeHunks.length);
+    lastCompare.mergeCount = (lastCompare.mergeCount || 0) + applied;
+    await applyTargetDraft(source,
+      `Applied all ${applied} source change${applied === 1 ? "" : "s"} to the target draft. ` +
+      "Use ← on any change to revert it, or Reset target draft to undo everything. Salesforce is not changed.");
+  };
   mergeTable.onclick = async event => {
+    const revert = event.target.closest("[data-revert-hunk]");
+    if (revert) {
+      if (!lastCompare || editingTarget) return;
+      const hunk = activeRevertHunks[Number(revert.dataset.revertHunk)];
+      if (!hunk) return;
+      const lines = normalizedCompareText(lastCompare.tgt.content).split("\n");
+      lines.splice(hunk.currentStart, hunk.currentDeleteCount, ...hunk.originalLines);
+      const content = lines.join("\n");
+      lastCompare.mergeCount = content === normalizedCompareText(lastCompare.originalTargetContent)
+        ? 0 : Math.max(1, (lastCompare.mergeCount || 0) - 1);
+      await applyTargetDraft(content,
+        "Reverted that change in the target draft to the version fetched from Salesforce. Salesforce is not changed.");
+      return;
+    }
     const button = event.target.closest("[data-merge-hunk]");
     if (!button || !lastCompare || editingTarget) return;
     const hunk = activeMergeHunks[Number(button.dataset.mergeHunk)];
@@ -2304,12 +3209,18 @@
     return esc(referenceRecordText(r));
   }
 
+  function reasonListHtml(reasons) {
+    return `<ul class="reason-list">${reasons.map(reason => `<li>${esc(reason)}</li>`).join("")}</ul>`;
+  }
+
   function dataRowHtml(r, withStatus) {
     const hasKeyValue = r.gkey !== null && r.gkey !== undefined && String(r.gkey).trim() !== "";
     const gk = hasKeyValue
       ? `<span class="gkey">${esc(r.gkey)}</span>`
       : `<span class="badge b-unmappable">${esc(currentKeyField)} is blank</span>`;
-    const blockNote = r.blockNote ? `<span class="block-note">${esc(r.blockNote)}</span>` : "";
+    const blockNote = r.blockReasons && r.blockReasons.length
+      ? `<span class="block-note">${esc(r.blockTitle || "")}</span>${reasonListHtml(r.blockReasons)}`
+      : (r.blockNote ? `<span class="block-note">${esc(r.blockNote)}</span>` : "");
     let sel = "";
     if (withStatus) {
       if (isAdd(r) || isDel(r)) {
@@ -2318,7 +3229,7 @@
         sel = `<td class="col-sel"></td>`;
       }
     }
-    return "<tr>"
+    return `<tr${withStatus && r._selected && (isAdd(r) || isDel(r)) ? ' class="is-selected"' : ""}>`
       + sel
       + (withStatus ? `<td class="col-status">${statusBadge(r._status)}${blockNote}</td>` : "")
       + `<td class="col-reftype"><span class="badge b-type">${esc(shortType(r.refType))}</span></td>`
@@ -2329,21 +3240,36 @@
       + "</tr>";
   }
 
+  function rowMatchesFilter(r, f) {
+    if (f === "all") return true;
+    if (f === "match")   return r._status === "match";
+    if (f === "add")     return r._status === "add";
+    if (f === "extra")   return r._status === "extra";
+    if (f === "cml-difference") return r._status === "cml-difference";
+    if (f === "ambiguous-key") return r._status === "ambiguous-key";
+    if (f === "blocked") return r._status === "blocked" || r._status === "ambiguous-key" || r._status === "unmappable" || r._status === "dependency-unverified";
+    if (f === "stale")   return r._status === "stale";
+    if (f === "dups")    return r.dups && r.dups.length;
+    return true;
+  }
+
+  function rowSearchText(r) {
+    if (r._search === undefined) {
+      r._search = [r.tag, r.tagType, r.refType, shortType(r.refType), referenceRecordText(r), r.gkey, statusText(r)]
+        .map(value => String(value ?? "")).join("\n").toLowerCase();
+    }
+    return r._search;
+  }
+
+  function visibleDataRows() {
+    const f = dataFilter.value;
+    const needle = dataSearch.value.trim().toLowerCase();
+    return dataRows.filter(r => rowMatchesFilter(r, f) && (!needle || rowSearchText(r).includes(needle)));
+  }
+
   function renderDataTable() {
     const withStatus = dataMode === "compare";
-    const f = dataFilter.value;
-    const visible = dataRows.filter(r => {
-      if (f === "all") return true;
-      if (f === "match")   return r._status === "match";
-      if (f === "add")     return r._status === "add";
-      if (f === "extra")   return r._status === "extra";
-      if (f === "cml-difference") return r._status === "cml-difference";
-      if (f === "ambiguous-key") return r._status === "ambiguous-key";
-      if (f === "blocked") return r._status === "blocked" || r._status === "ambiguous-key" || r._status === "unmappable" || r._status === "dependency-unverified";
-      if (f === "stale")   return r._status === "stale";
-      if (f === "dups")    return r.dups && r.dups.length;
-      return true;
-    });
+    const visible = visibleDataRows();
     const cols = (withStatus ? 7 : 5);
     const head = "<thead><tr>"
       + (withStatus ? '<th class="col-sel" scope="col" title="Select associations for the deploy action">Select</th><th class="col-status">Status</th>' : "")
@@ -2351,15 +3277,25 @@
       + "</tr></thead>";
     const body = visible.length
       ? visible.map(r => dataRowHtml(r, withStatus)).join("")
-      : `<tr><td colspan="${cols}" class="empty-table-row">No rows for this filter.</td></tr>`;
+      : `<tr><td colspan="${cols}" class="empty-table-row">No rows for this filter${dataSearch.value.trim() ? " and search" : ""}.</td></tr>`;
     dataTable.innerHTML = head + "<tbody>" + body + "</tbody>";
     dataTable.querySelectorAll("input[type=checkbox]").forEach(cb => {
-      cb.onchange = () => { dataRows[+cb.dataset.i]._selected = cb.checked; updateDeployBar(); };
+      cb.onchange = () => {
+        dataRows[+cb.dataset.i]._selected = cb.checked;
+        cb.closest("tr").classList.toggle("is-selected", cb.checked);
+        updateDeployBar();
+      };
     });
     copyExcelBtn.disabled = visible.length === 0;
     updateDeployBar();
   }
   dataFilter.onchange = renderDataTable;
+  let dataSearchTimer = null;
+  dataSearch.addEventListener("input", () => {
+    clearTimeout(dataSearchTimer);
+    dataSearchTimer = setTimeout(renderDataTable, 120);
+  });
+
 
   function updateDeployBar() {
     deployBar.classList.add("show");
@@ -2392,18 +3328,7 @@
 
   copyExcelBtn.onclick = async () => {
     const withStatus = dataMode === "compare";
-    const f = dataFilter.value;
-    const visible = dataRows.filter(r => {
-      if (f === "all") return true;
-      if (f === "match")   return r._status === "match";
-      if (f === "add")     return r._status === "add";
-      if (f === "extra")   return r._status === "extra";
-      if (f === "cml-difference") return r._status === "cml-difference";
-      if (f === "blocked") return r._status === "blocked" || r._status === "unmappable" || r._status === "dependency-unverified";
-      if (f === "stale")   return r._status === "stale";
-      if (f === "dups")    return r.dups && r.dups.length;
-      return true;
-    });
+    const visible = visibleDataRows();
     if (!visible.length) return;
     const cols = withStatus
       ? ["Status", "Ref type", "Tag type", "Tag", "Reference record", currentKeyField]
@@ -2531,18 +3456,12 @@
         });
         dataRows = rows;
         results.classList.remove("show");
-        renderDataChips({ single: false, s: data.stats, src: data.source, tgt: data.target });
+        renderDataChips({ single: false, s: data.stats, src: data.source, tgt: data.target, stale: data.stale });
         renderDataTable();
         dataBox.classList.add("show");
         dataBox.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        setStatus("ok", `Compared constraint data for "${data.model}".\n`
-          + `${data.stats.matched} matched · ${data.stats.sourceOnly} only in source · ${data.stats.targetOnly} only in target`
-          + (data.stats.cmlDifferences ? ` · ${data.stats.cmlDifferences} explained by different CML definitions` : "")
-          + (data.stats.ambiguousKeys ? ` · ${data.stats.ambiguousKeys} ambiguous portable key(s)` : "")
-          + (data.stats.dependencyIssues ? ` · ${data.stats.dependencyIssues} catalog dependency finding(s)` : "")
-          + (data.stats.dependencyUnverified ? ` · ${data.stats.dependencyUnverified} dependency check(s) need a key` : "")
-          + (data.stats.stale ? ` · ${data.stats.stale} stale (excluded)` : "")
-          + `.\n${data.associationScopeNote}`
+        setStatus("ok", `Compared constraint data for "${data.model}". Counts are shown above the table.\n`
+          + `${data.associationScopeNote}`
           + (data.associationsShared ? "\nBoth selected versions map to the same ExpressionSet, so these associations are shared." : ""), dSt());
       } else {
         setStatus("err", data.log || "Compare failed.", dSt());
@@ -2576,37 +3495,58 @@
 
   function dupSum(d) { return d ? (d.exact + d.tag + d.ref + d.name) : 0; }
 
+  function chipColumnHtml(side, title, chips) {
+    return `<section class="chip-col ${side}" aria-label="${esc(title)}">`
+      + `<span class="chip-group-label">${esc(title)}</span>`
+      + `<div class="chips">${chips.filter(Boolean).join("")}</div></section>`;
+  }
+
+  const DUP_TITLE = "Checked only inside the exact selected version's resolved parent Expression Set";
+
   function renderDataChips(o) {
     if (o.single) {
       const dn = dupSum(o.dups);
-      const scope = o.duplicateScope?.expressionSetId || "selected parent";
-      dataChips.innerHTML =
-        `<span class="chip ok">${o.total} rows · ${o.org}</span>`
-        + `<span class="chip" title="ExpressionSet.ApiName and definition DeveloperName">${esc(o.apiName || "")}</span>`
-        + (o.unmappable ? `<span class="chip warn">${o.unmappable} without ${currentKeyField}</span>` : "")
-        + (o.duplicateCheckError ? `<span class="chip warn">Duplicate check unavailable</span>` : "")
-        + (dn ? `<span class="chip warn" title="Checked only within Expression Set ${esc(scope)}">${dn} duplicate flags · selected model only</span>` : "");
+      dataChips.innerHTML = `<div class="chip-cols">`
+        + chipColumnHtml("source", `Source · ${o.org}`, [
+          `<span class="chip neutral">${o.total} rows</span>`,
+          o.apiName && `<span class="chip neutral" title="ExpressionSet.ApiName">${esc(o.apiName)}</span>`,
+          o.unmappable && `<span class="chip amber">${o.unmappable} without ${esc(currentKeyField)}</span>`,
+          dn && `<span class="chip amber" title="${DUP_TITLE}">${dn} duplicate flags</span>`,
+          o.duplicateCheckError && `<span class="chip amber">Duplicate check unavailable</span>`,
+        ])
+        + `</div>`;
       return;
     }
     const s = o.s;
     const sd = dupSum(o.src.duplicates), td = dupSum(o.tgt.duplicates);
-    dataChips.innerHTML =
-      `<span class="chip neutral">Source ${o.src.org}: ${o.src.total}</span>`
-      + `<span class="chip neutral">Target ${o.tgt.org}: ${o.tgt.total}</span>`
-      + `<span class="chip ok">${s.matched} matched</span>`
-      + `<span class="chip add">${s.sourceOnly} only in source</span>`
-      + `<span class="chip extra">${s.targetOnly} only in target</span>`
-      + (s.cmlDifferences ? `<span class="chip cml-diff">${s.cmlDifferences} CML definition differences (not errors)</span>` : "")
-      + (s.ambiguousKeys ? `<span class="chip warn">${s.ambiguousKeys} ambiguous portable keys</span>` : "")
-      + (s.dependencyIssues ? `<span class="chip warn">${s.dependencyIssues} catalog dependency findings</span>` : "")
-      + (s.dependencyUnverified ? `<span class="chip warn">${s.dependencyUnverified} dependency checks need review</span>` : "")
-      + (s.exactDuplicates ? `<span class="chip dup">${s.exactDuplicates} exact duplicate rows</span>` : "")
-      + (s.stale ? `<span class="chip warn">${s.stale} stale (excluded from deploy)</span>` : "")
-      + (s.blocked ? `<span class="chip warn">${s.blocked} blocked by catalog dependencies</span>` : "")
-      + (s.unmappable ? `<span class="chip warn">${s.unmappable} unmappable</span>` : "")
-      + ((o.src.duplicateCheckError || o.tgt.duplicateCheckError)
-        ? `<span class="chip warn">Duplicate check unavailable for one selected CML</span>` : "")
-      + ((sd + td) ? `<span class="chip dup" title="Each org is checked independently inside the exact selected version's resolved parent Expression Set">${sd + td} duplicate flags (selected source ${sd} / selected target ${td})</span>` : "");
+    const staleFrom = origin => (o.stale || []).filter(r => r.staleOrigin === origin).length;
+    const staleChip = count => count
+      ? `<span class="chip amber" title="Associations whose tag is not defined by the same org's CML; excluded from deploy">${count} stale</span>` : "";
+    const comparison = [
+      `<span class="chip ok">${s.matched} matched</span>`,
+      s.blocked && `<span class="chip warn" title="${s.dependencyIssues || 0} catalog dependency finding(s) across these rows">${s.blocked} blocked by catalog dependencies</span>`,
+      s.dependencyUnverified && `<span class="chip amber">${s.dependencyUnverified} need review</span>`,
+      s.ambiguousKeys && `<span class="chip warn">${s.ambiguousKeys} ambiguous keys</span>`,
+      s.unmappable && `<span class="chip amber">${s.unmappable} without ${esc(currentKeyField)}</span>`,
+      s.cmlDifferences && `<span class="chip cml-diff" title="Valid in one org; the two CML definitions differ">${s.cmlDifferences} CML definition differences</span>`,
+    ].filter(Boolean);
+    dataChips.innerHTML = `<div class="chip-cols">`
+      + chipColumnHtml("source", `Source · ${o.src.org}`, [
+        `<span class="chip neutral">${o.src.total} rows</span>`,
+        `<span class="chip info">${s.sourceOnly} only in source</span>`,
+        sd && `<span class="chip amber" title="${DUP_TITLE}">${sd} duplicate flags</span>`,
+        staleChip(staleFrom("source")),
+        o.src.duplicateCheckError && `<span class="chip amber">Duplicate check unavailable</span>`,
+      ])
+      + chipColumnHtml("target", `Target · ${o.tgt.org}`, [
+        `<span class="chip neutral">${o.tgt.total} rows</span>`,
+        `<span class="chip info">${s.targetOnly} only in target</span>`,
+        td && `<span class="chip amber" title="${DUP_TITLE}">${td} duplicate flags</span>`,
+        staleChip(staleFrom("target")),
+        o.tgt.duplicateCheckError && `<span class="chip amber">Duplicate check unavailable</span>`,
+      ])
+      + `</div>`
+      + `<div class="chip-compare"><span class="chip-group-label">Comparison</span><div class="chips">${comparison.join("")}</div></div>`;
   }
 
   // ---- Deploy selected constraint data to the target ----
@@ -2626,9 +3566,12 @@
       + `<span class="chip extra">${s.deleteOk} deleted</span>`
       + (s.deleteFail ? `<span class="chip warn">${s.deleteFail} delete failed</span>` : "")
       + `</div>`;
+    const failureHtml = r => (r.reasons && r.reasons.length)
+      ? ` — <strong>${esc(r.errorTitle || "Blocked")}</strong>${reasonListHtml(r.reasons)}`
+      : " — " + esc(r.error || "failed");
     const line = (r, verb) => `<div class="result-row ${r.success ? "good" : "bad"}">`
       + `<span class="ico">${r.success ? "✓" : (r.skipped ? "○" : "✗")}</span>`
-      + `<span>${r.skipped ? "Skip" : verb} ${esc(r.label)}${r.success ? "" : " — " + esc(r.error || "failed")}`
+      + `<span>${r.skipped ? "Skip" : verb} ${esc(r.label)}${r.success ? "" : failureHtml(r)}`
       + (!r.success && r.diagnostic ? `<details class="diagnostic-details"><summary>Salesforce diagnostic</summary>${esc(diagnosticText(r.diagnostic))}</details>` : "")
       + `</span></div>`;
     if (data.created.length) html += `<h4>Inserts</h4>` + data.created.map(r => line(r, "Add")).join("");
@@ -2679,6 +3622,8 @@
         setStatus(restored.ok ? "ok" : "err", appendDiagnostic(
           restored.log || "Association restore finished.",
           restored.diagnostic), dSt());
+        await loadAssociationArchives();
+        await loadDeploymentReports();
       } catch (e) {
         if (e && e.conn) { handleDisconnect(); } else { setStatus("err", "Restore error: " + e, dSt()); }
       }
@@ -2727,11 +3672,11 @@
         const severity = (data.outcome === "failed" || data.outcome === "partial"
           || refreshFailed) ? "err" : (nonSuccess ? "info" : "ok");
         setStatus(severity,
-          `Done. Added ${s.insertOk}/${adds.length}, deleted ${s.deleteOk}/${deletes.length}.`
-          + (s.insertFail + s.deleteFail ? ` ${s.insertFail + s.deleteFail} failed — see details below.` : "")
-          + (s.insertSkipped ? ` ${s.insertSkipped} exact duplicate add skipped.` : "")
+          (nonSuccess ? "Done with problems — see Deployment results above." : "Done — see Deployment results above.")
           + (refreshFailed ? ` RECOVERY REQUIRED — associations changed, but the tool-specific CML save/verification refresh failed; runtime validation is not established.` : "")
           + `\nReview the saved report and recovery options below, then click Compare data to refresh.`, dSt());
+        await loadAssociationArchives();
+        await loadDeploymentReports();
       } else {
         setStatus("err", appendDiagnostic(
           data.log || "Deploy failed.", data.diagnostic), dSt());
@@ -2745,7 +3690,7 @@
 
   document.addEventListener("keydown", event => {
     const modifier = event.metaKey || event.ctrlKey;
-    if (modifier && event.key.toLowerCase() === "s") {
+    if (modifier && event.key.toLowerCase() === "s" && !["cdfix", "xml"].includes(currentView)) {
       event.preventDefault();
       if (editingTarget) {
         saveTargetEditBtn.click();
@@ -2767,12 +3712,49 @@
     }
   });
 
-  fetch("/api/ping", { cache: "no-store" })
-    .then(r => r.json())
+  apiGet("/api/ping")
     .then(d => {
       const e = $("appver");
-      if (e) e.textContent = `v${d.version || "?"} · build ${(d.build || "?").slice(0, 8)}`;
+      if (e && d && !d.error) {
+        e.textContent = `v${d.version || "?"} · build ${(d.build || "?").slice(0, 8)}`;
+        const badge = document.querySelector(".local-badge");
+        if (badge) badge.title = `Runs locally · ${e.textContent}`;
+      }
     })
-    .catch(() => {});
+    .catch(error => {
+      if (error && error.conn) handleDisconnect();
+    });
+
+  const buildBanner = $("buildBanner"), buildBannerText = $("buildBannerText");
+  const buildBannerReload = $("buildBannerReload");
+  const servedByTool = /^https?:$/.test(window.location.protocol);
+  let loadedAssetsHash = null;
+  async function checkBuildStatus() {
+    let status;
+    try {
+      status = await apiGet("/api/build-status");
+    } catch (error) {
+      return;
+    }
+    if (!status || !status.ok) return;
+    if (loadedAssetsHash == null) loadedAssetsHash = status.assetsHash;
+    const assetsChanged = status.assetsHash !== loadedAssetsHash;
+    if (status.serverStale) {
+      buildBannerText.textContent = "The CML Tool's server code changed after it started, so it is still running the old version. " +
+        "Restart it: press Ctrl+C in its terminal, then run python3 app/cml_tool.py again. Until then, analysis and builds use the old code.";
+    } else if (assetsChanged) {
+      buildBannerText.textContent = "The CML Tool's interface was updated. Reload the page to use the new version.";
+    }
+    buildBannerReload.hidden = !assetsChanged || status.serverStale;
+    buildBanner.hidden = !status.serverStale && !assetsChanged;
+  }
+  if (servedByTool) {
+    buildBannerReload.addEventListener("click", () => window.location.reload());
+    checkBuildStatus();
+    setInterval(checkBuildStatus, 60_000);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") checkBuildStatus();
+    });
+  }
 
   loadOrgs();

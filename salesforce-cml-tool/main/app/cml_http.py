@@ -4,10 +4,46 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import threading
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
+
+# Pinned by the companion extension's manifest.json "key" (kept outside this repo).
+# Extra IDs may be added with CML_EXTENSION_IDS (comma-separated).
+DEFAULT_EXTENSION_IDS = ("kjjnjiakeemdgpenipimehklndhfbmmp",)
+_EXTENSION_ID_PATTERN = re.compile(r"^[a-p]{32}$")
+
+
+def allowed_extension_ids():
+    """Return the allowlisted Chrome extension IDs trusted for CORS/Origin."""
+    ordered = []
+    seen = set()
+    extras = os.environ.get("CML_EXTENSION_IDS", "")
+    for raw in list(DEFAULT_EXTENSION_IDS) + extras.split(","):
+        value = raw.strip().lower()
+        if not value or value in seen:
+            continue
+        if not _EXTENSION_ID_PATTERN.fullmatch(value):
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return tuple(ordered)
+
+
+def extension_id_from_origin(origin):
+    """Return a chrome-extension ID from Origin, or None if it is not one."""
+    try:
+        parsed = urllib.parse.urlparse(origin or "")
+    except ValueError:
+        return None
+    if parsed.scheme != "chrome-extension":
+        return None
+    ext_id = (parsed.netloc or parsed.path.lstrip("/").split("/")[0]).lower()
+    if not _EXTENSION_ID_PATTERN.fullmatch(ext_id):
+        return None
+    return ext_id
 
 
 def make_handler(resolve):
@@ -40,6 +76,7 @@ def make_handler(resolve):
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Referrer-Policy", "no-referrer")
+            self._apply_cors_headers(private_network=False)
             self.end_headers()
             self.wfile.write(data)
 
@@ -48,15 +85,61 @@ def make_handler(resolve):
             hostname = host.rsplit(":", 1)[0].strip("[]")
             return hostname in ("127.0.0.1", "localhost", "::1")
 
+        def _cors_origin(self):
+            origin = self.headers.get("Origin")
+            ext_id = extension_id_from_origin(origin)
+            if ext_id and ext_id in allowed_extension_ids():
+                return origin
+            return None
+
+        def _apply_cors_headers(self, private_network=False):
+            origin = self._cors_origin()
+            if not origin:
+                return
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+            self.send_header(
+                "Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header(
+                "Access-Control-Allow-Headers", "Content-Type, X-CML-CSRF")
+            if private_network:
+                self.send_header(
+                    "Access-Control-Allow-Private-Network", "true")
+
         def _trusted_origin(self):
             origin = self.headers.get("Origin")
             if not origin:
+                return True
+            if self._cors_origin():
                 return True
             try:
                 hostname = urllib.parse.urlparse(origin).hostname
             except ValueError:
                 return False
             return hostname in ("127.0.0.1", "localhost", "::1")
+
+        def do_OPTIONS(self):
+            try:
+                if not self._trusted_host():
+                    self._send(
+                        403, {"ok": False, "log": "Untrusted Host header."})
+                    return
+                if not self._trusted_origin():
+                    self._send(
+                        403, {"ok": False, "log": "Untrusted Origin header."})
+                    return
+                self.send_response(204)
+                self.send_header("Content-Length", "0")
+                self.send_header(
+                    "Cache-Control", "no-store, no-cache, must-revalidate")
+                self.send_header("Access-Control-Max-Age", "600")
+                self._apply_cors_headers(private_network=True)
+                self.end_headers()
+            except Exception as exc:  # noqa: BLE001
+                logging.exception(
+                    "Unexpected CML Tool OPTIONS failure: %s", exc)
+                self._send(500, {
+                    "ok": False, "log": "Unexpected server error."})
 
         def do_GET(self):
             try:
@@ -111,8 +194,10 @@ def make_handler(resolve):
                         "build": resolve("BUILD"),
                         "localRequestToken": resolve("CSRF_TOKEN"),
                     })
+                elif request_path == "/api/build-status":
+                    self._send(200, resolve("build_status")())
                 elif request_path == "/api/orgs":
-                    self._send(200, resolve("list_orgs")())
+                    self._send(200, resolve("org_list_snapshot")())
                 elif self.path.startswith("/api/models"):
                     query = urllib.parse.urlparse(self.path).query
                     org = urllib.parse.parse_qs(query).get("org", [""])[0]
@@ -130,6 +215,16 @@ def make_handler(resolve):
                         query.get("org", [""])[0],
                         query.get("model", [""])[0],
                         query.get("versionId", [""])[0]))
+                elif request_path == "/api/org-release":
+                    query = urllib.parse.parse_qs(
+                        urllib.parse.urlparse(self.path).query)
+                    self._send(200, resolve("org_release")(
+                        query.get("org", [""])[0]))
+                elif request_path == "/api/context-definitions":
+                    query = urllib.parse.parse_qs(
+                        urllib.parse.urlparse(self.path).query)
+                    self._send(200, resolve("list_context_definitions")(
+                        query.get("org", [""])[0]))
                 else:
                     self._send(404, {"error": "not found"})
             except Exception as exc:  # noqa: BLE001
@@ -210,6 +305,11 @@ def make_handler(resolve):
                 result = resolve("target_version_readiness")(
                     body.get("org"), body.get("model"),
                     body.get("targetVersionId"))
+            elif self.path == "/api/lifecycle":
+                result = resolve("set_cml_activation")(
+                    body.get("org"), body.get("model"),
+                    body.get("targetVersionId"), body.get("active"),
+                    body.get("confirmTarget"))
             elif self.path == "/api/compare":
                 result = resolve("compare_cml")(
                     body.get("sourceOrg"), body.get("targetOrg"),
@@ -240,6 +340,37 @@ def make_handler(resolve):
                     body.get("targetOrg"), body.get("model"),
                     body.get("targetVersionId"), body.get("archiveId"),
                     body.get("confirmTarget"))
+            elif self.path == "/api/orgs/refresh":
+                result = resolve("org_list_snapshot")(force_refresh=True)
+            elif self.path == "/api/context-definitions/retrieve":
+                result = resolve("retrieve_context_definition")(
+                    body.get("org"), body.get("name"))
+            elif self.path == "/api/xml/compare":
+                result = resolve("xml_compare")(
+                    body.get("a") or "", body.get("b") or "",
+                    body.get("tag") or "")
+            elif self.path == "/api/xml/merge":
+                result = resolve("xml_merge")(
+                    body.get("base") or "", body.get("override") or "")
+            elif self.path == "/api/xml/dedup":
+                result = resolve("xml_dedup")(body.get("content") or "")
+            elif self.path == "/api/cdfix/analyze":
+                result = resolve("cd_fix_analyze")(
+                    body.get("base") or "", body.get("modified") or "")
+            elif self.path == "/api/cdfix/build":
+                result = resolve("cd_fix_build")(
+                    body.get("base") or "", body.get("modified") or "",
+                    body.get("selectedIds") or [],
+                    body.get("provenance"))
+            elif self.path == "/api/cdfix/preflight":
+                result = resolve("cd_preflight")(
+                    body.get("org") or "", body.get("content") or "",
+                    body.get("base") or "")
+            elif self.path == "/api/cdfix/deploy-plan":
+                result = resolve("cd_deploy_plan")(
+                    body.get("name") or "", body.get("targetOrg") or "",
+                    body.get("baseOrg") or "", int(body.get("releaseCount") or 0),
+                    bool(body.get("baseEdited")))
             else:
                 self._send(404, {"error": "not found"})
                 return

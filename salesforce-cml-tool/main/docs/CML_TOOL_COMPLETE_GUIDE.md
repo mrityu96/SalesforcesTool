@@ -74,14 +74,15 @@ It does not define Salesforce product-catalog deployment procedures, claim compl
   `salesforce-cml-tool/development/tests/browser/cml_tool.spec.js`
 - User-oriented summary: `salesforce-cml-tool/README.md`
 
-The project root contains `README.md`, `.gitignore`,
-`Start Here - CML Tool/`, `main/`, and `development/`. Platform-specific
-launcher files live under `Start Here - CML Tool/`; production code and
-packaged assets live under `main/`;
-`development/` contains tracked tests, harness/build/release sources, npm
-metadata, and ignored dependencies, browser binaries/results, caches, and local
-runtime/recovery artifacts. Only the generated and private paths are excluded
-from Git.
+The project root contains `README.md`, `Start Tool Here/`, `main/`, and
+`development/` (plus the hidden `.gitignore` and `.github/`). Platform-specific
+launcher files live under `Start Tool Here/`; production code, packaged assets,
+the project Markdown files, `VERSION`, and `LICENSE` live under `main/`;
+`development/` contains tracked tests,
+harness/build/release sources and npm metadata, plus ignored dependencies,
+browser binaries/results, caches, built zips, and
+local runtime/recovery artifacts. Only the generated and private paths are
+excluded from Git.
 
 There is one application implementation under `main/app/`, split into sibling
 Python modules. Application paths in this guide are relative to
@@ -111,15 +112,15 @@ write path.
 - **PRC:** `ProductRelatedComponent`.
 - **Source / target:** The org supplying intended state and the org being evaluated or changed.
 - **Fresh comparison:** A server-side comparison performed at deployment time, not merely the state still displayed in the browser.
-- **Guide Me on Tool:** The fourth application view, a static local safe-workflow reference requiring no API.
+- **Help Me:** The last of the six application views (Fetch & Deploy CML, Constraint Data, Compare CML, Context Definition Fix, XML Tools, Help Me): two static handbooks (CML Deployment Guide and Context Definition Deployment Guide) with sample-data screenshots, requiring no API.
 
 ### 1.6 Document metadata and maintenance
 
 | Field | Value |
 |---|---|
 | Document ID | CML-TOOL-GUIDE |
-| Version | 1.2 |
-| Last reviewed | 2026-09-08 |
+| Version | 1.3 |
+| Last reviewed | 2026-09-11 |
 | Status | Current implementation guide |
 | Owner | CML Tool maintainers |
 | Review cycle | Review after any change to matching, deployment, recovery, security, supported Salesforce objects, or UI action eligibility |
@@ -141,9 +142,16 @@ The tool addresses two separate portability layers:
 The tool deliberately has a narrow write boundary. It writes only:
 
 - `ExpressionSetDefinitionVersion.ConstraintModel`; and
+- `ExpressionSetVersion.IsActive=false` for an explicitly confirmed
+  exact-version deactivation; and
 - `ExpressionSetConstraintObj` inserts and deletes.
 
-It does not create or repair products, classifications, attributes, component groups, product relationships, or other catalog prerequisites. It does not activate or compile a model. Active definition-version and parent-Expression-Set writes are blocked. Those remain explicit operational responsibilities.
+It does not create or repair products, classifications, attributes, component
+groups, product relationships, or other catalog prerequisites. CML deployment
+does not activate automatically. Verified deactivation is a separate,
+typed-confirmation operation. Activation is blocked in the tool and must run
+through Salesforce Constraint Builder so compiler validation is enforced;
+functional scenario validation remains an operational responsibility.
 
 Production use is appropriate only as a controlled, supervised operation after representative sandbox and UAT validation. Typed target confirmation, local backups, verification, rollback attempts, deletion archives, server-side revalidation, per-model locks, partial-result reporting, and audit artifacts reduce risk; they do not replace change approval, catalog ownership, live activation testing, or operator judgment.
 
@@ -368,7 +376,7 @@ The tool does not write these catalog objects. It also does not claim these chec
    lifecycle; `app/cml_constraints.py` owns ESCO comparison, deployment, and
    restore.
 6. **HTTP boundary:** `app/cml_http.py` owns local Host/Origin, CSRF,
-   request-size, security-header, and route-dispatch controls.
+   request-size, security-header, CORS-for-pinned-extension, and route-dispatch controls.
 7. **Local artifacts:** `app/cml_artifacts.py` owns private, atomic backups,
    archives, reports, and audit files.
 8. **Local analysis:** `app/cml_analysis.py` owns the tokenizer, tolerant AST
@@ -381,12 +389,14 @@ The tool does not write these catalog objects. It also does not claim these chec
 
 ### 6.2 High-level request flow
 
-1. A platform-specific launcher under `Start Here - CML Tool/`, or
+1. A platform-specific launcher under `Start Tool Here/`, or
    `python3 main/app/cml_tool.py` from the project root, starts the local
    process. Each launcher resolves the production application under
    `main/app/` and keeps runtime output out of `main/`.
 2. The process checks whether the configured port already hosts this application and compares build hashes.
 3. The browser loads `/`; the server injects a per-process CSRF token into the page.
+   The Chrome extension page is not served by Python. In browser-session
+   mode it messages the service worker (`cml-api`) instead of localhost.
 4. The UI calls `/api/orgs`, then `/api/models?org=...` after a source org is selected.
 5. GET routes perform discovery and diagnostics. POST routes perform fetch, compare, local logic analysis, data operations, recovery, and protected shutdown.
 6. The backend obtains credentials from `sf`, then sends HTTPS requests to the selected Salesforce instance.
@@ -588,18 +598,22 @@ linter runs in the browser and does not send editor text to an analysis
 service. Generated remediation still requires semantic review and Salesforce
 validation.
 
-### 7.5 Guide Me on Tool
+### 7.5 Help Me
 
-The fourth application view is a static, responsive operating guide. Opening it
-makes no API request. Its eight numbered steps cover exact source version
-selection, fetch, exact comparison with optional semantic overlays and merge
-draft, best-practice checks, exact deployment-target selection and status
-review, backup/confirmation before CML deployment, dependency-preflighted
-Constraint Data Deploy, and restore/recovery.
+The last application view is a static, responsive handbook with two sub-tabs.
+Opening it makes no API request. The **CML Deployment Guide** has 13 numbered
+steps: prerequisites, the screen layout, exact source version selection, fetch,
+search and edit, best-practice checks, comparison and merge draft, target status,
+confirmed CML deployment, activation in Constraint Builder, Product associations,
+recovery, and troubleshooting. The **Context Definition Deployment Guide** has 11
+steps: concepts, org selection, retrieve, analyze, Not applied, selection, build,
+field check, generated deploy commands, verification, and troubleshooting. Every
+step includes a screenshot taken with sample data.
 
 Each step is labeled **Read-only** or **Writes Salesforce**. The guide also states
-that target status may differ by org, that the tool does not compile or activate
-CML or prove runtime behavior, and that catalog prerequisites are read-only in
+that target status may differ by org, that activation is always a separate
+confirmed action and does not prove scenario behavior, and that catalog
+prerequisites are read-only in
 this tool and must be corrected externally. It explicitly identifies Context
 Definition tags and mappings as separate target-org prerequisites: every tag
 referenced by a CML attribute must be promoted through its approved metadata
@@ -614,7 +628,7 @@ They are not exposed as a standalone analyzer or API.
 
 ### 7.6 Constraint data export and comparison
 
-`View data` calls `/api/data` with the exact selected version ID, maps it through
+`View Source Org Data` calls `/api/data` with the exact selected version ID, maps it through
 `ExpressionSetVersion` to one parent `ExpressionSet`, and returns ESCO rows for
 that parent as JSON. The UI displays reference type, tag type, tag, reference
 label/code, selected key, and duplicate badges.
@@ -814,9 +828,9 @@ Because activation behavior is not fully established by the repository's live ev
 4. Compare source and target CML in exact and semantic modes.
 5. Select the intended exact source and target versions, then fetch and deploy.
 6. Confirm the CML deployment report and SHA verification.
-7. If a required write target is Active, deactivate it in Salesforce, refresh
-   the version list, and reselect the exact version. Do not rely on the stale
-   browser selection.
+7. If a required write target is Active, use **Deactivate CML** (or the approved
+   Salesforce UI process), confirm the exact target alias, and verify the
+   refreshed runtime status. Do not rely on a stale browser selection.
 8. Compare Constraint Data using the approved key.
 9. Resolve all `cml-difference`, ambiguous, blocked, unverified, and unmappable rows.
 10. Deploy selected additions first unless the approved change specifically requires deletion.
@@ -826,11 +840,13 @@ Because activation behavior is not fully established by the repository's live ev
 12. Recompare data before considering deletions.
 13. Select only approved fresh target-only extras, deploy, and retain the deletion archive.
 14. Recompare until the intended outcome is explained.
-15. Manually activate or re-activate as required by the tested target-org
-    process; deploy never performs this.
+15. Activate through Salesforce Constraint Builder so the platform compiler
+    validates the model. Direct `IsActive=true` activation is blocked by this
+    tool because it bypasses that validation. Deploy never activates
+    implicitly.
 16. Execute functional smoke tests and archive evidence.
 
-The tool never activates a model automatically.
+The tool never activates a model automatically as a side effect of deployment.
 
 ### 9.3 CML-only deployment
 
@@ -838,12 +854,12 @@ The tool never activates a model automatically.
 2. Select and fetch the exact source version.
 3. Select an explicit deployment target and exact target version.
 4. Compare the exact versions when moving cross-org.
-5. If the target version is Active, deactivate it in Salesforce, refresh, and
-   reselect it.
+5. If the target version is Active, use the separate **Deactivate CML** action,
+   refresh, and reselect it.
 6. Click **Deploy CML**.
 7. Confirm overwrite and type the target alias exactly.
 8. Verify success, backup location, report location, and SHA.
-9. Complete manual activation and smoke testing.
+9. Activate explicitly with typed confirmation, then complete smoke testing.
 
 ### 9.4 Association-only recovery
 
@@ -953,7 +969,14 @@ JSON artifacts are written through a temporary file, flushed, `fsync`ed, and ato
 
 - Server binding: `127.0.0.1` only.
 - Trusted Host values: `127.0.0.1`, `localhost`, and `::1`.
-- POST Origin, when supplied, must resolve to a local hostname.
+- POST Origin, when supplied, must resolve to a local hostname **or** an
+  allowlisted `chrome-extension://<id>`. The companion extension ID is pinned in
+  `cml_http.py` (`DEFAULT_EXTENSION_IDS`).
+  Additional IDs may be added with `CML_EXTENSION_IDS`. Arbitrary extension IDs
+  and websites are rejected. CORS headers are echoed only for that allowlisted
+  extension origin (`Access-Control-Allow-Origin` is never `*`).
+- `OPTIONS` preflight is accepted for those same trusted origins and advertises
+  `Content-Type`, `X-CML-CSRF`, and `Access-Control-Allow-Private-Network`.
 - Every POST requires a per-process `X-CML-CSRF` token.
 - Shutdown is POST-only and CSRF-protected.
 - Request bodies over 10 MiB are rejected.
@@ -962,17 +985,27 @@ JSON artifacts are written through a temporary file, flushed, `fsync`ed, and ato
 
 The CSP permits scripts only from the local origin. Styles are local or must
 carry the per-process nonce used by trusted runtime editor styling; arbitrary
-inline script execution is not allowed.
+inline script execution is not allowed. The Chrome extension page uses its
+own Manifest V3 CSP and may `connect-src` only loopback.
 
 ### 10.12 Write allowlist
 
-At the lowest shared collection-insert boundary, every inserted record must declare `ExpressionSetConstraintObj`. Delete accepts only IDs with the expected ESCO prefix. Catalog-object writes are blocked by design.
+At the lowest shared collection-insert boundary, every inserted record must
+declare `ExpressionSetConstraintObj`. Delete accepts only IDs with the expected
+ESCO prefix. The only lifecycle field written is
+`ExpressionSetVersion.IsActive=false`, after exact definition-to-runtime
+ownership resolution and typed target confirmation. Direct `IsActive=true`
+activation and catalog-object writes are blocked by design.
 
 ## 11. Security and permissions
 
 ### 11.1 Localhost-only design
 
 The application is designed for a single operator on the same computer. It has no user accounts, TLS listener, remote access mode, or multi-user authorization layer. Do not proxy, port-forward, container-publish, or expose it to a network.
+
+The optional Chromium extension is a local UI client of this loopback API. It
+does not call Salesforce directly and does not replace Host/CSRF/lock/backup
+controls.
 
 ### 11.2 Credential and token handling
 
@@ -981,7 +1014,7 @@ The application is designed for a single operator on the same computer. It has n
 - The tool does not intentionally write access tokens into downloads, backups, reports, or deployment audit entries.
 - A token redaction placeholder is not accepted as a token.
 - The `/api/debug` response includes environment diagnostics such as paths, operating-system user, and login counts; share only after review.
-- `/api/ping` returns the local request token so a newer launcher can ask an older local process to stop. Host restrictions and loopback binding are therefore part of the trust boundary.
+- `/api/ping` returns the local request token so a newer launcher can ask an older local process to stop, and so the Chrome extension can bootstrap CSRF when it is not served the HTML page. Host restrictions, the extension-ID allowlist, and loopback binding are therefore part of the trust boundary.
 
 ### 11.3 Salesforce permissions
 
@@ -1054,7 +1087,7 @@ Backups and archives can contain CML, record IDs, portable keys, product labels,
 | Message | Cause | Tool action | User action |
 |---|---|---|---|
 | Untrusted Host | Non-local Host header | HTTP 403 | Use the loopback URL |
-| Untrusted Origin | Browser POST came from non-local origin | HTTP 403 | Close untrusted page; reload tool locally |
+| Untrusted Origin | Browser POST came from a non-local origin that is not the pinned Chrome extension | HTTP 403 | Close untrusted page; reload the local tool or the unpacked extension |
 | Request rejected by local security protection | Missing/stale CSRF token | HTTP 403 | Reload the current tool page |
 | Request is too large | Body exceeds 10 MiB | HTTP 413 | Reduce request; investigate unexpectedly large CML |
 | Invalid request body | Malformed JSON | No operation | Use the built-in UI or correct local client |
@@ -1069,7 +1102,8 @@ The user or release owner remains responsible for:
 4. Deploying or repairing catalog objects outside this tool.
 5. Reviewing exact and semantic CML differences.
 6. Reviewing every blocked, unverified, unmappable, duplicate, CML-difference, stale, add, and delete row.
-7. Performing activation manually and recording activation errors.
+7. Approving explicit activation/deactivation, preserving lifecycle reports,
+   and recording Salesforce validation errors.
 8. Resolving zero/multiple exact version-to-Expression-Set mappings rather than asking the tool to guess.
 9. Reconciling partial success before retry.
 10. Retaining, protecting, and eventually disposing of local artifacts under organizational policy.
@@ -1084,11 +1118,14 @@ The user or release owner remains responsible for:
 
 The tool does not create or update Product, Classification, Classification Attribute, Component Group, Product Relationship, Selling Model, or other prerequisite records.
 
-### 14.2 No automatic activation
+### 14.2 No automatic or unattended activation
 
-It does not activate or compile Expression Set versions or models. A CML
-validation refresh is only this tool's unchanged-content save and exact
-verification step; it is not documented activation/runtime proof.
+CML deployment never auto-activates. Deactivation requires a separate exact
+target selection, typed org-alias confirmation, a guarded
+`ExpressionSetVersion.IsActive=false` update, and read-after-write verification.
+Activation must be performed in Salesforce Constraint Builder. A direct
+`IsActive=true` update can mark invalid CML active without invoking the platform
+compiler, so the tool rejects that request.
 
 ### 14.3 No unattended production deployment
 
@@ -1114,7 +1151,7 @@ functional testing.
 
 ### 14.7 Static guide and analysis boundary
 
-Guide Me on Tool is documentation only and performs no analysis or network
+Help Me is documentation only and performs no analysis or Salesforce
 request. Semantic comparison remains conservative: it compares parsed structure
 but does not compile, solve, activate, or predict Salesforce runtime behavior.
 
@@ -1271,7 +1308,7 @@ The test module covers:
 - parser expression forms and expression-completeness checks used by semantic
   comparison;
 - malformed-construct recovery to later declarations;
-- Guide Me on Tool navigation, eight numbered steps, safety badges, responsive layout, and zero-request behavior;
+- Help Me navigation, both handbooks and their numbered steps, sub-tab keyboard behavior, safety badges, and zero-API-request behavior;
 - bounded Myers diff fallback, stable semantic overlays, complete-entity draft
   merges, ambiguous-identity blocking, target copy, and semantic reanalysis
   after each merge;
@@ -1293,7 +1330,7 @@ python3 -m unittest discover -s tests -v
 
 This discovers cohesive analysis, HTTP/security, lifecycle, constraints,
 Salesforce transport, artifact, release, CLI, and contract-harness modules.
-The verified current suite contains **141 Python tests**.
+The verified current suite contains **224 Python tests**.
 
 The optional browser regression suite is development-only. From
 `salesforce-cml-tool/`, enter `development/` first:
@@ -1305,7 +1342,7 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-It contains **23 browser tests**. Playwright starts the real local HTTP server
+It contains **41 browser tests**. Playwright starts the real local HTTP server
 on its dedicated test port, while each test intercepts the relevant local API
 requests and supplies synthetic responses. The suite does not authenticate to
 or contact Salesforce. It covers editor line-number/comment behavior, stable
@@ -1434,10 +1471,10 @@ If the browser still shows old content:
 3. Reload or hard-refresh the browser.
 4. If another process owns the port, stop it or choose a different `CML_UI_PORT`.
 
-### 17.12 Guide Me on Tool does not open
+### 17.12 Help Me does not open
 
 Reload the local application and verify the current build identifier. Because the
-guide is static, Salesforce authentication and API availability are not required.
+handbook is static, Salesforce authentication and API availability are not required.
 
 ### 17.13 Test discovery fails
 
@@ -1505,7 +1542,7 @@ After each write:
 
 **macOS background**
 
-From the project root, open `Start Here - CML Tool/` and double-click
+From the project root, open `Start Tool Here/` and double-click
 `Open CML Tool for macOS.command`. The launcher resolves
 `main/app/cml_tool.py`, starts it with `--no-browser` and `nohup`, writes
 `development/runtime/logs/cml-ui.log` by default, waits for `/api/ping`, and
@@ -1521,7 +1558,7 @@ python3 main/app/cml_tool.py
 
 **Windows foreground**
 
-Open `Start Here - CML Tool/` and double-click
+Open `Start Tool Here/` and double-click
 `Open CML Tool for Windows.bat` or, from the project root, run
 `python main\app\cml_tool.py`. The launcher resolves the same production
 application path. Close its window to stop the tool.
@@ -1536,7 +1573,7 @@ CML_UI_PORT=8900 python3 main/app/cml_tool.py
 
 - Foreground: press `Ctrl+C`.
 - macOS background: double-click
-  `Start Here - CML Tool/Stop CML Tool for macOS.command`.
+  `Start Tool Here/Stop CML Tool for macOS.command`.
 - Protected local API: `POST /api/quit` with the current CSRF token.
 - Relaunching a changed build on the same port requests shutdown of the older CML Tool process.
 
@@ -1584,10 +1621,10 @@ continue to intercept the guarded path.
 | Module | Primary public/maintenance surface |
 |---|---|
 | `app/cml_tool.py` | wrapper names, deployment locks, operation registration/cancellation, build and server lifecycle |
-| `app/cml_lifecycle.py` | `list_models`, `resolve_exact_version`, `fetch_cml`, `compare_cml`, `deploy_cml`, `rollback_cml`, `_refresh_cml_validation` |
+| `app/cml_lifecycle.py` | `list_models`, `resolve_exact_version`, `fetch_cml`, `compare_cml`, `deploy_cml`, `rollback_cml`, `set_cml_activation`, `_refresh_cml_validation` |
 | `app/cml_constraints.py` | `export_constraints`, `compare_constraints`, `deploy_constraints`, `restore_association_archive`, PRC/dependency/duplicate helpers |
 | `app/cml_salesforce.py` | CLI discovery, credentials, `rest`, `query_json`, ESCO collection insert/delete |
-| `app/cml_http.py` | handler factory, GET/POST routing, Host/Origin/CSRF/body/security-header controls |
+| `app/cml_http.py` | handler factory, GET/POST/OPTIONS routing, Host/Origin/CSRF/CORS/body/security-header controls |
 | `app/cml_artifacts.py` | safe names, SHA-256, atomic JSON, traversal-safe reads, audit append |
 | `app/cml_tool_page.py` | thin `PAGE` template loader |
 | `templates/`, `assets/` | editor/UI contracts, windowed Myers/coarse diff, semantic merge UI, operation-ID cancellation |
@@ -1597,6 +1634,8 @@ continue to intercept the guarded path.
 
 - All POSTs must use `postJSON`, which adds `X-CML-CSRF`.
 - GETs should use `apiGet` and no-store caching.
+- When `window.CmlRuntime.apiBase` is set (Chrome extension), those helpers
+  prefix that local base URL and bootstrap CSRF from `/api/ping`.
 - Org selectors must retain explicit empty defaults.
 - Additions default selected; deletions default unselected.
 - Only `isAdd` and `isDel` rows receive action checkboxes.
@@ -1604,9 +1643,9 @@ continue to intercept the guarded path.
 - Backend status remains authoritative; server-side deploy must never rely on `_status`.
 - Status details used for Excel export should remain plain-text-safe.
 - Result rendering must keep row-level errors and recovery artifact links visible.
-- Guide Me on Tool must remain static: opening it must not call an API or contact
+- Help Me must remain static: opening it must not call an API or contact
   Salesforce.
-- Its eight numbered steps, Read-only/Writes Salesforce labels, recovery
+- Both handbooks' numbered steps, Read-only/Writes Salesforce labels, recovery
   guidance, and compile/activation/runtime boundary must remain visible.
 - New parser nodes used by semantic comparison must preserve half-open source
   coordinates and tolerant recovery of later declarations.
@@ -1634,7 +1673,7 @@ cd development
 # Syntax for all application modules and the guarded CLI
 python3 -m py_compile ../main/app/*.py ../main/app/utilities/cml_cli.py
 
-# Complete Python suite (141 tests)
+# Complete Python suite (146 tests)
 python3 -m unittest discover -s tests -v
 
 # Optional browser suite (18 tests, mocked API responses, no Salesforce contact)
@@ -1709,6 +1748,7 @@ runtime proof. Failure after successful DML is partial and recovery-required.
 ### 20.2 Appendix A — API route summary
 
 All routes are local. POST routes require trusted Host/Origin and `X-CML-CSRF`.
+`OPTIONS` is used only for the pinned Chrome extension CORS preflight.
 
 | Method | Route | Purpose | Writes Salesforce |
 |---|---|---|---:|
@@ -1723,6 +1763,7 @@ All routes are local. POST routes require trusted Host/Origin and `X-CML-CSRF`.
 | POST | `/api/semantic/compare` | Reanalyze source text and the current target draft locally after a merge, direct edit, or reset | No |
 | POST | `/api/operation/cancel` | Cancel the registered long-running comparison identified by `operationId` | No |
 | POST | `/api/readiness` | Resolve the exact target version and return only its current write eligibility and Active/Inactive/write-blocked status | No |
+| POST | `/api/lifecycle` | Deactivate one exact runtime `ExpressionSetVersion` with typed confirmation and read-after-write verification; activation requests fail closed | Yes, for deactivation |
 | POST | `/api/deploy` | Ownership/status check exact `targetVersionId`, backup, PATCH, verify CML | Yes |
 | POST | `/api/rollback` | Ownership/status check exact `targetVersionId`, verify and restore matching backup | Yes |
 | POST | `/api/data` | Map exact `versionId` to parent Expression Set and export ESCO | No |
@@ -1891,15 +1932,15 @@ Run each scenario with synthetic or approved redacted data and capture compariso
     Sets block before their respective writes; unknown status also fails closed.
 29. **Permission failure:** read and write errors are clear and do not broaden access.
 30. **Concurrent same-model operation:** second operation is rejected in one process.
-31. **Local API abuse:** missing CSRF, remote Origin, untrusted Host, oversized body, and GET shutdown fail.
+31. **Local API abuse:** missing CSRF, remote Origin, unknown Chrome extension ID, untrusted Host, oversized body, and GET shutdown fail.
 32. **Activation dependency matrix:** remove or alter one prerequisite at a time, activate manually, and record exact Salesforce behavior separately from save/verification refresh.
 33. **Semantic parser syntax:** exercise declarations/types, fixed/range
     cardinality, relation order/aggregates, `^`, `?:`, table rows,
     `SalesforceTable`, `cardinality`, and configured targets.
 34. **Semantic parser recovery:** damage an early construct and verify later
     balanced declarations remain available to semantic comparison.
-35. **Guide Me on Tool static behavior:** verify all eight steps and safety
-    labels render and opening the tab makes no API request.
+35. **Help Me static behavior:** verify both handbooks, their numbered steps,
+    and safety labels render, and opening the tab makes no API request.
 
 ### 20.5 Attribution
 
@@ -1957,7 +1998,7 @@ is at least 8.5 only where the corresponding acceptance evidence exists.
   Live save/restore and activation scenarios were not executed, so this cannot
   honestly be rated 8.5 yet. Those writes require a separately approved,
   numbered run against an approved non-production target.
-- **Testing — 9.1/10.** 141 Python tests and 23 Playwright tests cover the
+- **Testing — 9.1/10.** 224 Python tests and 41 Playwright tests cover the
   guarded core, HTTP/security, offline assets, editor, large comparisons,
   release archives, reusable compare editor, typed-dialog keyboard behavior,
   scoped draft recovery, native-dialog exclusion, and default-read-only harness

@@ -36,6 +36,8 @@ at production for routine development.
 - Preserve exact-version ownership checks, explicit target confirmation,
   active-version blocks, backups, read-after-write verification, and recovery.
 - Keep all POST routes behind Host, Origin, and CSRF validation.
+  `chrome-extension://` is allowed only for the pinned ID in
+  `cml_http.py` (plus optional `CML_EXTENSION_IDS`); do not widen that to `*`.
 - Use the existing Salesforce transport and ESCO write allowlist; do not add an
   independent write path.
 - Treat Context Definition readiness and local validation as evidence, not
@@ -45,7 +47,7 @@ at production for routine development.
 
 ## Releases
 
-Update `VERSION` and `CHANGELOG.md` in the same pull request. Tags must be
-exactly `v<contents-of-VERSION>`. The release workflow reruns quality checks,
+Update `main/VERSION` and `main/CHANGELOG.md` in the same pull request. Tags must be
+exactly `v<contents-of-main/VERSION>`. The release workflow reruns quality checks,
 builds deterministic `.tar.gz` and `.zip` operator archives, verifies their
 contents, and publishes SHA-256 checksums.

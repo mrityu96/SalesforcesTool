@@ -1,0 +1,35 @@
+# Publish test source and configuration; exclude generated/private development data
+/development/runtime/
+/development/node_modules/
+/development/test-results/
+/development/playwright-report/
+/development/.cache/
+/development/**/.local-browsers/
+/development/.playwright-browsers/
+/development/.playwright-native/
+/development/.pycache/
+/development/dist/
+/development/.local/
+/development/notes/
+/main/chrome-extension/
+/dist/
+/.local/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Defensive cache exclusions outside development/
+**/__pycache__/
+*.py[cod]
+
+# Local configuration and credentials
+.env
+.env.*
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.key
+secrets.json
