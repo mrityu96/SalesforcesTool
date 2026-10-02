@@ -274,7 +274,7 @@ opens automatically. Close the launcher window to stop the tool.
 ### Linux / any terminal
 
 ```bash
-./Start\ Here\ -\ CML\ Tool/Open\ CML\ Tool\ for\ Linux.sh
+./Start\ Tool\ Here/Open\ CML\ Tool\ for\ Linux.sh
 # or:
 python3 main/app/cml_tool.py
 ```
@@ -682,7 +682,7 @@ salesforce-cml-tool/
 │   │   ├── cml_context_definition.py  # Read-only Context Definition retrieve
 │   │   ├── cml_tool_page.py   # Packaged template loader
 │   │   └── utilities/         # Guarded CLI and compatibility utilities
-│   ├── templates/             # HTML application shell and Guide
+│   ├── templates/             # HTML application shell and Help Me handbook
 │   ├── assets/                # Modular CSS/JS + offline CodeMirror bundle
 │   ├── docs/                  # Complete guide, screenshots
 │   ├── favicon/               # Browser and web-app assets
