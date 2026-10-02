@@ -5,6 +5,23 @@ this project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Typing in the Fetch & Deploy CML editor works again. Each keystroke was
+  reverted because the editor's change handler cleared best-practice
+  underlines before CodeMirror had read the key. Buttons such as Line comment
+  were unaffected. Applies to the desktop tool and the Chrome extension.
+- Context Definition Fix and XML Tools are no longer disabled in the Chrome
+  extension build of the interface; the extension now runs them too.
+- With no orgs available, the Target and Deploy org pickers no longer treat the
+  "Loading orgs…" placeholder as an org name.
+- Chrome extension: **Session status** opens a dialog from any tab; before, its
+  result was written to the Fetch & Deploy status area and looked like nothing
+  happened. The dialog also shows each selected org's release lookup.
+- When the Salesforce release patch number can't be found, the release value's
+  tooltip explains why, and the lookup is retried instead of cached for the
+  session.
+
 ## [2.0.0] - 2026-10-02
 
 ### Added

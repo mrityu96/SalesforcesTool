@@ -154,7 +154,7 @@
                   <svg class="version-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
                 </button>
                 <div class="org-menu" id="sourceOrgMenu" role="listbox" aria-label="Source orgs" hidden></div>
-                <select class="sr-only" id="org" tabindex="-1" aria-hidden="true"><option>Loading orgs…</option></select>
+                <select class="sr-only" id="org" tabindex="-1" aria-hidden="true"><option value="">Loading orgs…</option></select>
               </div>
             </div>
             <div class="field model-field cml-version-field">
@@ -204,7 +204,7 @@
                   <svg class="version-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
                 </button>
                 <div class="org-menu" id="targetOrgMenu" role="listbox" aria-label="Target orgs" hidden></div>
-                <select class="sr-only" id="targetOrg" tabindex="-1" aria-hidden="true"><option>Loading orgs…</option></select>
+                <select class="sr-only" id="targetOrg" tabindex="-1" aria-hidden="true"><option value="">Loading orgs…</option></select>
               </div>
             </div>
             <div class="field cml-version-field">
@@ -293,7 +293,7 @@
                     <svg class="version-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
                   </button>
                   <div class="org-menu" id="deployOrgMenu" role="listbox" aria-label="Deployment orgs" hidden></div>
-                  <select class="sr-only" id="deployOrg" tabindex="-1" aria-hidden="true"><option>Loading orgs…</option></select>
+                  <select class="sr-only" id="deployOrg" tabindex="-1" aria-hidden="true"><option value="">Loading orgs…</option></select>
                 </div>
               </div>
               <div class="field">
@@ -554,10 +554,6 @@
 
       <!-- ══════════════ VIEW: CONTEXT DEFINITION FIX ══════════════ -->
       <div class="view-panel xml-scope" id="view-cdfix">
-        <div class="local-only-notice" hidden>
-          <strong>Requires the local CML Tool.</strong>
-          Context Definition Fix runs on the local server (Start Tool Here). It is not available in the Chrome extension yet.
-        </div>
         <div class="card">
           <div class="card-head">
             <div class="card-title">
@@ -798,10 +794,6 @@
 
       <!-- ══════════════ VIEW: XML TOOLS ══════════════ -->
       <div class="view-panel xml-scope" id="view-xml">
-        <div class="local-only-notice" hidden>
-          <strong>Requires the local CML Tool.</strong>
-          XML Tools run on the local server (Start Tool Here). They are not available in the Chrome extension yet.
-        </div>
         <div class="xml-subnav-wrap">
           <span class="xml-subnav-label">XML Tools</span>
           <div class="xml-subnav" role="tablist" aria-label="XML tools">
@@ -1493,6 +1485,18 @@ sf org login web --alias Release_QA  --instance-url https://test.salesforce.com<
       <div><dt><kbd>Esc</kbd></dt><dd>Close a dialog or cancel target editing</dd></div>
     </dl>
     <button type="button" class="btn btn-primary" id="shortcutCloseBtn">Close</button>
+  </div>
+</dialog>
+
+<dialog class="action-dialog shortcut-dialog" id="sessionDialog" aria-labelledby="sessionDialogTitle">
+  <div class="action-dialog-body">
+    <h2 id="sessionDialogTitle">Session status</h2>
+    <p class="meta">Salesforce tabs and API sessions this Chrome profile can use.</p>
+    <pre class="session-status-body" id="sessionDialogBody" aria-live="polite">Checking…</pre>
+    <div class="action-dialog-actions">
+      <button type="button" class="ghost" id="sessionRefreshBtn">Check again</button>
+      <button type="button" class="btn btn-primary" id="sessionCloseBtn">Close</button>
+    </div>
   </div>
 </dialog>
 

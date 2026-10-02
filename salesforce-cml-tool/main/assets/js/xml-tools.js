@@ -4,7 +4,6 @@
   const $ = (id) => document.getElementById(id);
   const { apiGet, postJSON } = window.CmlApi;
   const shell = window.CmlShell;
-  const localOnly = shell.isBrowserSession();
 
   function esc(value) {
     return (value == null ? "" : String(value))
@@ -44,7 +43,7 @@
     const placeholder = host.dataset.placeholder || "";
     const editor = window.CmlEditors.create(host, {
       language: "xml",
-      readOnly: localOnly || host.hasAttribute("data-readonly"),
+      readOnly: host.hasAttribute("data-readonly"),
       placeholder,
     });
     editor.view.contentDOM.setAttribute("aria-label", placeholder.split("\n")[0]);
@@ -79,13 +78,6 @@
     lineRefresh[id] = refresh;
   }
   ["cmpA", "cmpB", "mrgA", "mrgB", "mrgOut", "dedIn", "dedOut", "cdfBase", "cdfMod", "cdfOut"].forEach(initXmlEditor);
-
-  // ── Local-only notice (Chrome extension) ────────────────────────
-  if (localOnly) {
-    document.querySelectorAll(".xml-scope .local-only-notice").forEach(el => { el.hidden = false; });
-    document.querySelectorAll(".xml-scope button, .xml-scope input, .xml-scope select")
-      .forEach(el => { el.disabled = true; });
-  }
 
   function setText(id, value) {
     if (xmlEditors[id]) xmlEditors[id].setValue(value || "", false);
@@ -437,9 +429,9 @@
   }
   function updateRetrieveControls(side) {
     const hasOrg = Boolean(side.select.value);
-    side.refreshBtn.disabled = localOnly || !hasOrg;
-    side.nameSelect.disabled = localOnly || !hasOrg || !side.nameSelect.options.length || !side.nameSelect.value;
-    side.retrieveBtn.disabled = localOnly || !hasOrg || !side.nameSelect.value;
+    side.refreshBtn.disabled = !hasOrg;
+    side.nameSelect.disabled = !hasOrg || !side.nameSelect.options.length || !side.nameSelect.value;
+    side.retrieveBtn.disabled = !hasOrg || !side.nameSelect.value;
   }
   function renderNameOptions(side, definitions, message) {
     if (!definitions.length) {
@@ -466,7 +458,7 @@
       updateRetrieveControls(side);
       return;
     }
-    if (localOnly || (!force && side.loadedOrg === org)) { updateRetrieveControls(side); return; }
+    if (!force && side.loadedOrg === org) { updateRetrieveControls(side); return; }
     const sequence = ++side.loadSequence;
     side.loadedOrg = org;
     side.nameSelect.innerHTML = '<option value="">Loading Context Definitions…</option>';
@@ -982,7 +974,7 @@
     if (!lastBuild) return;
     cdfPreflightList.innerHTML = "";
     clearStatus(cdfPreflightStatus);
-    cdfPreflightBtn.disabled = localOnly || !cdfDeployOrg.value;
+    cdfPreflightBtn.disabled = !cdfDeployOrg.value;
     const sequence = ++planSequence;
     const plan = await post("/api/cdfix/deploy-plan", {
       name: lastBuild.name, targetOrg: cdfDeployOrg.value, baseOrg: lastBuild.baseOrg,

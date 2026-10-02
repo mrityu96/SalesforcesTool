@@ -875,16 +875,27 @@ def org_release(org):
                   if row.get("version") == newest
                   and str(row.get("url", "")).endswith("/v" + str(newest))), "")
     result = {"ok": True, "apiVersion": newest, "release": label,
-              "releaseNumber": "", "instance": "", "source": "api"}
+              "releaseNumber": "", "instance": "", "source": "api", "detail": ""}
     records, error = _query_json(org, "SELECT InstanceName FROM Organization")
-    if not error and records:
+    if error:
+        result["detail"] = (
+            "Patch number unavailable: this Salesforce user cannot read the org's "
+            f"instance name ({error}). Showing the org's release name instead.")
+    elif records:
         result["instance"] = records[0].get("InstanceName") or ""
     if result["instance"]:
         status = _trust_instance_status(result["instance"])
         if status and status.get("releaseNumber"):
             result.update(release=status.get("releaseVersion") or label,
                           releaseNumber=status["releaseNumber"], source="trust")
-    _ORG_RELEASES[org] = result
+        else:
+            result["detail"] = (
+                "Patch number unavailable: could not read Salesforce Trust "
+                f"(api.status.salesforce.com) for instance {result['instance']}.")
+    elif not result["detail"]:
+        result["detail"] = "Patch number unavailable: the org did not report an instance name."
+    if result["releaseNumber"]:
+        _ORG_RELEASES[org] = result
     return result
 
 

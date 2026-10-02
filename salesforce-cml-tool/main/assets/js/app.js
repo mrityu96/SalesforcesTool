@@ -521,6 +521,7 @@
     return DRAFT_PREFIX + [orgSel.value, source.name, source.versionId]
       .map(encodeURIComponent).join(":");
   }
+  let lintDiagnosticsShown = false;
   function updateDirtyIndicator() {
     const dirty = content.value !== editorBaseline;
     draftIndicator.textContent = dirty ? "Unsaved changes" : "Not modified";
@@ -565,8 +566,10 @@
       try { sessionStorage.removeItem(key); } catch (ignored) {}
     }
   }
-  content.addEventListener("input", () => {
-    if (settingEditorContent) return;
+  content.addEventListener("input", event => {
+    // The browser's own input event bubbles here before CodeMirror has read the
+    // keystroke; touching the editor then would discard the typed text.
+    if (event.target !== content || settingEditorContent) return;
     hideLintResults();
     const dirty = updateDirtyIndicator();
     clearTimeout(draftSaveTimer);
@@ -842,18 +845,25 @@
     if (!parts.length && data.apiVersion) parts.push(`API ${data.apiVersion}`);
     return parts.join(" · ") || "unknown";
   }
+  const RELEASE_RETRY_MS = 60000;
+  function showRelease(element, data) {
+    element.textContent = releaseText(data);
+    element.title = (data && (data.detail || data.error)) || "Salesforce release this org runs";
+  }
   function renderOrgRelease(element, org) {
     element.dataset.org = org || "";
-    if (!org) { element.textContent = "—"; return; }
+    if (!org) { element.textContent = "—"; element.title = "Salesforce release this org runs"; return; }
     const cached = orgReleaseCache.get(org);
-    if (cached && !(cached instanceof Promise)) { element.textContent = releaseText(cached); return; }
-    element.textContent = "checking…";
-    const request = cached || apiGet("/api/org-release?org=" + encodeURIComponent(org))
-      .then(data => { orgReleaseCache.set(org, data); return data; })
+    const fresh = cached && !(cached instanceof Promise)
+      && (cached.data.releaseNumber || Date.now() - cached.at < RELEASE_RETRY_MS);
+    if (fresh) { showRelease(element, cached.data); return; }
+    if (!(cached instanceof Promise)) element.textContent = "checking…";
+    const request = cached instanceof Promise ? cached : apiGet("/api/org-release?org=" + encodeURIComponent(org))
+      .then(data => { orgReleaseCache.set(org, { data, at: Date.now() }); return data; })
       .catch(() => { orgReleaseCache.delete(org); return null; });
     orgReleaseCache.set(org, request);
     request.then(data => {
-      if (element.dataset.org === org) element.textContent = releaseText(data);
+      if (element.dataset.org === org) showRelease(element, data);
     });
   }
   [sourceOrgId, targetOrgId].forEach(button => {
@@ -1078,7 +1088,9 @@
     if (!orgs.length) {
       allOrgs = [];
       orgPickers.forEach(renderOrgPicker);
-      orgSel.innerHTML = '<option value="">(no orgs found)</option>';
+      [orgSel, targetSel, deployOrgSel].forEach(select => {
+        select.innerHTML = '<option value="">(no orgs found)</option>';
+      });
       const browserSession = window.CmlRuntime && window.CmlRuntime.mode === "browser-session";
       setStatus("err", browserSession
         ? "No Salesforce org tabs were found in this Chrome profile.\n"
@@ -1870,14 +1882,35 @@
   }
 
   if (sessionDebugBtn) {
-    sessionDebugBtn.onclick = async () => {
+    const sessionDialog = $("sessionDialog"), sessionDialogBody = $("sessionDialogBody");
+    const releaseLine = (label, org) => {
+      if (!org) return "";
+      const cached = orgReleaseCache.get(org);
+      const data = cached && !(cached instanceof Promise) ? cached.data : null;
+      if (!data) return `${label} ${org}: release not checked yet.`;
+      return `${label} ${org}: ${releaseText(data)}${data.detail ? "\n  " + data.detail : ""}`;
+    };
+    const loadSessionStatus = async () => {
+      sessionDialogBody.textContent = "Checking…";
       try {
         const data = await apiGet("/api/debug");
-        setStatus(data.ok ? "info" : "err", data.log || "Session status unavailable.");
+        const releases = [releaseLine("Source", orgSel.value), releaseLine("Target", targetSel.value)]
+          .filter(Boolean);
+        sessionDialogBody.textContent = (data.log || "Session status unavailable.")
+          + (releases.length ? "\n\nSalesforce release lookup:\n" + releases.join("\n") : "");
       } catch (e) {
-        if (e && e.conn) { handleDisconnect(); } else { setStatus("err", "Session status error: " + e); }
+        if (e && e.conn) { sessionDialog.close(); handleDisconnect(); return; }
+        sessionDialogBody.textContent = "Session status error: " + e;
       }
     };
+    sessionDebugBtn.onclick = () => {
+      sessionDialog.showModal();
+      requestAnimationFrame(() => $("sessionCloseBtn").focus());
+      loadSessionStatus();
+    };
+    $("sessionRefreshBtn").onclick = loadSessionStatus;
+    $("sessionCloseBtn").onclick = () => sessionDialog.close();
+    sessionDialog.addEventListener("close", () => sessionDebugBtn.focus());
   }
 
   if (archiveSelect) {
@@ -3036,6 +3069,7 @@
     for (let index = 0; index < rawText.length; index++) {
       if (rawText[index] === "\n") lineStarts.push(index + 1);
     }
+    lintDiagnosticsShown = true;
     window.cmlEditor.setDiagnostics(findings.map(finding => {
       const lineIndex = Math.max(0, Math.min(
         lineStarts.length - 1, (Number(finding.line) || 1) - 1));
@@ -3116,7 +3150,8 @@
   }
 
   function hideLintResults() {
-    window.cmlEditor.setDiagnostics([]);
+    if (lintDiagnosticsShown) window.cmlEditor.setDiagnostics([]);
+    lintDiagnosticsShown = false;
     lintBox.innerHTML = "";
     lintBox.classList.remove("show");
   }

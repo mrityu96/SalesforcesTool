@@ -931,6 +931,9 @@
   .confirm-match { color:var(--muted); font-size:11px; }
   .confirm-match.matches { color:var(--green); font-weight:700; }
   .action-dialog-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:4px; }
+  .session-status-body { max-height:50vh; overflow:auto; margin:0; padding:12px; border:1px solid var(--line);
+    border-radius:10px; background:var(--surface-subtle); white-space:pre-wrap; word-break:break-word;
+    font:500 12.5px/1.6 "JetBrains Mono",ui-monospace,monospace; }
   .shortcut-list { grid-column:1 / -1; display:grid; gap:8px; margin:0; }
   .shortcut-list div { display:grid; grid-template-columns:minmax(145px,auto) 1fr; gap:14px;
     padding:9px 0; border-bottom:1px solid var(--line); }

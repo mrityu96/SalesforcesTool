@@ -6,8 +6,6 @@
   .xml-scope .step-dot-orange { background:linear-gradient(135deg,var(--amber),#f97316); }
   .xml-scope .step-dot-purple { background:linear-gradient(135deg,var(--purple),#9333ea); }
   .xml-scope .card-head > .btn,.xml-scope .card-head > .ghost { flex:none; align-self:center; }
-  .xml-scope .local-only-notice { margin-bottom:14px; padding:12px 15px; border:1px solid var(--amber);
-    border-radius:var(--radius-control); background:var(--color-warning-soft); color:var(--text); font-size:13px; }
 
   /* ── Secondary navigation ─────────────────────────────────────── */
   .xml-subnav-wrap { display:flex; flex-direction:column; align-items:center; gap:6px; margin:2px 0 16px; }
