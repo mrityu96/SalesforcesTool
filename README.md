@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="salesforce-cml-tool/main/CHANGELOG.md"><img alt="Version 2.0.0" src="https://img.shields.io/badge/version-2.0.0-2563eb"></a>
+  <a href="salesforce-cml-tool/main/CHANGELOG.md"><img alt="Version 2.0.1" src="https://img.shields.io/badge/version-2.0.1-2563eb"></a>
   <a href="salesforce-cml-tool/main/LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-16a34a"></a>
   <img alt="Python 3.9 to 3.13" src="https://img.shields.io/badge/python-3.9%E2%80%933.13-3776ab">
   <img alt="macOS, Windows, Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-6b7280">

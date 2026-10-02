@@ -5,6 +5,8 @@ this project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-10-02
+
 ### Fixed
 
 - Typing in the Fetch & Deploy CML editor works again. Each keystroke was
@@ -288,6 +290,7 @@ this project uses [Semantic Versioning](https://semver.org/).
   limits, restrictive response headers, path-safe assets, write allowlists,
   private atomic artifacts, and fail-closed ownership/status checks.
 
-[Unreleased]: https://github.com/mrityu96/SalesforcesTool/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/mrityu96/SalesforcesTool/compare/v2.0.1...HEAD
+[2.0.1]: https://github.com/mrityu96/SalesforcesTool/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/mrityu96/SalesforcesTool/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/mrityu96/SalesforcesTool/releases/tag/v1.0.0
