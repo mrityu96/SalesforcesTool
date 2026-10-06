@@ -126,6 +126,18 @@ def _prc_details(*args, **kwargs):
 def _target_prc_by_identity(*args, **kwargs):
     return _get('_target_prc_by_identity')(*args, **kwargs)
 
+def _target_prc_catalog(*args, **kwargs):
+    return _get('_target_prc_catalog')(*args, **kwargs)
+
+def _prc_display_value(*args, **kwargs):
+    return _get('_prc_display_value')(*args, **kwargs)
+
+def _prc_identity_field_diffs(*args, **kwargs):
+    return _get('_prc_identity_field_diffs')(*args, **kwargs)
+
+def _missing_prc_block_message(*args, **kwargs):
+    return _get('_missing_prc_block_message')(*args, **kwargs)
+
 def compare_constraints(*args, **kwargs):
     return _get('compare_constraints')(*args, **kwargs)
 
@@ -1086,19 +1098,169 @@ def _impl__prc_details(org, prc_ref_ids, kf):
             result[record["Id"]] = detail
     return result
 
-def _impl__target_prc_by_identity(target_org, source_details, kf):
-    """Return canonical identity -> candidate target PRC Ids.
+def _impl__prc_display_value(value):
+    """Render an identity scalar for operator-facing mismatch text."""
+    if value is None or value == "":
+        return "blank"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
 
-    Candidate records are filtered by parent keys, then canonicalized using
-    target endpoint keys. This handles target orgs that don't have the selected
-    key field on ProductRelatedComponent itself.
-    """
+
+def _impl__prc_identity_compare_specs():
+    specs = [
+        ("parentKey", "Parent product key", "parentName"),
+        ("childKind", "Child endpoint kind", None),
+        ("childKey", "Child product/classification key", "childName"),
+        ("relationshipTypeName", "Relationship type", None),
+        ("groupKey", "Component group key", "groupName"),
+        ("parentSellingModelKey", "Parent selling model key",
+         "parentSellingModelName"),
+        ("childSellingModelKey", "Child selling model key",
+         "childSellingModelName"),
+    ]
+    for field in _get("_PRC_STABLE_FIELDS"):
+        specs.append((field, field, None))
+    return specs
+
+
+def _impl__prc_identity_field_diffs(source_detail, target_detail):
+    """Return identity fields that differ between two PRC details."""
+    diffs = []
+    for field, label, name_field in _impl__prc_identity_compare_specs():
+        source_value = source_detail.get(field)
+        target_value = target_detail.get(field)
+        if source_value != target_value:
+            entry = {
+                "field": field,
+                "label": label,
+                "source": source_value,
+                "target": target_value,
+            }
+            if name_field:
+                entry["sourceName"] = source_detail.get(name_field)
+                entry["targetName"] = target_detail.get(name_field)
+            diffs.append(entry)
+    return diffs
+
+
+def _impl__prc_format_identity_value(value, name=None):
+    text = _impl__prc_display_value(value)
+    if name:
+        return f"({text} / {name})"
+    return f"({text})"
+
+
+def _impl__prc_near_misses(source_detail, target_details):
+    """Target PRCs that share parent/child/relationship but not full identity."""
+    parent_key = source_detail.get("parentKey")
+    child_key = source_detail.get("childKey")
+    relationship = source_detail.get("relationshipTypeName")
+    source_identity = source_detail.get("identity")
+    near = []
+    for target in target_details or []:
+        if parent_key and target.get("parentKey") != parent_key:
+            continue
+        if child_key and target.get("childKey") != child_key:
+            continue
+        if relationship and target.get("relationshipTypeName") != relationship:
+            continue
+        if source_identity and target.get("identity") == source_identity:
+            continue
+        diffs = _impl__prc_identity_field_diffs(source_detail, target)
+        near.append({
+            "detail": target,
+            "diffs": diffs,
+            "diffCount": len(diffs),
+        })
+    near.sort(key=lambda item: (
+        item["diffCount"],
+        item["detail"].get("name") or "",
+        item["detail"].get("id") or "",
+    ))
+    return near
+
+
+def _impl__missing_prc_block_message(source_detail, target_details, relation):
+    """Explain why a source PRC is not an eligible target catalog candidate."""
+    readonly = (
+        "This tool is read-only; deploy the catalog relationship separately, "
+        "then compare again."
+    )
+    align = (
+        "Align the mismatched field(s) on the target catalog relationship, "
+        "then compare again."
+    )
+    headline = f"Missing catalog relationship: {relation}."
+    near = _impl__prc_near_misses(source_detail, target_details)
+    if not near:
+        reasons = [
+            "No target ProductRelatedComponent with the same parent product, "
+            "child product/classification, and relationship type was found.",
+            readonly,
+        ]
+        return {
+            "blockNote": " ".join([headline, *reasons]),
+            "blockTitle": headline,
+            "blockReasons": reasons,
+            "prcResolution": "missing",
+            "prcMismatches": [],
+        }
+
+    shown = near[:3]
+    mismatch_lines = []
+    mismatches = []
+    for item in shown:
+        target = item["detail"]
+        if target.get("identityError"):
+            mismatch_lines.append(
+                "Target candidate cannot establish a complete portable "
+                f"identity: {target.get('identityError')}")
+        if not item["diffs"]:
+            mismatch_lines.append(
+                "A similar target relationship did not match the source "
+                "identity, but no individual identity-field difference could "
+                "be listed.")
+            continue
+        for diff in item["diffs"]:
+            mismatches.append(diff)
+            mismatch_lines.append(
+                f"{diff['label']} does not match: source "
+                f"{_impl__prc_format_identity_value(diff.get('source'), diff.get('sourceName'))}, "
+                f"target "
+                f"{_impl__prc_format_identity_value(diff.get('target'), diff.get('targetName'))}."
+            )
+    extra = len(near) - len(shown)
+    if extra > 0:
+        mismatch_lines.append(
+            f"{extra} additional similar target relationship"
+            f"{'s' if extra != 1 else ''} also failed exact identity matching.")
+    reasons = [
+        *mismatch_lines,
+        "A target ProductRelatedComponent exists for the same parent → child → "
+        "relationship, but it is not an eligible candidate because PRC identity "
+        "v2 requires an exact match on every identity field.",
+        readonly,
+        align,
+    ]
+    return {
+        "blockNote": " ".join([headline, *reasons]),
+        "blockTitle": headline,
+        "blockReasons": reasons,
+        "prcResolution": "identity-mismatch",
+        "prcMismatches": mismatches,
+    }
+
+
+def _impl__target_prc_catalog(target_org, source_details, kf):
+    """Return exact identity matches and every target PRC under those parents."""
     details = [d for d in source_details if d.get("identity")]
     parent_keys = sorted({d["parentKey"] for d in details if d.get("parentKey")})
     if not parent_keys or not _field_exists(target_org, "Product2", kf):
-        return {}
+        return {"byIdentity": {}, "details": []}
     fields, _ = _prc_select_fields(target_org, kf)
-    result = {}
+    by_identity = {}
+    all_details = []
     for i in range(0, len(parent_keys), 100):
         chunk = parent_keys[i:i + 100]
         in_list = ",".join("'" + _soql_str(k) + "'" for k in chunk)
@@ -1110,10 +1272,22 @@ def _impl__target_prc_by_identity(target_org, source_details, kf):
             continue
         for record in recs:
             detail = _prc_detail_from_record(record, kf)
+            all_details.append(detail)
             identity = detail.get("identity")
             if identity:
-                result.setdefault(identity, []).append(record["Id"])
-    return result
+                by_identity.setdefault(identity, []).append(record["Id"])
+    return {"byIdentity": by_identity, "details": all_details}
+
+
+def _impl__target_prc_by_identity(target_org, source_details, kf):
+    """Return canonical identity -> candidate target PRC Ids.
+
+    Candidate records are filtered by parent keys, then canonicalized using
+    target endpoint keys. This handles target orgs that don't have the selected
+    key field on ProductRelatedComponent itself.
+    """
+    return _impl__target_prc_catalog(
+        target_org, source_details, kf).get("byIdentity") or {}
 
 def _impl_compare_constraints(source_org, target_org, model, source_version_id,
                         target_version_id, key_field=DEFAULT_KEY_FIELD):
@@ -1250,8 +1424,10 @@ def _impl_compare_constraints(source_org, target_org, model, source_version_id,
         [r.get("refId") for r in source_only_prc_rows],
         kf)
     _check_operation_cancelled()
-    target_prcs = _target_prc_by_identity(
+    target_prc_catalog = _target_prc_catalog(
         target_org, list(src_prc_details.values()), kf)
+    target_prcs = target_prc_catalog.get("byIdentity") or {}
+    target_prc_details = target_prc_catalog.get("details") or []
     _check_operation_cancelled()
 
     matched, source_only, target_only = [], [], []
@@ -1348,12 +1524,14 @@ def _impl_compare_constraints(source_org, target_org, model, source_version_id,
                             "deployment."
                         )
                     else:
+                        blocked = _missing_prc_block_message(
+                            detail, target_prc_details, relation)
                         row["deployStatus"] = "blocked"
-                        row["blockNote"] = (
-                            f"Missing catalog relationship: {relation}. This tool "
-                            "is read-only for ProductRelatedComponent; deploy the "
-                            "catalog relationship separately, then compare again."
-                        )
+                        row["prcResolution"] = blocked.get("prcResolution")
+                        row["prcMismatches"] = blocked.get("prcMismatches") or []
+                        row["blockNote"] = blocked["blockNote"]
+                        row["blockTitle"] = blocked["blockTitle"]
+                        row["blockReasons"] = blocked["blockReasons"]
                 else:
                     row["deployStatus"] = "blocked"
                     row["blockNote"] = (
@@ -1882,8 +2060,10 @@ def _impl__deploy_constraints_unlocked(
                 [row.get("refId") for row in selected_chunk
                  if row["refType"] == "ProductRelatedComponent"],
                 kf)
-            target_prcs = _target_prc_by_identity(
+            target_prc_catalog = _target_prc_catalog(
                 target_org, list(prc_details.values()), kf)
+            target_prcs = target_prc_catalog.get("byIdentity") or {}
+            target_prc_details = target_prc_catalog.get("details") or []
 
             resolved = []
             for row in selected_chunk:
@@ -1898,6 +2078,7 @@ def _impl__deploy_constraints_unlocked(
                                  + resolution_errors[row["refType"]],
                     })
                     continue
+                detail = {}
                 if row["refType"] == "ProductRelatedComponent":
                     detail = prc_details.get(row.get("refId")) or {}
                     candidates = target_prcs.get(detail.get("identity"), [])
@@ -1905,14 +2086,30 @@ def _impl__deploy_constraints_unlocked(
                     candidates = ref_map.get(
                         (row["refType"], row.get("gkey")), [])
                 if len(candidates) != 1:
-                    created.append({
-                        "success": False, "label": label,
-                        "error": (
-                            "Blocked — ambiguous key. Expected exactly one "
-                            f"current target {row['refType']} match but found "
-                            f"{len(candidates)}. Conflicting Ids: "
-                            f"{', '.join(candidates) if candidates else 'none'}."),
-                    })
+                    if (row["refType"] == "ProductRelatedComponent"
+                            and len(candidates) == 0):
+                        relation = (
+                            f"{detail.get('parentName') or detail.get('parentKey')} \u2192 "
+                            f"{detail.get('childName') or detail.get('childKey')} "
+                            f"({detail.get('relationshipTypeName')})"
+                        )
+                        blocked = _missing_prc_block_message(
+                            detail, target_prc_details, relation)
+                        created.append({
+                            "success": False, "label": label,
+                            "error": blocked["blockNote"],
+                            "errorTitle": blocked["blockTitle"],
+                            "reasons": blocked["blockReasons"],
+                        })
+                    else:
+                        created.append({
+                            "success": False, "label": label,
+                            "error": (
+                                "Blocked — ambiguous key. Expected exactly one "
+                                f"current target {row['refType']} match but found "
+                                f"{len(candidates)}. Conflicting Ids: "
+                                f"{', '.join(candidates) if candidates else 'none'}."),
+                        })
                     continue
                 target_row = dict(row)
                 target_row["refId"] = candidates[0]

@@ -642,6 +642,19 @@ def _prc_details(org, prc_ref_ids, kf):
 def _target_prc_by_identity(target_org, source_details, kf):
     return _CONSTRAINTS._target_prc_by_identity(target_org, source_details, kf)
 
+def _target_prc_catalog(target_org, source_details, kf):
+    return _CONSTRAINTS._target_prc_catalog(target_org, source_details, kf)
+
+def _prc_display_value(value):
+    return _CONSTRAINTS._prc_display_value(value)
+
+def _prc_identity_field_diffs(source_detail, target_detail):
+    return _CONSTRAINTS._prc_identity_field_diffs(source_detail, target_detail)
+
+def _missing_prc_block_message(source_detail, target_details, relation):
+    return _CONSTRAINTS._missing_prc_block_message(
+        source_detail, target_details, relation)
+
 def compare_constraints(source_org, target_org, model, source_version_id, target_version_id, key_field=DEFAULT_KEY_FIELD):
     return _CONSTRAINTS.compare_constraints(source_org, target_org, model, source_version_id, target_version_id, key_field)
 
