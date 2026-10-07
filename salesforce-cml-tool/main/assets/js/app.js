@@ -1471,30 +1471,19 @@
   }
 
   function renderReadiness(data) {
-    const lifecycleActions = (_activateDisabled, deactivateDisabled) =>
-      `<div class="lifecycle-actions" aria-label="Target CML lifecycle actions">`
-      + `<button class="btn btn-danger" id="activateBtn" type="button" disabled title="Use Salesforce Constraint Builder so CML compilation and validation are enforced.">Activate in Salesforce</button>`
-      + `<button class="ghost deactivate-action" id="deactivateBtn" type="button" ${deactivateDisabled ? "disabled" : ""}>Deactivate CML</button>`
-      + `</div><p class="meta lifecycle-note">Select an exact target to deactivate it before fetch or deploy; the action checks its live status before confirmation. Activation must be completed in Salesforce Constraint Builder so its compiler and validation run. Direct IsActive activation is blocked by this tool.</p>`;
     if (!data.ok) {
-      readinessPanel.innerHTML = `<div class="readiness-head"><strong>Target version status</strong><span class="chip warn">Unavailable</span></div><p>${esc(data.log || "Status check failed.")}</p>`
-        + lifecycleActions(true, true);
+      readinessPanel.innerHTML = `<div class="readiness-head"><strong>Target version status</strong><span class="chip warn">Unavailable</span></div><p>${esc(data.log || "Status check failed.")}</p>`;
       readinessPanel.dataset.checked = "";
-      wireLifecycleActions();
       return;
     }
     const target = data.targetStatus || {};
     const eligible = target.status === "eligible";
-    const observedStatus = String(target.versionStatus || "").toLowerCase();
-    const active = observedStatus === "active";
-    const inactive = observedStatus === "inactive";
     readinessPanel.innerHTML =
       `<div class="readiness-head"><strong>Target version status</strong><span class="chip ${eligible ? "ok" : "warn"}">${esc(target.status || "unverified")}</span></div>`
       + `<p><strong>${esc(target.versionStatus || "Unknown")}</strong></p>`
       + `<p class="readiness-item ${eligible ? "writable" : "blocked"}">${esc(target.message || "Target status was not verified.")}</p>`
-      + lifecycleActions(!inactive, !active);
+      + `<p class="meta">Read-only. Activate or deactivate this version in Salesforce Constraint Builder.</p>`;
     readinessPanel.dataset.checked = "true";
-    wireLifecycleActions();
   }
 
   async function checkReadiness() {
@@ -1527,91 +1516,7 @@
   readinessBtn.onclick = checkReadiness;
   deployVersionSel.onchange = () => {
     readinessPanel.dataset.checked = "";
-    const activate = $("activateBtn"), deactivate = $("deactivateBtn");
-    if (activate) activate.disabled = true;
-    // Deactivation must be available before fetch/deploy. Its click handler
-    // performs a fresh read-only status check before asking for confirmation,
-    // and the server re-verifies the exact version before writing.
-    if (deactivate) {
-      deactivate.disabled = !(
-        deployOrgSel.value && deployVersionSel.value
-        && selectedSourceVersion());
-    }
   };
-
-  function wireLifecycleActions() {
-    const activate = $("activateBtn"), deactivate = $("deactivateBtn");
-    if (activate) activate.onclick = null;
-    if (deactivate) deactivate.onclick = () => changeCmlLifecycle(false);
-  }
-
-  async function changeCmlLifecycle(active) {
-    const dest = deployOrgSel.value;
-    const source = selectedSourceVersion();
-    const targetVersionId = deployVersionSel.value;
-    if (!dest || !source || !targetVersionId) {
-      setStatus("err", "Choose a source model, target org, and exact target version first.");
-      return;
-    }
-    const readiness = await checkReadiness();
-    if (!readiness.ok) {
-      setStatus("err", readiness.log || "Target lifecycle status could not be verified.");
-      return;
-    }
-    const currentlyActive = String(
-      readiness.targetStatus?.versionStatus || "").toLowerCase() === "active";
-    if (currentlyActive === active) {
-      setStatus("info", `No change required — the exact target version is already ${active ? "Active" : "Inactive"}.`);
-      return;
-    }
-    const action = active ? "Activate" : "Deactivate";
-    const consequence = active
-      ? "This compiles/enables the selected CML for runtime product configuration. Activation can fail if Salesforce validation or dependencies are incomplete."
-      : "This immediately removes the selected CML version from runtime use. Reactivation is a separate validated operation and is not guaranteed to succeed.";
-    const typed = await requestTypedConfirmation({
-      title: `${action} CML`,
-      description: consequence,
-      target: `Model: ${source.name}\nTarget org: ${dest}\nExact version: ${targetVersionId}`,
-      alias: dest,
-      submitLabel: `${action} CML`,
-    });
-    if (typed !== dest) return;
-    const button = active ? $("activateBtn") : $("deactivateBtn");
-    if (button) {
-      button.disabled = true;
-      button.innerHTML = `<span class="spinner"></span>${active ? "Activating…" : "Deactivating…"}`;
-    }
-    document.querySelector(".app-main").setAttribute("aria-busy", "true");
-    setStatus("info", `${action.slice(0, -1)}ing ${source.name} ${targetVersionId} in ${dest}…`);
-    try {
-      const data = await postJSON("/api/lifecycle", {
-        org: dest,
-        model: source.name,
-        targetVersionId,
-        active,
-        confirmTarget: typed,
-      });
-      let details = data.log || `${action} operation failed.`;
-      if (data.report?.file) details += `\nLifecycle report: ${data.report.file}`;
-      if (data.reportError) details += `\nWARNING: ${data.reportError}`;
-      setStatus(data.ok ? "ok" : "err", appendDiagnostic(details, data.diagnostic));
-      await loadTargetVersions(
-        deployOrgSel, deployVersionSel, "deployment", true);
-      await loadDeploymentReports();
-      if (Array.from(deployVersionSel.options).some(
-          option => option.value === targetVersionId)) {
-        deployVersionSel.value = targetVersionId;
-        await checkReadiness();
-      }
-    } catch (error) {
-      if (error && error.conn) handleDisconnect();
-      else setStatus("err", `${action} error: ${error}`);
-    } finally {
-      document.querySelector(".app-main").removeAttribute("aria-busy");
-    }
-  }
-
-  wireLifecycleActions();
 
   deployBtn.onclick = async () => {
     const dest = deployOrgSel.value;

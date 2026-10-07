@@ -284,22 +284,24 @@
 
           <div class="cml-actions">
             <div class="deploy-panel">
-              <div class="field">
-                <label for="deployOrg">Deploy to org</label>
-                <div class="org-picker" id="deployOrgPicker">
-                  <button type="button" class="org-trigger" id="deployOrgTrigger" aria-haspopup="listbox" aria-expanded="false" disabled>
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V8l8-5 8 5v13M8 21v-4h8v4M8 10h.01M12 10h.01M16 10h.01M8 13h.01M12 13h.01M16 13h.01"/></svg>
-                    <span class="org-trigger-copy" id="deployOrgDisplay">Loading orgs…</span>
-                    <svg class="version-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
-                  </button>
-                  <div class="org-menu" id="deployOrgMenu" role="listbox" aria-label="Deployment orgs" hidden></div>
-                  <select class="sr-only" id="deployOrg" tabindex="-1" aria-hidden="true"><option value="">Loading orgs…</option></select>
+              <div class="deploy-pickers">
+                <div class="field">
+                  <label for="deployOrg">Deploy to org</label>
+                  <div class="org-picker" id="deployOrgPicker">
+                    <button type="button" class="org-trigger" id="deployOrgTrigger" aria-haspopup="listbox" aria-expanded="false" disabled>
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V8l8-5 8 5v13M8 21v-4h8v4M8 10h.01M12 10h.01M16 10h.01M8 13h.01M12 13h.01M16 13h.01"/></svg>
+                      <span class="org-trigger-copy" id="deployOrgDisplay">Loading orgs…</span>
+                      <svg class="version-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                    </button>
+                    <div class="org-menu" id="deployOrgMenu" role="listbox" aria-label="Deployment orgs" hidden></div>
+                    <select class="sr-only" id="deployOrg" tabindex="-1" aria-hidden="true"><option value="">Loading orgs…</option></select>
+                  </div>
                 </div>
-              </div>
-              <div class="field">
-                <label for="deployVersion">Target exact CML version</label>
-                <select id="deployVersion"><option value="">None — select deployment target</option></select>
-                <span class="meta">Deployment-target runtime status can differ from the source.</span>
+                <div class="field">
+                  <label for="deployVersion">Target exact CML version</label>
+                  <select id="deployVersion"><option value="">None — select deployment target</option></select>
+                  <span class="meta">Deployment-target runtime status can differ from the source.</span>
+                </div>
               </div>
               <div class="deploy-action-stack">
                 <button class="ghost readiness-action" id="readinessBtn" type="button">
@@ -309,7 +311,8 @@
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V3M7 8l5-5 5 5"/><path d="M5 21h14a2 2 0 0 0 2-2v-4M3 15v4a2 2 0 0 0 2 2"/></svg>
                   Deploy CML
                 </button>
-                <label class="backup-picker" for="backupSelect">Recovery backup
+                <label class="backup-picker" for="backupSelect">
+                  <span class="sr-only">Recovery backup</span>
                   <select id="backupSelect" aria-label="Recovery backup">
                     <option value="">Select target to load backups</option>
                   </select>
@@ -341,16 +344,7 @@
                 <span class="meta">Read-only</span>
               </div>
               <p>Select an exact target to check whether that version is Active, Inactive, or write-blocked.</p>
-              <p class="meta">Only an eligible inactive version can be deployed, and its status is checked again server-side.</p>
-              <div class="lifecycle-actions" aria-label="Target CML lifecycle actions">
-                <button class="btn btn-danger" id="activateBtn" type="button" disabled title="Use Salesforce Constraint Builder so CML compilation and validation are enforced.">
-                  Activate in Salesforce
-                </button>
-                <button class="ghost deactivate-action" id="deactivateBtn" type="button" disabled>
-                  Deactivate CML
-                </button>
-              </div>
-              <p class="meta lifecycle-note">Select an exact target to deactivate it before fetch or deploy; the action checks its live status before confirmation. Activation must be completed in Salesforce Constraint Builder so its compiler and validation run. Direct IsActive activation is blocked by this tool.</p>
+              <p class="meta">Only an eligible inactive version can be deployed, and its status is checked again server-side. Activate or deactivate the version in Salesforce Constraint Builder.</p>
             </section>
           </div>
 
@@ -1161,7 +1155,7 @@ sf org login web --alias Release_QA  --instance-url https://test.salesforce.com<
                 <li>Pick <strong>Deploy to org</strong>. It always starts empty, so you must choose the target on purpose.</li>
                 <li>Pick <strong>Target exact CML version</strong>, the version you will overwrite.</li>
                 <li>Click <strong>Check target status</strong>. The <em>Target version status</em> panel shows whether that exact version is Active or Inactive and whether it can be deployed to.</li>
-                <li>If the version is <strong>Active</strong>, deployment is blocked, because overwriting a live model would change runtime behaviour immediately. Deactivate it in Salesforce, or use <strong>Deactivate CML</strong> here (it asks you to type the alias), or pick an inactive version.</li>
+                <li>If the version is <strong>Active</strong>, deployment is blocked, because overwriting a live model would change runtime behaviour immediately. Deactivate it in Salesforce Constraint Builder, or pick an inactive version.</li>
               </ol>
               <figure class="help-figure"><a href="/assets/help/c09-deploy-panel.jpg" target="_blank" rel="noopener"><img src="/assets/help/c09-deploy-panel.jpg" alt="Deployment panel with target org, exact version, and an eligible status" loading="lazy" /></a>
                 <figcaption>The target version is Inactive, so it can be deployed to.</figcaption></figure>
