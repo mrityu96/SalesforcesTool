@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="salesforce-cml-tool/main/CHANGELOG.md"><img alt="Version 2.0.2" src="https://img.shields.io/badge/version-2.0.2-2563eb"></a>
+  <a href="salesforce-cml-tool/main/CHANGELOG.md"><img alt="Version 2.1.0" src="https://img.shields.io/badge/version-2.1.0-2563eb"></a>
   <a href="salesforce-cml-tool/main/LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-16a34a"></a>
   <img alt="Python 3.9 to 3.13" src="https://img.shields.io/badge/python-3.9%E2%80%933.13-3776ab">
   <img alt="macOS, Windows, Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-6b7280">
@@ -82,7 +82,7 @@ cd SalesforcesTool/salesforce-cml-tool
 
 There's nothing to `pip install`: the tool uses only the Python standard library and a bundled, offline code editor. Open the **Help Me** tab inside the tool for the complete handbook.
 
-Current release is **2.0.2**. See the [changelog](salesforce-cml-tool/main/CHANGELOG.md).
+Current release is **2.1.0**. See the [changelog](salesforce-cml-tool/main/CHANGELOG.md).
 
 ## Screenshots
 

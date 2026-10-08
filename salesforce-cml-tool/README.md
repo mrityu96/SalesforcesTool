@@ -1,6 +1,6 @@
 # Salesforce CML Tool
 
-Current stable version: **2.0.2**. See the [changelog](main/CHANGELOG.md),
+Current stable version: **2.1.0**. See the [changelog](main/CHANGELOG.md),
 [compatibility policy](main/COMPATIBILITY.md), [security policy](main/SECURITY.md), and
 [contribution guide](main/CONTRIBUTING.md).
 

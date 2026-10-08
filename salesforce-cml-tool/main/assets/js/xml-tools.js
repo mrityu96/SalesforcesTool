@@ -527,7 +527,45 @@
   const cdfTimeline = $("cdfTimeline"), cdfTimelineToggle = $("cdfTimelineToggle");
   const cdfDiffCount = $("cdfDiffCount"), cdfDiffIndicator = $("cdfDiffIndicator");
   const railAdded = $("cdfRailAdded"), railUpdated = $("cdfRailUpdated"), railBaseOnly = $("cdfRailBaseOnly");
-  const cdfDiagnostics = $("cdfDiagnostics"), cdfDiagList = $("cdfDiagList");
+  let cdfDiagnostics = $("cdfDiagnostics");
+  const cdfDiagList = $("cdfDiagList");
+  // Older page shells still have a plain section here. Turn that into the
+  // collapsed disclosure, and give the review actions their wider labels.
+  (function upgradeReviewChrome() {
+    if (cdfDiagnostics && cdfDiagnostics.tagName !== "DETAILS") {
+      const details = document.createElement("details");
+      details.id = cdfDiagnostics.id;
+      details.className = cdfDiagnostics.className;
+      const summary = document.createElement("summary");
+      const version = $("cdfDiagVersions");
+      if (version) summary.appendChild(version);
+      summary.appendChild(document.createTextNode(" Why are the line counts different? "));
+      const note = document.createElement("small");
+      note.textContent = "Separates Salesforce serializer omissions from actual metadata additions, removals, and changes.";
+      summary.appendChild(note);
+      const body = document.createElement("div");
+      body.className = "diag-body";
+      const head = cdfDiagnostics.querySelector(".diag-head");
+      if (head) head.remove();
+      while (cdfDiagnostics.firstChild) body.appendChild(cdfDiagnostics.firstChild);
+      details.append(summary, body);
+      cdfDiagnostics.replaceWith(details);
+      cdfDiagnostics = details;
+    }
+    const ACTION_ICONS = {
+      cdfSelAll: '<rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 3 3 5-6"/>',
+      cdfSelNone: '<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8 12h8"/>',
+      cdfExpandAll: '<path d="m7 9 5 5 5-5M7 15l5 5 5-5" transform="translate(0 -4)"/>',
+      cdfCollapseAll: '<path d="m7 15 5-5 5 5M7 9l5-5 5 5" transform="translate(0 4)"/>',
+    };
+    document.querySelectorAll("#cdfSelActions > .ghost").forEach(btn => {
+      if (btn.querySelector("svg")) return;
+      const label = (btn.dataset.label || btn.textContent || "").trim();
+      btn.dataset.label = label;
+      btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + (ACTION_ICONS[btn.id] || "") + "</svg>" +
+        "<span>" + esc(label) + "</span>";
+    });
+  })();
   const MAPPING_TYPES = ["mapping", "mappingBlock", "nodeMappingBlock", "mappingSettings"];
   const NODE_TYPES = ["nodeAttr", "contextNodeBlock", "nodeTag"];
   const RELEASE_HELP = "This is a standard element from the newer Salesforce release that Modified is on. " +
@@ -573,6 +611,7 @@
     renderNotApplied([]);
     cdfReport.classList.remove("show");
     cdfDiagnostics.classList.remove("show");
+    cdfDiagnostics.open = false;
     diagnostics = null;
     [cdfAnalyzeStatus, cdfBuildStatus].forEach(clearStatus);
     resetRail("—");
@@ -629,6 +668,7 @@
     railAdded.textContent = number(diagnostics.addedCount);
     railUpdated.textContent = number(diagnostics.changedCount);
     railBaseOnly.textContent = number(diagnostics.removedCount);
+    cdfDiagnostics.open = false;
     cdfDiagnostics.classList.add("show");
     renderDiagnosticList("removed");
   }
@@ -743,7 +783,7 @@
         `<input type="checkbox" class="cdfix-group-check" aria-label="Select all in ${esc(groupName)}"${groupItems.some(i => i.releaseContent) ? "" : " checked"} />` +
         `<span class="cdfix-group-name" title="${esc(groupName)}">${esc(groupName)}</span>` +
         `<span class="cdfix-group-meta">${esc(meta)} <span class="cdfix-group-badge">${groupItems.length}</span></span>` +
-        '<span class="cdfix-toggle-arrow open" aria-hidden="true">▼</span></div><div class="cdfix-group-body">';
+        '<span class="cdfix-toggle-arrow" aria-hidden="true">▼</span></div><div class="cdfix-group-body" hidden>';
       for (const it of groupItems) {
         const isParentBlock = Boolean(it.parentPatch), isUpdate = it.changeKind === "update";
         const isM = MAPPING_TYPES.includes(it.type);

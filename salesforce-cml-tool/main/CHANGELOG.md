@@ -5,6 +5,20 @@ this project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-08
+
+### Changed
+
+- Context Definition Fix: a yellow guide at the top of the tab explains how to
+  cherry-pick changes from Modified onto Base. It starts open, and the heading
+  collapses or expands it.
+- Step 2 starts with field groups collapsed. **Why are the line counts
+  different?** is a collapsed disclosure, in the same style as **Not applied**.
+- The Total changes, Context Mappings, Context Attributes, and Required Parent
+  Blocks cards are half the previous height and together use half the row.
+- **Select all**, **Deselect all**, **Expand all**, and **Collapse all** are
+  larger, use a gradient, show an icon, and use larger label text.
+
 ## [2.0.2] - 2026-10-08
 
 ### Changed
@@ -308,7 +322,8 @@ this project uses [Semantic Versioning](https://semver.org/).
   limits, restrictive response headers, path-safe assets, write allowlists,
   private atomic artifacts, and fail-closed ownership/status checks.
 
-[Unreleased]: https://github.com/mrityu96/SalesforcesTool/compare/v2.0.2...HEAD
+[Unreleased]: https://github.com/mrityu96/SalesforcesTool/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/mrityu96/SalesforcesTool/compare/v2.0.2...v2.1.0
 [2.0.2]: https://github.com/mrityu96/SalesforcesTool/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/mrityu96/SalesforcesTool/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/mrityu96/SalesforcesTool/compare/v1.0.0...v2.0.0

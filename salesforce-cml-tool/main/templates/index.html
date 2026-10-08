@@ -548,6 +548,21 @@
 
       <!-- ══════════════ VIEW: CONTEXT DEFINITION FIX ══════════════ -->
       <div class="view-panel xml-scope" id="view-cdfix">
+        <details class="cdf-guide" id="cdfGuide" open>
+          <summary>
+            <svg class="cdf-guide-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0-3.5 10.9V17h7v-3.1A6 6 0 0 0 12 3ZM9.5 20h5"/></svg>
+            Cherry-pick changes from Modified onto Base
+          </summary>
+          <div class="cdf-guide-body">
+            <p>The target Context Definition stays as <em>Base</em>. You choose which changes from <em>Modified</em> to copy onto it. The built XML is Base plus only the changes you tick. Nothing else from Modified is copied.</p>
+            <ol>
+              <li>In step 1, load Base from the target and Modified from the source, then click <strong>Analyze differences</strong>.</li>
+              <li>In step 2, open a group and tick only the changes you need. Use <strong>Deselect all</strong> first if you want to start from nothing.</li>
+              <li>In step 3, click <strong>Build Context Definition</strong>.</li>
+            </ol>
+          </div>
+        </details>
+
         <div class="card">
           <div class="card-head">
             <div class="card-title">
@@ -625,29 +640,29 @@
           </div>
           <div class="status" id="cdfAnalyzeStatus"></div>
 
-          <section class="cdf-diagnostics" id="cdfDiagnostics">
-            <div class="diag-head">
-              <div>
-                <h3>Why are the line counts different?</h3>
-                <p>Separates Salesforce serializer omissions from actual metadata additions, removals, and changes.</p>
-              </div>
+          <details class="cdf-diagnostics" id="cdfDiagnostics">
+            <summary>
               <span class="diag-version" id="cdfDiagVersions"></span>
+              Why are the line counts different?
+              <small>Separates Salesforce serializer omissions from actual metadata additions, removals, and changes.</small>
+            </summary>
+            <div class="diag-body">
+              <div class="diag-metrics">
+                <div class="diag-metric-card"><span>Base lines</span><strong id="cdfDiagBaseLines">0</strong></div>
+                <div class="diag-metric-card"><span>Modified lines</span><strong id="cdfDiagModifiedLines">0</strong></div>
+                <div class="diag-metric-card"><span>Line difference</span><strong id="cdfDiagLineDelta">0</strong></div>
+                <div class="diag-metric-card"><span>Business items missing</span><strong id="cdfDiagBusinessRemoved">0</strong></div>
+              </div>
+              <div class="diag-explanation" id="cdfDiagExplanation"></div>
+              <div class="diag-tabs" role="tablist">
+                <button class="diag-tab active" data-diag-view="removed" type="button">Present only in Base <span id="cdfDiagRemovedCount">0</span></button>
+                <button class="diag-tab" data-diag-view="added" type="button">Present only in Modified <span id="cdfDiagAddedCount">0</span></button>
+                <button class="diag-tab" data-diag-view="changed" type="button">Materially changed <span id="cdfDiagChangedCount">0</span></button>
+                <button class="diag-tab" data-diag-view="counts" type="button">Element counts</button>
+              </div>
+              <div class="diag-list" id="cdfDiagList"></div>
             </div>
-            <div class="diag-metrics">
-              <div class="diag-metric-card"><span>Base lines</span><strong id="cdfDiagBaseLines">0</strong></div>
-              <div class="diag-metric-card"><span>Modified lines</span><strong id="cdfDiagModifiedLines">0</strong></div>
-              <div class="diag-metric-card"><span>Line difference</span><strong id="cdfDiagLineDelta">0</strong></div>
-              <div class="diag-metric-card"><span>Business items missing</span><strong id="cdfDiagBusinessRemoved">0</strong></div>
-            </div>
-            <div class="diag-explanation" id="cdfDiagExplanation"></div>
-            <div class="diag-tabs" role="tablist">
-              <button class="diag-tab active" data-diag-view="removed" type="button">Present only in Base <span id="cdfDiagRemovedCount">0</span></button>
-              <button class="diag-tab" data-diag-view="added" type="button">Present only in Modified <span id="cdfDiagAddedCount">0</span></button>
-              <button class="diag-tab" data-diag-view="changed" type="button">Materially changed <span id="cdfDiagChangedCount">0</span></button>
-              <button class="diag-tab" data-diag-view="counts" type="button">Element counts</button>
-            </div>
-            <div class="diag-list" id="cdfDiagList"></div>
-          </section>
+          </details>
 
           <details class="cdf-notapplied" id="cdfNotApplied" hidden>
             <summary>Not applied <span class="cdf-notapplied-count" id="cdfNotAppliedCount">0</span>
@@ -658,10 +673,10 @@
           <div class="cdfix-select" id="cdfSelectPanel">
             <div class="cdfix-sel-head" id="cdfSelHeadText">Select changes to include</div>
             <div class="cdfix-metrics">
-              <div class="metric-card"><strong id="cdfMetricAll">0</strong><span>Total changes</span></div>
-              <div class="metric-card metric-map"><strong id="cdfMetricMappings">0</strong><span>Context Mappings</span></div>
-              <div class="metric-card metric-node"><strong id="cdfMetricNodes">0</strong><span>Context Attributes</span></div>
-              <div class="metric-card metric-error"><strong id="cdfMetricErrors">0</strong><span>Required Parent Blocks</span></div>
+              <div class="metric-card" title="Total changes"><strong id="cdfMetricAll">0</strong><span>Total changes</span></div>
+              <div class="metric-card metric-map" title="Context Mappings"><strong id="cdfMetricMappings">0</strong><span>Context Mappings</span></div>
+              <div class="metric-card metric-node" title="Context Attributes"><strong id="cdfMetricNodes">0</strong><span>Context Attributes</span></div>
+              <div class="metric-card metric-error" title="Required Parent Blocks"><strong id="cdfMetricErrors">0</strong><span>Required Parent Blocks</span></div>
             </div>
             <div class="cdfix-data-toolbar">
               <input id="cdfSearch" type="search" placeholder="Search fields, Context Mappings, Context Attributes…" autocomplete="off" spellcheck="false" />
@@ -676,10 +691,10 @@
               </div>
             </div>
             <div class="cdfix-sel-actions" id="cdfSelActions">
-              <button class="ghost" id="cdfSelAll" type="button">Select all</button>
-              <button class="ghost" id="cdfSelNone" type="button">Deselect all</button>
-              <button class="ghost" id="cdfExpandAll" type="button">Expand all</button>
-              <button class="ghost" id="cdfCollapseAll" type="button">Collapse all</button>
+              <button class="ghost" id="cdfSelAll" type="button" data-label="Select all"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 3 3 5-6"/></svg><span>Select all</span></button>
+              <button class="ghost" id="cdfSelNone" type="button" data-label="Deselect all"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8 12h8"/></svg><span>Deselect all</span></button>
+              <button class="ghost" id="cdfExpandAll" type="button" data-label="Expand all"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5M7 15l5 5 5-5" transform="translate(0 -4)"/></svg><span>Expand all</span></button>
+              <button class="ghost" id="cdfCollapseAll" type="button" data-label="Collapse all"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 15 5-5 5 5M7 9l5-5 5 5" transform="translate(0 4)"/></svg><span>Collapse all</span></button>
               <span class="cdfix-selection-count" id="cdfSelCount">Total: 0 · Selected: 0</span>
             </div>
             <div class="cdfix-data-layout">
