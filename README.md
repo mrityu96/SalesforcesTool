@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="salesforce-cml-tool/main/CHANGELOG.md"><img alt="Version 2.0.1" src="https://img.shields.io/badge/version-2.0.1-2563eb"></a>
+  <a href="salesforce-cml-tool/main/CHANGELOG.md"><img alt="Version 2.0.2" src="https://img.shields.io/badge/version-2.0.2-2563eb"></a>
   <a href="salesforce-cml-tool/main/LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-16a34a"></a>
   <img alt="Python 3.9 to 3.13" src="https://img.shields.io/badge/python-3.9%E2%80%933.13-3776ab">
   <img alt="macOS, Windows, Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-6b7280">
@@ -43,10 +43,10 @@ If you build **product configuration rules in Salesforce Revenue Cloud** (Revenu
 
 | | |
 |---|---|
-| **Fetch & deploy CML** | List every Constraint Model and every version in an org, fetch the exact version, edit it in a full code editor (search, replace, comments), and deploy it to an exact target version. The tool backs up the target first, writes, reads it back, and verifies a SHA-256 fingerprint, restoring automatically if verification fails. |
+| **Fetch & deploy CML** | List every Constraint Model and every version in an org, fetch the exact version, edit it in a full code editor (search, replace, comments), and deploy it to an exact target version. **Check target status** is read-only. Activate or deactivate in Salesforce Constraint Builder. The tool backs up the target first, writes, reads it back, and verifies a SHA-256 fingerprint, restoring automatically if verification fails. |
 | **Compare CML between orgs** | Side-by-side, colour-blind-friendly diff of two exact versions, plus a **semantic summary** that ignores formatting and moved blocks. Merge changes one at a time or all at once, undo any single change, and edit the target draft before deploying. |
 | **Check CML best practices** | A built-in linter flags money stored as `double`, unbounded relations, deep inheritance, always-true constraints, and more, with a quality score and **paste-ready Before → After fixes**. |
-| **Deploy Product associations** | Compare and deploy `ExpressionSetConstraintObj` rows between orgs, matched by a portable key such as `Global_Key__c` instead of record Ids. Missing products, classifications, attributes, and relationships are listed as clear bullets before anything is written. |
+| **Deploy Product associations** | Compare and deploy `ExpressionSetConstraintObj` rows between orgs, matched by a portable key such as `Global_Key__c` instead of record Ids. Missing products, classifications, attributes, and relationships are listed as clear bullets before anything is written. A blocked Product Related Component that is close but not identical lists the mismatched identity field with source vs target values. |
 | **Fix Context Definitions** | Retrieve a Context Definition from two orgs, see exactly which tags, attributes, and mappings differ, and build a patched copy that **adds without deleting**. Then check every hydration field in the target org (read-only) and get the exact `sf project deploy` commands, check-only first. Handles 30,000+ line files smoothly. |
 | **XML tools** | Compare, merge, and deduplicate any Salesforce metadata XML (Permission Sets, Profiles, and more) by content, not by line position. |
 | **Help Me handbook** | Two built-in step-by-step guides with screenshots: the **CML Deployment Guide** (13 steps) and the **Context Definition Deployment Guide** (11 steps). |
@@ -82,6 +82,8 @@ cd SalesforcesTool/salesforce-cml-tool
 
 There's nothing to `pip install`: the tool uses only the Python standard library and a bundled, offline code editor. Open the **Help Me** tab inside the tool for the complete handbook.
 
+Current release is **2.0.2**. See the [changelog](salesforce-cml-tool/main/CHANGELOG.md).
+
 ## Screenshots
 
 All screenshots use sample data.
@@ -103,7 +105,7 @@ All screenshots use sample data.
 - **Runs only on your computer.** The server listens on `127.0.0.1` and talks to Salesforce only through your own Salesforce CLI login. No cloud service, no telemetry, no account to create.
 - **Every write is deliberate.** Each deployment, deletion, and restore asks you to type the target org alias before it runs.
 - **Backups and verification on every CML deploy.** The tool saves the target first, reads back what it wrote, compares fingerprints, and restores automatically if they don't match.
-- **Never touches live models.** Writes to an **Active** CML version are blocked, and activation is left to Salesforce Constraint Builder so the platform compiler and validation always run.
+- **Never touches live models.** Writes to an **Active** CML version are blocked. Fetch & Deploy does not activate or deactivate CML; that stays in Salesforce Constraint Builder so the platform compiler and validation always run.
 - **Read-only where it should be.** Catalog data (products, classifications, attributes) is only ever read. Context Definitions are only retrieved; you run the generated deploy commands yourself.
 - **Open source (MIT).** Plain, readable Python and JavaScript you can review before you run it.
 
@@ -140,6 +142,7 @@ No. It's an independent, community-built open-source tool, not affiliated with o
 
 - [Full tool documentation](salesforce-cml-tool/README.md): every feature, the security model, and troubleshooting
 - [Complete guide](salesforce-cml-tool/main/docs/CML_TOOL_COMPLETE_GUIDE.md)
+- [Security handbook](salesforce-cml-tool/main/docs/CML_TOOL_SECURITY_HANDBOOK.md) · [Security summary](salesforce-cml-tool/main/docs/CML_TOOL_SECURITY_SUMMARY.md)
 - [Changelog](salesforce-cml-tool/main/CHANGELOG.md) · [Security policy](salesforce-cml-tool/main/SECURITY.md) · [Compatibility](salesforce-cml-tool/main/COMPATIBILITY.md) · [Contributing](salesforce-cml-tool/main/CONTRIBUTING.md)
 
 ## Support the project
