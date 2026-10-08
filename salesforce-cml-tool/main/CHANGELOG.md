@@ -5,6 +5,24 @@ this project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-10-08
+
+### Changed
+
+- Constraint Data: a blocked `ProductRelatedComponent` row now leads with the
+  identity field that does not match, with source vs target values (for
+  example `QuantityScaleMethod` blank vs `Proportional`). The catalog-readonly
+  explanation follows. Applies to compare and association deploy.
+- Fetch & Deploy: **Check target status**, **Deploy CML**, the backup picker,
+  and **Restore selected backup** sit in one horizontal row under the Deploy
+  to org and Target exact CML version picklists.
+
+### Removed
+
+- Fetch & Deploy no longer shows **Activate in Salesforce** or **Deactivate
+  CML**. **Check target status** and the read-only Target version status panel
+  remain. Activate or deactivate the version in Salesforce Constraint Builder.
+
 ## [2.0.1] - 2026-10-02
 
 ### Fixed
@@ -290,7 +308,8 @@ this project uses [Semantic Versioning](https://semver.org/).
   limits, restrictive response headers, path-safe assets, write allowlists,
   private atomic artifacts, and fail-closed ownership/status checks.
 
-[Unreleased]: https://github.com/mrityu96/SalesforcesTool/compare/v2.0.1...HEAD
+[Unreleased]: https://github.com/mrityu96/SalesforcesTool/compare/v2.0.2...HEAD
+[2.0.2]: https://github.com/mrityu96/SalesforcesTool/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/mrityu96/SalesforcesTool/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/mrityu96/SalesforcesTool/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/mrityu96/SalesforcesTool/releases/tag/v1.0.0

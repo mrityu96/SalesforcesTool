@@ -336,6 +336,9 @@ identity v2 therefore uses typed scalar values for:
 Every discriminator participates in exact identity. If an ID-backed endpoint,
 group, or selling model lacks its portable key, or if the full v2 identity
 resolves to zero or multiple target PRCs, the tool blocks rather than choosing.
+When a target relationship exists for the same parent → child → relationship
+but is not identity-eligible, the blocked message leads with the mismatched
+field and source vs target values.
 
 This identity is a defensive application convention, not a claimed Salesforce
 uniqueness constraint. Legacy deletion archives that lack the detailed v2
@@ -483,9 +486,13 @@ ownership-verified again by the server.
 **Deploy**
 
 - Requires a selected deployment org, model, exact target version, and non-empty content.
+- Places **Check target status**, **Deploy CML**, the backup picker, and
+  **Restore selected backup** in one horizontal row under the Deploy to org
+  and Target exact CML version picklists.
 - Provides a small read-only status panel that reports only the exact target
   version's Active/Inactive/write-blocked state. It does not inspect CML
-  references or discover metadata paths.
+  references or discover metadata paths. Fetch & Deploy does not show
+  **Activate in Salesforce** or **Deactivate CML**.
 - Shows an overwrite warning and cross-org warning.
 - Requires the operator to type the target alias exactly.
 - Verifies exact target-version ownership and requeries status.
@@ -612,7 +619,7 @@ step includes a screenshot taken with sample data.
 
 Each step is labeled **Read-only** or **Writes Salesforce**. The guide also states
 that target status may differ by org, that activation is always a separate
-confirmed action and does not prove scenario behavior, and that catalog
+Constraint Builder action and does not prove scenario behavior, and that catalog
 prerequisites are read-only in
 this tool and must be corrected externally. It explicitly identifies Context
 Definition tags and mappings as separate target-org prerequisites: every tag
@@ -828,9 +835,9 @@ Because activation behavior is not fully established by the repository's live ev
 4. Compare source and target CML in exact and semantic modes.
 5. Select the intended exact source and target versions, then fetch and deploy.
 6. Confirm the CML deployment report and SHA verification.
-7. If a required write target is Active, use **Deactivate CML** (or the approved
-   Salesforce UI process), confirm the exact target alias, and verify the
-   refreshed runtime status. Do not rely on a stale browser selection.
+7. If a required write target is Active, deactivate it in Salesforce Constraint
+   Builder (or the approved Salesforce UI process), then **Check target status**
+   again. Do not rely on a stale browser selection.
 8. Compare Constraint Data using the approved key.
 9. Resolve all `cml-difference`, ambiguous, blocked, unverified, and unmappable rows.
 10. Deploy selected additions first unless the approved change specifically requires deletion.
@@ -854,12 +861,13 @@ The tool never activates a model automatically as a side effect of deployment.
 2. Select and fetch the exact source version.
 3. Select an explicit deployment target and exact target version.
 4. Compare the exact versions when moving cross-org.
-5. If the target version is Active, use the separate **Deactivate CML** action,
-   refresh, and reselect it.
+5. If the target version is Active, deactivate it in Salesforce Constraint
+   Builder, refresh versions, and reselect it. **Check target status** is
+   read-only; the tool does not activate or deactivate CML.
 6. Click **Deploy CML**.
 7. Confirm overwrite and type the target alias exactly.
 8. Verify success, backup location, report location, and SHA.
-9. Activate explicitly with typed confirmation, then complete smoke testing.
+9. Activate in Salesforce Constraint Builder, then complete smoke testing.
 
 ### 9.4 Association-only recovery
 
@@ -1076,7 +1084,7 @@ Backups and archives can contain CML, record IDs, portable keys, product labels,
 | No selected key | Reference lacks portable identity | Blocks action | Populate/select a safe key |
 | Blocked — ambiguous key | More than one target record matches | Retains candidate IDs and blocks | Make target key unique, then recompare |
 | Needs review — dependency key missing | Dependency cannot be proven | Blocks action | Add a usable key or inspect manually |
-| Blocked — catalog dependency | Required record/assignment/relationship absent or ambiguous | No catalog write | Fix through catalog deployment process |
+| Blocked — catalog dependency | Required record/assignment/relationship absent or ambiguous. For PRC, a similar target relationship may fail identity v2; the message lists the mismatched field with source vs target values | No catalog write | Align or deploy the catalog relationship, then compare again |
 | Active parent Expression Set | ESCO insert/delete/restore target is Active | Blocks before DML | Deactivate in Salesforce, refresh exact selection, and retry under approval |
 | Skipped — exact duplicate | Surplus source duplicate | Rejects add, including forged request | Clean source intentionally |
 | Partial deployment | Some collection rows succeeded and others failed | Preserves all row results and recovery artifacts | Recompare, reconcile successes, fix failures, retry selectively |
@@ -1120,10 +1128,8 @@ The tool does not create or update Product, Classification, Classification Attri
 
 ### 14.2 No automatic or unattended activation
 
-CML deployment never auto-activates. Deactivation requires a separate exact
-target selection, typed org-alias confirmation, a guarded
-`ExpressionSetVersion.IsActive=false` update, and read-after-write verification.
-Activation must be performed in Salesforce Constraint Builder. A direct
+CML deployment never auto-activates. Fetch & Deploy does not activate or
+deactivate CML; both are done in Salesforce Constraint Builder. A direct
 `IsActive=true` update can mark invalid CML active without invoking the platform
 compiler, so the tool rejects that request.
 

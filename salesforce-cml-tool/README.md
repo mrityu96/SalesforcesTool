@@ -1,6 +1,6 @@
 # Salesforce CML Tool
 
-Current stable version: **2.0.1**. See the [changelog](main/CHANGELOG.md),
+Current stable version: **2.0.2**. See the [changelog](main/CHANGELOG.md),
 [compatibility policy](main/COMPATIBILITY.md), [security policy](main/SECURITY.md), and
 [contribution guide](main/CONTRIBUTING.md).
 
@@ -110,7 +110,10 @@ current visual theme.
    its own bullet. **Copy for Excel** includes these full explanations for
    another team.
 3. **Blocked — catalog dependency** means the catalog data must be corrected by
-   its normal deployment process. The CML Tool only reads catalog objects.
+   its normal deployment process. The CML Tool only reads catalog objects. For
+   a Product Related Component, a similar parent → child → relationship that
+   fails PRC identity v2 lists the mismatched field first, with source vs
+   target values.
 
 ### 5. Select and deploy valid CML associations
 
@@ -311,30 +314,26 @@ set CML_UI_PORT=8900 && python main\app\cml_tool.py     # Windows
    be selected explicitly.
 3. Select the exact target version. Source and target versions are mandatory;
    the server verifies each submitted version ID belongs to the named model.
-4. Click **Deploy CML**, review the warning, and type the target org alias exactly.
+4. Click **Check target status**. The Target version status panel is read-only
+   and shows whether that exact version is Active, Inactive, or write-blocked.
+   The tool does not activate or deactivate CML. If the version is Active,
+   deactivate it in Salesforce Constraint Builder (or pick an inactive
+   version), then refresh and reselect it here.
+5. Click **Deploy CML**, review the warning, and type the target org alias exactly.
    Before writing, the tool saves the target CML under
    `development/runtime/cml-backups/` by default. After Salesforce accepts the
    deployment, the tool fetches the exact version again and verifies its SHA-256
    hash. If verification fails, it automatically attempts to restore and verify
    the previous CML.
-5. After selecting the exact target, **Deactivate CML** is available before
-   fetch or deploy and checks the live lifecycle status when clicked. Use
-   **Check target status** to refresh the observed state. Deactivation requires
-   typing the target alias and is verified against
-   `ExpressionSetVersion.IsActive`. Direct activation is blocked because setting
-   `IsActive=true` bypasses Constraint Builder compilation. Activate in
-   Salesforce Constraint Builder, where errors such as associations referencing
-   missing CML types are enforced. Deactivation immediately changes runtime
-   behavior and does not guarantee a later reactivation will succeed.
-6. Use **Restore backup** to restore and verify the newest backup for that exact
-   org, model, and version. Rollback first creates another safety backup, so it
-   can itself be undone.
+6. Use **Restore selected backup** to restore and verify the selected backup for
+   that exact org, model, and version. Rollback first creates another safety
+   backup, so it can itself be undone.
 
 The tool blocks CML writes to an **Active** definition version. Association
 insert/delete/restore also blocks when the parent `ExpressionSet` is Active, and
 the post-DML save/verification step requires a non-Active exact definition
-version. Deactivate the relevant Salesforce record, then refresh the tool's
-version selection; a stale browser selection is not accepted.
+version. Deactivate the relevant Salesforce record in Constraint Builder, then
+refresh the tool's version selection; a stale browser selection is not accepted.
 
 ### Compare (source org ↔ target org)
 1. Pick a **Source org** and a **Target org** (must be different).
@@ -563,7 +562,7 @@ See the current [constraint dependency preflight screenshot](main/docs/screensho
 | **Unused association in this org** | The association exists at the parent Expression Set, but that org's exact selected CML version does not define its Type or Port tag. Another version can still share the association; the tool does not change it automatically. |
 | **Needs review — dependency key missing** | A related source Product or classification attribute has no value in the selected foreign-key field, so the tool cannot prove whether its target counterpart exists. This is an incomplete comparison, not proof that data is missing. |
 | **Blocked — ambiguous key** | The selected portable key matches more than one target record. Comparison blocks the row before selection and deployment repeats the check immediately before DML. Make the key unique in the target, then compare again. |
-| **Blocked — catalog dependency** | A required catalog record, relationship, product-to-classification assignment, or classification attribute is missing or ambiguous. Deploy that catalog data through its normal process, then compare again. |
+| **Blocked — catalog dependency** | A required catalog record, relationship, product-to-classification assignment, or classification attribute is missing or ambiguous. For a Product Related Component, a similar target relationship that is not identity-eligible lists the mismatched field with source vs target values. Deploy or align that catalog data through its normal process, then compare again. |
 | **\<key field\> is blank** | The linked record has no value for your key field, so it **can't be matched** across orgs. |
 
 - Use the **Show** filter to focus on matched / to-add / extra / blocked /
@@ -652,9 +651,8 @@ See the current [association deployment results screenshot](main/docs/screenshot
   `development/runtime/logs/data-deploy-history.jsonl` by default.
 
 > **Lifecycle matters:** content and association writes to Active versions are
-> blocked. Use the separate verified **Deactivate CML** action, make and verify
-> the approved changes, and activate in Salesforce Constraint Builder only when
-> ready for compiler validation. Deploy never auto-activates, and the tool
+> blocked. Deactivate and activate in Salesforce Constraint Builder, then
+> **Check target status** again. Deploy never auto-activates, and the tool
 > blocks direct `IsActive=true` writes.
 
 ---
